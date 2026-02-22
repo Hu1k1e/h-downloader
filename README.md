@@ -16,26 +16,63 @@ Malayalam, Tamil, Telugu, Hindi, Kannada, Bengali, Marathi, Punjabi
 
 ## Quick Start
 
-### 1. Download configuration
-Download the `docker-compose.yml` and `.env.example` files from this repository to your server:
-```bash
-curl -O https://raw.githubusercontent.com/svijaymohan745/h-downloader/main/docker-compose.yml
-curl -o .env https://raw.githubusercontent.com/svijaymohan745/h-downloader/main/.env.example
+The easiest way to deploy is using Docker Compose. The image is publicly available on GitHub Container Registry (`ghcr.io/svijaymohan745/h-downloader`).
+
+### 1. Create `docker-compose.yml`
+Create a folder for the project and make a `docker-compose.yml` file with this content:
+
+```yaml
+version: "3.9"
+
+services:
+  einthusan-downloader:
+    image: ghcr.io/svijaymohan745/h-downloader:latest
+    container_name: einthusan-downloader
+    restart: unless-stopped
+    ports:
+      - "8756:8000"
+    volumes:
+      - /mnt/nas/media:/media   # Matches Radarr's media mapping
+      - ./data:/app/data        # Database mapping for the downloader
+    env_file:
+      - .env
+    networks:
+      - media-network
+
+networks:
+  media-network:
+    external: true   # Join your existing Docker media server network
 ```
 
-### 2. Configure environment
-Edit `.env` with your API keys and server IP where required.
-Edit `docker-compose.yml` if you need to change the Radarr media mounting path.
-
-### 3. Authenticate with GitHub Docker Registry
-Because this is a private repository, you need to log in to GitHub's container registry to pull the image. You will need a [Personal Access Token (classic)](https://github.com/settings/tokens) with the `read:packages` permission.
+### 2. Create `.env` file
+In the same folder, create a `.env` file and fill in your API keys:
 
 ```bash
-docker login ghcr.io -u YOUR_GITHUB_USERNAME
-# When prompted for a password, paste your Personal Access Token
+# ── Radarr ──────────────────────────────────────────────────────────
+RADARR_URL=http://YOUR_SERVER_IP:7878
+RADARR_API_KEY=your_radarr_api_key_here
+RADARR_ROOT_FOLDER=/media
+RADARR_QUALITY_PROFILE_ID=1
+
+# ── Jellyseerr ───────────────────────────────────────────────────────
+JELLYSEERR_URL=http://YOUR_SERVER_IP:5055
+JELLYSEERR_API_KEY=your_jellyseerr_api_key_here
+
+# ── TMDB ─────────────────────────────────────────────────────────────
+TMDB_API_KEY=your_tmdb_api_key_here
+
+# ── Einthusan ────────────────────────────────────────────────────────
+EINTHUSAN_LANGUAGES=malayalam,tamil,telugu,hindi
+
+# ── Optional ─────────────────────────────────────────────────────────
+DIGITAL_RELEASE_FALLBACK_DAYS=90
+# WEBHOOK_SECRET=your_random_secret_here
+
+# ── Internal ─────────────────────────────────────────────────────────
+DATA_DIR=/app/data
 ```
 
-### 4. Start the container
+### 3. Start the container
 ```bash
 docker compose up -d
 ```
