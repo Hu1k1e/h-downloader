@@ -19,7 +19,9 @@ Malayalam, Tamil, Telugu, Hindi, Kannada, Bengali, Marathi, Punjabi
 The easiest way to deploy is using Docker Compose. The image is publicly available on GitHub Container Registry (`ghcr.io/svijaymohan745/h-downloader`).
 
 ### 1. Create `docker-compose.yml`
-Create a folder for the project and make a `docker-compose.yml` file with this content:
+Create a Stack in Portainer (or a `docker-compose.yml` file on your server) with this exact content. 
+
+Fill in your API keys and IP address directly into the `environment:` section:
 
 ```yaml
 version: "3.9"
@@ -34,8 +36,31 @@ services:
     volumes:
       - /mnt/nas/media:/media   # Matches Radarr's media mapping
       - ./data:/app/data        # Database mapping for the downloader
-    env_file:
-      - .env
+      
+    environment:
+      # ── Radarr ──────────────────────────────────────────────────────────
+      - RADARR_URL=http://YOUR_SERVER_IP:7878
+      - RADARR_API_KEY=your_radarr_api_key_here
+      - RADARR_ROOT_FOLDER=/media
+      - RADARR_QUALITY_PROFILE_ID=1
+
+      # ── Jellyseerr ───────────────────────────────────────────────────────
+      - JELLYSEERR_URL=http://YOUR_SERVER_IP:5055
+      - JELLYSEERR_API_KEY=your_jellyseerr_api_key_here
+
+      # ── TMDB ─────────────────────────────────────────────────────────────
+      - TMDB_API_KEY=your_tmdb_api_key_here
+
+      # ── Einthusan ────────────────────────────────────────────────────────
+      - EINTHUSAN_LANGUAGES=malayalam,tamil,telugu,hindi
+
+      # ── Optional ─────────────────────────────────────────────────────────
+      - DIGITAL_RELEASE_FALLBACK_DAYS=90
+      # - WEBHOOK_SECRET=your_random_secret_here
+
+      # ── Internal ─────────────────────────────────────────────────────────
+      - DATA_DIR=/app/data
+
     networks:
       - media-network
 
@@ -44,38 +69,11 @@ networks:
     external: true   # Join your existing Docker media server network
 ```
 
-### 2. Create `.env` file
-In the same folder, create a `.env` file and fill in your API keys:
-
-```bash
-# ── Radarr ──────────────────────────────────────────────────────────
-RADARR_URL=http://YOUR_SERVER_IP:7878
-RADARR_API_KEY=your_radarr_api_key_here
-RADARR_ROOT_FOLDER=/media
-RADARR_QUALITY_PROFILE_ID=1
-
-# ── Jellyseerr ───────────────────────────────────────────────────────
-JELLYSEERR_URL=http://YOUR_SERVER_IP:5055
-JELLYSEERR_API_KEY=your_jellyseerr_api_key_here
-
-# ── TMDB ─────────────────────────────────────────────────────────────
-TMDB_API_KEY=your_tmdb_api_key_here
-
-# ── Einthusan ────────────────────────────────────────────────────────
-EINTHUSAN_LANGUAGES=malayalam,tamil,telugu,hindi
-
-# ── Optional ─────────────────────────────────────────────────────────
-DIGITAL_RELEASE_FALLBACK_DAYS=90
-# WEBHOOK_SECRET=your_random_secret_here
-
-# ── Internal ─────────────────────────────────────────────────────────
-DATA_DIR=/app/data
-```
-
-### 3. Start the container
+### 2. Deploy the container
 ```bash
 docker compose up -d
 ```
+*(If using Portainer, just click **Deploy the stack**)*
 
 Open **http://your-server:8756**
 
