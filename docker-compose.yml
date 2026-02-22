@@ -1,0 +1,20 @@
+version: "3.9"
+
+services:
+  einthusan-downloader:
+    image: ghcr.io/svijaymohan745/h-downloader:latest
+    container_name: einthusan-downloader
+    restart: unless-stopped
+    ports:
+      - "8756:8000"
+    volumes:
+      - /mnt/nas/media:/media   # Matches Radarr's media mapping
+      - ./data:/app/data        # Database mapping for the downloader
+    env_file:
+      - .env
+    networks:
+      - media-network
+
+networks:
+  media-network:
+    external: true   # Join your existing Docker media server network

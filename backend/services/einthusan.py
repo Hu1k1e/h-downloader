@@ -1,0 +1,192 @@
+"""
+Einthusan.tv scraper.
+
+Implements two steps:
+1. search(title, year, lang)  → returns the Einthusan watch URL or None
+2. extract_mp4_url(watch_url) → returns the signed CDN MP4 URL
+
+The MP4 extraction replicates the technique from the open-source
+einthusan-dl project: it POSTs to the /ajax/movie/watch/ endpoint
+with a CSRF token taken from the page HTML, then base64-decodes the
+encoded link to get the direct CDN URL.
+"""
+import base64
+import json
+import logging
+import re
+from typing import Optional
+from urllib.parse import quote_plus
+
+import httpx
+from bs4 import BeautifulSoup
+from rapidfuzz import fuzz
+
+logger = logging.getLogger(__name__)
+
+EINTHUSAN_BASE = "https://einthusan.tv"
+
+_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    ),
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": EINTHUSAN_BASE,
+}
+
+
+async def search(title: str, year: Optional[int], lang: str) -> Optional[str]:
+    """
+    Search Einthusan for a movie by title + optional year within a language.
+    Returns the full watch URL (e.g. https://einthusan.tv/movie/watch/4ys3/?lang=malayalam)
+    or None if not found.
+    """
+    query = quote_plus(title)
+    search_url = f"{EINTHUSAN_BASE}/movie/results/?lang={lang}&query={query}"
+
+    async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+        resp = await client.get(search_url, headers=_HEADERS)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "lxml")
+
+    # Movie cards appear inside <div class="block2"> or <div class="movie-block">
+    cards = soup.select("div.block2") or soup.select("div.block1") or soup.select("li.movie-block") or soup.select("div.movie-block")
+    if not cards:
+        # Fall back to any anchor pointing to /movie/watch/
+        cards = soup.find_all("a", href=re.compile(r"/movie/watch/"))
+
+    best_score = 0
+    best_url: Optional[str] = None
+
+    for card in cards:
+        # Try to extract title text
+        anchor = card.find("a", class_="title") or card.find("a", href=re.compile(r"/movie/watch/")) if hasattr(card, "find") else card
+        if not anchor:
+            continue
+
+        href = anchor.get("href", "")
+        if not href:
+            continue
+
+        # Extract displayed title: try img alt tag first, then a.title text, then header
+        img = card.find("img") if hasattr(card, "find") else None
+        card_title = img.get("alt", "").strip() if img else ""
+        
+        if not card_title:
+            card_title = anchor.get_text(strip=True)
+            
+        if not card_title:
+            card_title_el = card.find("h3") or card.find("h2") if hasattr(card, "find") else None
+            card_title = card_title_el.get_text(strip=True) if card_title_el else ""
+
+
+        score = max(
+            fuzz.token_sort_ratio(title.lower(), card_title.lower()),
+            fuzz.partial_ratio(title.lower(), card_title.lower()),
+        )
+
+        # Year match bonus — look for year in nearby text
+        if year:
+            card_text = card.get_text() if hasattr(card, "get_text") else ""
+            if str(year) in card_text:
+                score += 10
+
+        if score > best_score:
+            best_score = score
+            # Build absolute URL
+            if href.startswith("http"):
+                best_url = href
+            else:
+                best_url = f"{EINTHUSAN_BASE}{href}"
+                if "lang=" not in best_url:
+                    sep = "&" if "?" in best_url else "?"
+                    best_url = f"{best_url}{sep}lang={lang}"
+
+    # Only return a match if we're reasonably confident (>= 55 score)
+    # Lower threshold handles Hindi transliteration mismatches (e.g. "Chennai Express" vs "Chennai Express")
+    if best_score >= 55 and best_url:
+        logger.info(f"Einthusan match: '{best_url}' (score={best_score}) for '{title}'")
+        return best_url
+    logger.info(f"No Einthusan match found for '{title}' in lang={lang!r} (best_score={best_score})")
+    return None
+
+
+async def extract_mp4_url(watch_url: str) -> Optional[str]:
+    """
+    Given an Einthusan watch page URL, return the signed CDN MP4 URL.
+
+    Technique:
+    1. GET the watch page — extract data-pageid (CSRF) and data-ejpingables
+    2. POST to /ajax/movie/watch/{id}/ — get encoded EJLinks
+    3. base64-decode + JSON parse → MP4Link
+    """
+    movie_id_match = re.search(r"/movie/watch/([^/?]+)", watch_url)
+    if not movie_id_match:
+        return None
+    movie_id = movie_id_match.group(1)
+
+    async with httpx.AsyncClient(timeout=30, follow_redirects=True, headers=_HEADERS) as client:
+        # Step 1: Request the watch page to get CSRF token and player parameters
+        try:
+            resp = await client.get(watch_url)
+            resp.raise_for_status()
+        except Exception as e:
+            logging.error(f"Failed to fetch watch page {watch_url}: {e}")
+            return None
+        
+        soup = BeautifulSoup(resp.text, "lxml")
+        
+        # Einthusan stores the gorilla CSRF token in the html tag
+        html_tag = soup.find("html")
+        page_id = html_tag.get("data-pageid", "") if html_tag else ""
+        
+        # Einthusan stores player pingables in a data attribute
+        pingables = ""
+        for tag in soup.find_all(lambda t: t.has_attr("data-ejpingables")):
+            pingables = tag["data-ejpingables"]
+            break
+
+        # Step 2: POST to the AJAX endpoint to get the video metadata
+        ajax_url = f"{EINTHUSAN_BASE}/ajax/movie/watch/{movie_id}/"
+        headers = dict(_HEADERS)
+        headers.update({
+            "Referer": watch_url,
+            "X-Requested-With": "XMLHttpRequest",
+            "Content-Type": "application/x-www-form-urlencoded"
+        })
+        
+        data = {
+            "xEvent": "UIVideoPlayer.PingOutcome",
+            "xJson": f'{{"EJOutcomes": "{pingables}", "NativeHLS": false}}',
+            "gorilla.csrf.Token": page_id
+        }
+
+        try:
+            ajax_resp = await client.post(ajax_url, headers=headers, data=data)
+            ajax_resp.raise_for_status()
+        except Exception as e:
+            logging.error(f"Failed to fetch AJAX data for {movie_id}: {e}")
+            return None
+            
+        try:
+            resp_json = ajax_resp.json()
+        except Exception:
+            logging.error("Failed to parse AJAX JSON response")
+            return None
+            
+        # Step 3: Decrypt the EJLinks payload
+        ej_links_enc = resp_json.get("Data", {}).get("EJLinks", "")
+        if not ej_links_enc:
+            logging.error("No EJLinks found in JSON response")
+            return None
+            
+        try:
+            # Decryption algorithm: take first 10 chars + last char + chars from index 12 to 2nd to last
+            dec_string = ej_links_enc[:10] + ej_links_enc[-1] + ej_links_enc[12:-1]
+            decrypted_json_str = base64.b64decode(dec_string).decode('utf-8')
+            video_data = json.loads(decrypted_json_str)
+            return video_data.get("MP4Link")
+        except Exception as e:
+            logging.error(f"Failed to decrypt or parse EJLinks: {e}")
+            return None
