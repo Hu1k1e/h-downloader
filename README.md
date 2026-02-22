@@ -60,13 +60,6 @@ services:
 
       # ── Internal ─────────────────────────────────────────────────────────
       - DATA_DIR=/app/data
-
-    networks:
-      - media-network
-
-networks:
-  media-network:
-    external: true   # Join your existing Docker media server network
 ```
 
 ### 2. Deploy the container
