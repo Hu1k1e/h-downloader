@@ -101,9 +101,9 @@ async def get_movie_folder(tmdb_id: int, title: str, year: int, settings: AppSet
     return f"{settings.radarr_root_folder.rstrip('/')}/{safe_title} ({year})"
 
 
-async def trigger_import(folder_path: str, settings: AppSettings) -> bool:
-    """Tell Radarr to scan a folder and import any downloaded files."""
-    payload = {"name": "DownloadedMoviesScan", "path": folder_path}
+async def trigger_rescan(movie_id: int, settings: AppSettings) -> bool:
+    """Tell Radarr to rescan a specific movie's folder to detect the downloaded file."""
+    payload = {"name": "RescanMovie", "movieId": movie_id}
     async with httpx.AsyncClient(timeout=20) as client:
         resp = await client.post(_url(settings, "/command"), headers=_headers(settings), json=payload)
         resp.raise_for_status()

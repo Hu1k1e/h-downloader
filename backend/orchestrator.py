@@ -220,10 +220,11 @@ async def _run_pipeline(
 
         # ── Step 8: Trigger Radarr import ────────────────────────────────────
         try:
-            folder = str(file_path).rsplit("/", 1)[0] if "/" in file_path else file_path.rsplit("\\", 1)[0]
-            await radarr.trigger_import(folder, settings)
+            movie_data = await radarr.is_movie_in_radarr(tmdb_id, settings)
+            if movie_data and "id" in movie_data:
+                await radarr.trigger_rescan(movie_data["id"], settings)
         except Exception as e:
-            _update_job(session, job, status=JobStatus.FAILED, error_msg=f"Radarr import failed: {e}")
+            _update_job(session, job, status=JobStatus.FAILED, error_msg=f"Radarr rescan failed: {e}")
             return
 
         _update_job(session, job, status=JobStatus.DONE, progress_pct=100,
