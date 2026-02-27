@@ -81,16 +81,24 @@ async def search(title: str, year: Optional[int], lang: str) -> Optional[str]:
             card_title = card_title_el.get_text(strip=True) if card_title_el else ""
 
 
+        # Use token_set_ratio to handle order differences (e.g. "The Matrix" vs "Matrix, The")
+        # and token_sort_ratio as a baseline.
         score = max(
-            fuzz.token_sort_ratio(title.lower(), card_title.lower()),
-            fuzz.partial_ratio(title.lower(), card_title.lower()),
+            fuzz.token_set_ratio(title.lower(), card_title.lower()),
+            fuzz.token_sort_ratio(title.lower(), card_title.lower())
         )
 
-        # Year match bonus — look for year in nearby text
-        if year:
+        # Year match strictness
+        if isinstance(year, int):
             card_text = card.get_text() if hasattr(card, "get_text") else ""
-            if str(year) in card_text:
-                score += 10
+            years_in_card = [int(y) for y in re.findall(r'\b(19\d{2}|20\d{2})\b', card_text)]
+            
+            if years_in_card:
+                # If the card explicitly mentions a year, check if it matches (allow 1 year diff for region differences)
+                if any(abs(y - year) <= 1 for y in years_in_card):
+                    score += 15  # Year matches!
+                else:
+                    score -= 40  # Explicitly different year! Heavily penalize.
 
         if score > best_score:
             best_score = score
@@ -103,12 +111,13 @@ async def search(title: str, year: Optional[int], lang: str) -> Optional[str]:
                     sep = "&" if "?" in best_url else "?"
                     best_url = f"{best_url}{sep}lang={lang}"
 
-    # Only return a match if we're reasonably confident (>= 55 score)
-    # Lower threshold handles Hindi transliteration mismatches (e.g. "Chennai Express" vs "Chennai Express")
-    if best_score >= 55 and best_url:
-        logger.info(f"Einthusan match: '{best_url}' (score={best_score}) for '{title}'")
+    # Only return a match if we're highly confident (>= 85 score)
+    # This prevents downloading completely random movies when search returns garbage
+    if best_score >= 85 and best_url:
+        logger.info(f"Einthusan match: '{best_url}' (score={best_score}) for '{title}' (year={year})")
         return best_url
-    logger.info(f"No Einthusan match found for '{title}' in lang={lang!r} (best_score={best_score})")
+    
+    logger.info(f"No valid Einthusan match found for '{title}' (year={year}, lang={lang!r}). Best score was {best_score}.")
     return None
 
 
