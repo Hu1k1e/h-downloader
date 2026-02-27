@@ -108,6 +108,7 @@ export default function Jobs() {
                                 <th>Status</th>
                                 <th>Progress</th>
                                 <th>Size</th>
+                                <th>Path</th>
                                 <th>Added</th>
                                 <th>Actions</th>
                             </tr>
@@ -148,6 +149,9 @@ export default function Jobs() {
                                     </td>
                                     <td style={{ color: 'var(--text-secondary)' }}>
                                         {job.total_bytes > 0 ? formatBytes(job.total_bytes) : '—'}
+                                    </td>
+                                    <td style={{ color: 'var(--text-muted)', fontSize: 11, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={job.file_path}>
+                                        {job.file_path || '—'}
                                     </td>
                                     <td style={{ color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
                                         {timeAgo(job.created_at)}

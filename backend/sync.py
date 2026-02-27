@@ -224,6 +224,14 @@ async def sync_jellyseerr_requests():
                     continue
 
                 if not radarr_movie.get("hasFile", False):
+                    # Give Radarr a 2-hour grace period to import the file before 
+                    # flagging it as missing. Sometimes large files take a while to 
+                    # move across network drives after the download finishes.
+                    import datetime
+                    if job.updated_at and (datetime.datetime.utcnow() - job.updated_at).total_seconds() < 7200:
+                        logger.info(f"DONE job '{job.title}' has no file yet, but is within 2-hour grace period. Waiting.")
+                        continue
+
                     # Movie entry exists but file deleted from disk → MOVIE_MISSING
                     # Mirror Radarr's monitored state — if the movie is monitored in Radarr,
                     # keep it monitored here; if not, keep it unmonitored.
