@@ -136,7 +136,7 @@ export default function Settings() {
 
             {/* Radarr */}
             <div className="card settings-section" style={{ marginBottom: 16 }}>
-                <div className="settings-section-title">🎬 Radarr Connection</div>
+                <div className="settings-section-title">Radarr Connection</div>
                 <div className="form-row">
                     <span className="form-label">URL</span>
                     <input className="form-input" name="radarr_url" value={formData.radarr_url} onChange={handleChange} placeholder="http://localhost:7878" />
@@ -163,7 +163,7 @@ export default function Settings() {
 
             {/* Jellyseerr */}
             <div className="card settings-section" style={{ marginBottom: 16 }}>
-                <div className="settings-section-title">🔔 Jellyseerr Connection</div>
+                <div className="settings-section-title">Jellyseerr Connection</div>
                 <div className="form-row">
                     <span className="form-label">URL</span>
                     <input className="form-input" name="jellyseerr_url" value={formData.jellyseerr_url} onChange={handleChange} placeholder="http://localhost:5055" />
@@ -194,7 +194,7 @@ export default function Settings() {
 
             {/* TMDB */}
             <div className="card settings-section" style={{ marginBottom: 16 }}>
-                <div className="settings-section-title">🎥 TMDB Settings</div>
+                <div className="settings-section-title">TMDB Settings</div>
                 <div className="form-row">
                     <span className="form-label">API Key</span>
                     <input className="form-input" name="tmdb_api_key" value={formData.tmdb_api_key} onChange={handleChange} placeholder={settings.tmdb_api_key_set ? '●●●●●●●●● (Set - Type to change)' : 'Not set'} />
@@ -220,7 +220,7 @@ export default function Settings() {
 
             {/* Scheduler */}
             <div className="card settings-section" style={{ marginBottom: 16 }}>
-                <div className="settings-section-title">⏱ Scheduler</div>
+                <div className="settings-section-title">Scheduler</div>
                 <div className="form-row">
                     <span className="form-label">Sync Interval</span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -240,7 +240,7 @@ export default function Settings() {
 
             {/* Einthusan Languages */}
             <div className="card settings-section" style={{ marginBottom: 16 }}>
-                <div className="settings-section-title">🇮🇳 Einthusan Languages</div>
+                <div className="settings-section-title">Einthusan Languages</div>
                 <div className="form-row">
                     <span className="form-label">Monitored Languages</span>
                     <div className="lang-grid">

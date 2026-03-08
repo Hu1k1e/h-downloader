@@ -1,14 +1,15 @@
 export function StatusBadge({ status }) {
     const labels = {
-        downloading: '⬇ Downloading',
-        done: '✓ Done',
-        failed: '✗ Failed',
-        searching: '🔍 Searching',
-        not_found: '— Not Found',
-        pending: '⏳ Pending',
-        checking_radarr: '🔍 Checking',
-        importing: '📥 Importing',
-        skipped: '⏭ Skipped',
+        downloading: 'Downloading',
+        done: 'Done',
+        failed: 'Failed',
+        searching: 'Searching',
+        not_found: 'Not Found',
+        pending: 'Pending',
+        checking_radarr: 'Checking',
+        importing: 'Importing',
+        skipped: 'Skipped',
+        movie_missing: 'File Missing',
     }
     return (
         <span className={`badge badge-${status}`}>
@@ -22,7 +23,7 @@ export function ProgressBar({ pct, style }) {
         <div className="progress-bar-wrap" style={style}>
             <div
                 className="progress-bar-fill"
-                style={{ width: `${Math.min(pct, 100)}%` }}
+                style={{ width: `${Math.min(pct ?? 0, 100)}%` }}
             />
         </div>
     )

@@ -151,14 +151,14 @@ export default function Jobs() {
                                         {job.total_bytes > 0 ? formatBytes(job.total_bytes) : '—'}
                                     </td>
                                     <td style={{ color: 'var(--text-muted)', fontSize: 11, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={job.file_path}>
-                                        {job.file_path || '—'}
+                                        {job.file_path ? job.file_path.split(/[\/\\]/).pop() : '—'}
                                     </td>
                                     <td style={{ color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
                                         {timeAgo(job.created_at)}
                                     </td>
                                     <td>
                                         <div style={{ display: 'flex', gap: 4 }}>
-                                            {['failed', 'not_found', 'skipped', 'done'].includes(job.status) && (
+                                            {['failed', 'not_found', 'skipped', 'done', 'movie_missing'].includes(job.status) && (
                                                 <button className="btn btn-ghost btn-sm" onClick={() => handleRetry(job.id)} title="Retry">↺</button>
                                             )}
                                             <button className="btn btn-danger btn-sm" onClick={() => handleDelete(job.id)} title="Delete">✕</button>

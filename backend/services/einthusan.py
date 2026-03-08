@@ -50,11 +50,21 @@ async def search(title: str, year: Optional[int], lang: str) -> Optional[str]:
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "lxml")
 
-    # Movie cards appear inside <div class="block2"> or <div class="movie-block">
-    cards = soup.select("div.block2") or soup.select("div.block1") or soup.select("li.movie-block") or soup.select("div.movie-block")
+    # Try progressively broader selectors to handle site layout variations
+    cards = (
+        soup.select("div.block2")
+        or soup.select("div.block1")
+        or soup.select("li.movie-block")
+        or soup.select("div.movie-block")
+        or soup.select("section.search-movie-listings li")
+        or soup.select("ul.items li")
+        or soup.select("div.item")
+    )
     if not cards:
-        # Fall back to any anchor pointing to /movie/watch/
+        # Last-resort: any anchor pointing to /movie/watch/
         cards = soup.find_all("a", href=re.compile(r"/movie/watch/"))
+    
+    logger.debug(f"Einthusan search: lang={lang!r} title={title!r} → {len(cards)} cards found")
 
     best_score = 0
     best_url: Optional[str] = None
@@ -81,28 +91,28 @@ async def search(title: str, year: Optional[int], lang: str) -> Optional[str]:
             card_title = card_title_el.get_text(strip=True) if card_title_el else ""
 
 
-        # Use token_set_ratio to handle order differences (e.g. "The Matrix" vs "Matrix, The")
-        # and token_sort_ratio as a baseline.
+        # Score title similarity — token_set_ratio handles word order variations
+        # (e.g. "The Dark Knight" vs "Dark Knight, The")
         score = max(
             fuzz.token_set_ratio(title.lower(), card_title.lower()),
             fuzz.token_sort_ratio(title.lower(), card_title.lower())
         )
 
-        # Year match strictness
+        # Year — only apply a BONUS for correct matches, never penalise.
+        # Penalising caused valid movies to be rejected when Einthusan showed
+        # a slightly different year (e.g. 2015 movie listed as 2016 in some regions).
         if isinstance(year, int):
             card_text = card.get_text() if hasattr(card, "get_text") else ""
             years_in_card = [int(y) for y in re.findall(r'\b(19\d{2}|20\d{2})\b', card_text)]
-            
-            if years_in_card:
-                # If the card explicitly mentions a year, check if it matches (allow 1 year diff for region differences)
-                if any(abs(y - year) <= 1 for y in years_in_card):
-                    score += 15  # Year matches!
-                else:
-                    score -= 40  # Explicitly different year! Heavily penalize.
+            if years_in_card and any(abs(y - year) <= 1 for y in years_in_card):
+                score += 15  # Confirmed year match — boost confidence
+
+        logger.debug(
+            f"  candidate: {card_title!r} href={href!r} → score={score}"
+        )
 
         if score > best_score:
             best_score = score
-            # Build absolute URL
             if href.startswith("http"):
                 best_url = href
             else:
@@ -111,13 +121,15 @@ async def search(title: str, year: Optional[int], lang: str) -> Optional[str]:
                     sep = "&" if "?" in best_url else "?"
                     best_url = f"{best_url}{sep}lang={lang}"
 
-    # Only return a match if we're highly confident (>= 85 score)
-    # This prevents downloading completely random movies when search returns garbage
+    # 85 threshold prevents random wrong downloads while still catching valid results
     if best_score >= 85 and best_url:
         logger.info(f"Einthusan match: '{best_url}' (score={best_score}) for '{title}' (year={year})")
         return best_url
-    
-    logger.info(f"No valid Einthusan match found for '{title}' (year={year}, lang={lang!r}). Best score was {best_score}.")
+
+    logger.info(
+        f"No valid Einthusan match for '{title}' "
+        f"(year={year}, lang={lang!r}, best_score={best_score})"
+    )
     return None
 
 

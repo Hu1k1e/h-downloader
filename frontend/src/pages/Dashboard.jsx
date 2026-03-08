@@ -21,7 +21,7 @@ export default function Dashboard() {
 
     useEffect(() => {
         load()
-        const t = setInterval(load, 5000)  // poll every 5s for live updates
+        const t = setInterval(load, 5000)
         return () => clearInterval(t)
     }, [load])
 
@@ -30,9 +30,14 @@ export default function Dashboard() {
 
     return (
         <div className="main-content">
-            <div className="page-header">
-                <h1 className="page-title">Dashboard</h1>
-                <p className="page-subtitle">Monitor and manage your Einthusan downloads</p>
+            <div className="page-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                    <h1 className="page-title">Dashboard</h1>
+                    <p className="page-subtitle">Monitor and manage your Einthusan downloads</p>
+                </div>
+                <button className="btn btn-primary" onClick={() => setShowModal(true)}>
+                    ＋ Trigger Download
+                </button>
             </div>
 
             {/* Stats */}
@@ -43,8 +48,10 @@ export default function Dashboard() {
                 </div>
                 <div className="stat-card">
                     <div className="stat-label">Active Downloads</div>
-                    <div className="stat-value">
-                        {stats?.active ?? '—'}
+                    <div className="stat-value" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={stats?.active > 0 ? { color: 'var(--accent)' } : {}}>
+                            {stats?.active ?? '—'}
+                        </span>
                         {stats?.active > 0 && <span className="stat-dot" />}
                     </div>
                 </div>
@@ -75,9 +82,16 @@ export default function Dashboard() {
                             <div className="download-card-top">
                                 <div>
                                     <div className="download-movie-title">{job.title}</div>
-                                    <div className="download-meta">
-                                        {[job.language, job.year].filter(Boolean).join(' · ')}
-                                        {job.einthusan_url && ' · via Einthusan'}
+                                    <div className="download-meta" style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
+                                        {job.year && <span>{job.year}</span>}
+                                        {job.language && (
+                                            <span className="poster-lang">
+                                                {job.language.charAt(0).toUpperCase() + job.language.slice(1)}
+                                            </span>
+                                        )}
+                                        {job.einthusan_url && (
+                                            <span style={{ color: 'var(--text-muted)' }}>· via Einthusan</span>
+                                        )}
                                     </div>
                                 </div>
                                 <div className="download-card-right">
@@ -86,11 +100,11 @@ export default function Dashboard() {
                             </div>
                             <ProgressBar pct={job.progress_pct} />
                             <div className="download-stats-row">
-                                <span>{job.progress_pct}%</span>
+                                <span>{job.progress_pct ?? 0}%</span>
                                 {job.total_bytes > 0 && (
                                     <span>{formatBytes(job.downloaded_bytes)} / {formatBytes(job.total_bytes)}</span>
                                 )}
-                                <span>{timeAgo(job.updated_at)}</span>
+                                <span style={{ marginLeft: 'auto' }}>{timeAgo(job.updated_at)}</span>
                             </div>
                         </div>
                     ))
@@ -107,16 +121,20 @@ export default function Dashboard() {
                 ) : (
                     <div className="activity-log">
                         {recent.map(job => {
-                            const dotClass = job.status === 'done' ? 'green' : job.status === 'failed' ? 'red' : job.status === 'searching' ? 'amber' : ''
+                            const dotClass =
+                                job.status === 'done' ? 'green' :
+                                    (job.status === 'failed' || job.status === 'movie_missing') ? 'red' :
+                                        (job.status === 'searching' || job.status === 'downloading') ? 'amber' : ''
                             return (
                                 <div className="activity-item" key={job.id}>
                                     <span className="activity-time">{timeAgo(job.updated_at)}</span>
                                     <span className={`activity-dot ${dotClass}`} />
-                                    <span style={{ fontWeight: 500, color: 'var(--text-primary)' }}>{job.title}</span>
-                                    <span>—</span>
+                                    <span style={{ fontWeight: 500, color: 'var(--text-primary)', flex: 1 }}>{job.title}</span>
                                     <StatusBadge status={job.status} />
                                     {job.error_msg && (
-                                        <span style={{ color: 'var(--error)', fontSize: 11 }} title={job.error_msg}>⚠ {job.error_msg.slice(0, 50)}</span>
+                                        <span style={{ color: 'var(--error)', fontSize: 11 }} title={job.error_msg}>
+                                            ⚠ {job.error_msg.slice(0, 50)}
+                                        </span>
                                     )}
                                 </div>
                             )
@@ -124,11 +142,6 @@ export default function Dashboard() {
                     </div>
                 )}
             </div>
-
-            {/* FAB */}
-            <button className="fab" onClick={() => setShowModal(true)}>
-                ＋ Trigger Download
-            </button>
 
             {showModal && (
                 <TriggerModal onClose={() => setShowModal(false)} onSuccess={load} />
