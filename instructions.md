@@ -415,3 +415,24 @@ The agent must always read this section before starting any work to understand w
 - `frontend/src/pages/Settings.jsx`
 - `frontend/src/index.css`
 - `instructions.md`
+
+---
+
+## 2026-03-07  Guppy Not Found Root Cause Fix
+
+**Root cause diagnosed:**
+- Einthusan's `<a class="title"&gt;` anchor contains the movie title in an `<h3>` AND a badge (e.g. 'Must Watch') in a sibling `<span>`  
+- Calling `anchor.get_text()` concatenates both into ''GuppyMust Watch''  
+- `fuzz.token_set_ratio('guppy', 'guppymust watch')`  67  fails the 85 threshold  movie rejected  
+- This affected any movie with a 'Must Watch', 'Dubbed', 'Recommended', or similar badge
+
+**Fix applied to `einthusan.py`:**
+- Changed selector from generic `div.block2` etc. to `a.title[href*='/movie/watch/']`  the canonical Einthusan anchor  
+- Title is now extracted from `anchor.find('h3').get_text()` instead of `anchor.get_text()`  
+- Fallback strips known badge strings (Must Watch, Recommended, Dubbed, Subtitle, New, Premium) before matching  
+- Added `_BADGE_STRINGS` constant for maintainability  
+- `token_set_ratio('guppy', 'guppy')` = 100  well above 85 threshold  
+- Year matching unchanged: bonus-only, walks up DOM to parent li for year extraction
+
+**Files changed:**
+- `backend/services/einthusan.py`
