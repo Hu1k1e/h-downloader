@@ -728,3 +728,15 @@ The agent must read this section before starting any work to understand what was
 - `backend/orchestrator.py`
 - `backend/routers/jobs.py`
 
+---
+
+## [2026-05-02] Fix Stale Errors & Unmonitored Sync
+
+**Changes made:**
+- **Clear Error on Success:** Modified `backend/orchestrator.py` to clear `error_msg` when a job finishes successfully. Previously, an old error (like "Release date not yet passed") would persist even after the movie was successfully downloaded on a later sync.
+- **Sync Unmonitored Jobs:** Modified `backend/sync.py` so the background sync scheduler checks Radarr for *all* unmonitored jobs, not just `DONE` jobs. This ensures movies marked as `MOVIE_MISSING` or `SKIPPED` are updated to `DONE` if the user downloaded them manually via another indexer.
+
+**Files changed:**
+- `backend/orchestrator.py`
+- `backend/sync.py`
+

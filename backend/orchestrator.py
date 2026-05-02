@@ -228,4 +228,4 @@ async def _run_pipeline(
             return
 
         _update_job(session, job, status=JobStatus.DONE, progress_pct=100,
-                    monitored=False, file_path=file_path)
+                    monitored=False, file_path=file_path, error_msg=None)

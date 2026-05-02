@@ -201,29 +201,37 @@ async def sync_jellyseerr_requests():
             except Exception as e:
                 logger.error(f"Error monitoring '{job.title}' (TMDB {job.tmdb_id}): {e}")
 
-        # ── Step 3: DONE unmonitored jobs ────────────────────────────────────
-        # These are movies we already finished. Check if the user deleted the file or
-        # removed the movie from Radarr entirely.
-        done_jobs = session.exec(
-            select(DownloadJob).where(
-                DownloadJob.monitored == False,
-                DownloadJob.status == JobStatus.DONE,
-            )
+        # ── Step 3: Unmonitored jobs ─────────────────────────────────────────
+        # Check all unmonitored jobs to see if the user resolved them externally
+        # (e.g. manually downloaded a missing movie).
+        unmonitored_jobs = session.exec(
+            select(DownloadJob).where(DownloadJob.monitored == False)
         ).all()
-        for job in done_jobs:
+        for job in unmonitored_jobs:
             try:
                 radarr_movie = await radarr.is_movie_in_radarr(job.tmdb_id, settings)
 
                 if radarr_movie is None:
                     # Removed from Radarr entirely → delete so Jellyseerr can re-add cleanly
                     logger.info(
-                        f"DONE job '{job.title}' no longer in Radarr. Deleting."
+                        f"Unmonitored job '{job.title}' no longer in Radarr. Deleting."
                     )
                     session.delete(job)
                     session.commit()
                     continue
 
-                if not radarr_movie.get("hasFile", False):
+                if radarr_movie.get("hasFile", False):
+                    if job.status != JobStatus.DONE:
+                        logger.info(f"Unmonitored job '{job.title}' now has file in Radarr → DONE")
+                        job.status = JobStatus.DONE
+                        job.progress_pct = 100
+                        job.error_msg = None
+                        session.add(job)
+                        session.commit()
+                    continue
+
+                # If no file in Radarr, and the app thought it was DONE...
+                if job.status == JobStatus.DONE:
                     # Give Radarr a 2-hour grace period to import the file before 
                     # flagging it as missing. Sometimes large files take a while to 
                     # move across network drives after the download finishes.
@@ -247,4 +255,4 @@ async def sync_jellyseerr_requests():
                     session.commit()
 
             except Exception as e:
-                logger.error(f"Error checking DONE job '{job.title}': {e}")
+                logger.error(f"Error checking unmonitored job '{job.title}': {e}")
