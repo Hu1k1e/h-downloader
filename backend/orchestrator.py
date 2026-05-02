@@ -132,8 +132,8 @@ async def _run_pipeline(
             _update_job(session, job, status=JobStatus.FAILED, error_msg=f"TMDB date check failed: {e}")
             return
 
-        if not passed:
-            msg = f"Digital release date not yet passed (estimated: {release_date})" if release_date else "No release date info"
+        if not passed and release_date is not None:
+            msg = f"Digital release date not yet passed (estimated: {release_date})"
             _update_job(session, job, status=JobStatus.SKIPPED, error_msg=msg)
             return
 

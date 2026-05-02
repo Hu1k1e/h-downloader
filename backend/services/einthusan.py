@@ -104,10 +104,25 @@ async def search(title: str, year: Optional[int], lang: str) -> Optional[str]:
             continue
 
         # ── Score title similarity ───────────────────────────────────────────
+        title_lower = title.lower()
+        card_lower = card_title.lower()
+
         score = max(
-            fuzz.token_set_ratio(title.lower(), card_title.lower()),
-            fuzz.token_sort_ratio(title.lower(), card_title.lower()),
+            fuzz.token_set_ratio(title_lower, card_lower),
+            fuzz.token_sort_ratio(title_lower, card_lower),
         )
+
+        # Exact match override
+        if title_lower == card_lower:
+            score = 100
+        else:
+            # Penalize if there is a mismatch in standalone numbers (e.g., sequels like '2')
+            title_numbers = set(re.findall(r'\b\d+\b', title_lower))
+            card_numbers = set(re.findall(r'\b\d+\b', card_lower))
+            unmatched_numbers = (card_numbers - title_numbers).union(title_numbers - card_numbers)
+            
+            if unmatched_numbers:
+                score -= 30  # Apply penalty for mismatched numbers
 
         # ── Year bonus (bonus only — never penalise) ─────────────────────────
         # Penalising year mismatches caused valid movies to be rejected when

@@ -142,6 +142,13 @@ async def retry_job(job_id: int, background_tasks: BackgroundTasks, session: Ses
     job = session.get(DownloadJob, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+        
+    job.status = JobStatus.PENDING
+    job.progress_pct = 0
+    job.error_msg = None
+    session.add(job)
+    session.commit()
+    
     background_tasks.add_task(process_request, job.tmdb_id, job.language)
     return {"status": "retrying", "tmdb_id": job.tmdb_id}
 
