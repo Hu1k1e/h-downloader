@@ -740,3 +740,22 @@ The agent must read this section before starting any work to understand what was
 - `backend/orchestrator.py`
 - `backend/sync.py`
 
+---
+
+## [2026-05-08] Two-Way Monitored Sync and Radarr Import
+
+**Changes made:**
+- **Two-Way Sync for Monitored Status:**
+  - Radarr to App: Modified `backend/sync.py` to compare and fetch the Radarr `monitored` status for both monitored and unmonitored local jobs during the standard background sync loop.
+  - App to Radarr: Updated `backend/routers/jobs.py` (`PUT /jobs/{job_id}/monitor`) to instantly push local UI monitored toggles directly to Radarr.
+- **Import Regional Movies Feature:**
+  - Added `POST /jobs/import-radarr` endpoint in `backend/routers/jobs.py` that fetches all movies from Radarr, checks if their `originalLanguage` matches configured Einthusan languages, and populates them into the database.
+  - Added an "Import Regional Movies" UI button inside the `Settings.jsx` Radarr configuration section to trigger this API endpoint.
+
+**Files changed:**
+- `backend/services/radarr.py`
+- `backend/routers/jobs.py`
+- `backend/sync.py`
+- `frontend/src/api.js`
+- `frontend/src/pages/Settings.jsx`
+

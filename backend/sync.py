@@ -161,6 +161,13 @@ async def sync_jellyseerr_requests():
                     session.commit()
                     continue
 
+                radarr_monitored = radarr_movie.get("monitored", False)
+                if job.monitored != radarr_monitored:
+                    logger.info(f"Syncing monitored state from Radarr for '{job.title}': {radarr_monitored}")
+                    job.monitored = radarr_monitored
+                    session.add(job)
+                    session.commit()
+
                 has_file = radarr_movie.get("hasFile", False)
 
                 if has_file:
@@ -219,6 +226,13 @@ async def sync_jellyseerr_requests():
                     session.delete(job)
                     session.commit()
                     continue
+
+                radarr_monitored = radarr_movie.get("monitored", False)
+                if job.monitored != radarr_monitored:
+                    logger.info(f"Syncing monitored state from Radarr for '{job.title}': {radarr_monitored}")
+                    job.monitored = radarr_monitored
+                    session.add(job)
+                    session.commit()
 
                 if radarr_movie.get("hasFile", False):
                     if job.status != JobStatus.DONE:

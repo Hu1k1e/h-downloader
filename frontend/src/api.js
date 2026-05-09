@@ -33,4 +33,5 @@ export const api = {
     updateSettings: (data) => request('/api/settings', { method: 'POST', body: data }),
     testRadarr: () => request('/api/test/radarr'),
     testTmdb: () => request('/api/test/tmdb'),
+    importRadarr: () => request('/api/jobs/import-radarr', { method: 'POST' }),
 }

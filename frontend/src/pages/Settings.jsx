@@ -15,6 +15,9 @@ export default function Settings() {
     const [tmdbTesting, setTmdbTesting] = useState(false)
     const [radarrMsg, setRadarrMsg] = useState('')
     const [copied, setCopied] = useState(false)
+    
+    const [importing, setImporting] = useState(false)
+    const [importMsg, setImportMsg] = useState('')
 
     const loadSettings = () => {
         api.getSettings().then(data => {
@@ -80,6 +83,20 @@ export default function Settings() {
             setRadarrMsg(e.message)
         } finally {
             setRadarrTesting(false)
+        }
+    }
+
+    async function importRadarrMovies() {
+        if (!window.confirm("This will fetch all movies from Radarr and import any that match your configured regional languages. Continue?")) return;
+        setImporting(true)
+        setImportMsg('')
+        try {
+            const res = await api.importRadarr()
+            setImportMsg(`Successfully imported ${res.imported} movies!`)
+        } catch (e) {
+            setImportMsg(`Import failed: ${e.message}`)
+        } finally {
+            setImporting(false)
         }
     }
 
@@ -157,6 +174,15 @@ export default function Settings() {
                         </button>
                         {radarrStatus === 'ok' && <span className="test-result ok">✓ Connected {radarrMsg}</span>}
                         {radarrStatus === 'err' && <span className="test-result err">✗ {radarrMsg}</span>}
+                    </div>
+                </div>
+                <div className="form-row">
+                    <span className="form-label">Import</span>
+                    <div className="connection-test-row">
+                        <button className="btn btn-secondary btn-sm" onClick={importRadarrMovies} disabled={importing || (!settings.radarr_api_key_set && !formData.radarr_api_key)}>
+                            {importing ? <><span className="spinner" /> Importing…</> : 'Import Regional Movies'}
+                        </button>
+                        {importMsg && <span className="test-result" style={{color: importMsg.includes('failed') ? 'var(--danger)' : 'var(--success)'}}>{importMsg}</span>}
                     </div>
                 </div>
             </div>

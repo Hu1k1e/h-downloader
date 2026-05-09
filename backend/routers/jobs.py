@@ -57,10 +57,25 @@ class MonitorUpdate(BaseModel):
     monitored: bool
 
 @router.put("/jobs/{job_id}/monitor")
-def update_monitor_status(job_id: int, update: MonitorUpdate, session: Session = Depends(get_session)):
+async def update_monitor_status(job_id: int, update: MonitorUpdate, session: Session = Depends(get_session)):
     job = session.get(DownloadJob, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+        
+    settings = get_settings(session)
+    
+    try:
+        # Push update to Radarr
+        radarr_movie = await radarr_svc.is_movie_in_radarr(job.tmdb_id, settings)
+        if radarr_movie:
+            await radarr_svc.update_movie_monitored(radarr_movie["id"], update.monitored, settings)
+    except Exception as e:
+        # Log the error but still update local state if preferred, or fail.
+        # It's better to fail if Radarr is authoritative.
+        import logging
+        logging.getLogger(__name__).error(f"Failed to update monitored status in Radarr: {e}")
+        raise HTTPException(status_code=502, detail="Failed to update Radarr")
+        
     job.monitored = update.monitored
     session.add(job)
     session.commit()
@@ -158,6 +173,67 @@ async def sync_jellyseerr(background_tasks: BackgroundTasks):
     from backend.sync import sync_jellyseerr_requests
     background_tasks.add_task(sync_jellyseerr_requests)
     return {"status": "sync_started"}
+
+
+@router.post("/jobs/import-radarr")
+async def trigger_import_radarr(background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
+    """Import all movies from Radarr that match configured regional languages."""
+    settings = get_settings(session)
+    if not settings.radarr_api_key:
+        raise HTTPException(status_code=400, detail="Radarr API key is not configured.")
+
+    try:
+        movies = await radarr_svc.get_all_movies(settings)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to fetch movies from Radarr: {e}")
+
+    # Parse configured languages (e.g. "malayalam,tamil")
+    configured_langs = [l.strip().lower() for l in settings.einthusan_languages_str.split(",") if l.strip()]
+    if not configured_langs:
+        raise HTTPException(status_code=400, detail="No Einthusan languages configured in settings.")
+
+    imported_count = 0
+    for movie in movies:
+        # Radarr language comes as {"id": 4, "name": "Malayalam"}
+        lang_obj = movie.get("originalLanguage")
+        if not lang_obj:
+            continue
+        
+        lang_name = lang_obj.get("name", "").lower()
+        if lang_name in configured_langs:
+            tmdb_id = movie.get("tmdbId")
+            if not tmdb_id:
+                continue
+
+            # Check if job already exists
+            existing_job = session.exec(select(DownloadJob).where(DownloadJob.tmdb_id == tmdb_id)).first()
+            if existing_job:
+                continue
+
+            # Add it to jobs
+            new_job = DownloadJob(
+                tmdb_id=tmdb_id,
+                title=movie.get("title", "Unknown"),
+                year=movie.get("year"),
+                language=lang_name,
+                monitored=movie.get("monitored", True),
+                status=JobStatus.DONE if movie.get("hasFile") else JobStatus.PENDING
+            )
+            
+            # Optionally populate poster path if available
+            images = movie.get("images", [])
+            for img in images:
+                if img.get("coverType") == "poster":
+                    # Radarr returns URLs, we can just save it or leave it
+                    pass
+
+            session.add(new_job)
+            imported_count += 1
+
+    if imported_count > 0:
+        session.commit()
+        
+    return {"status": "success", "imported": imported_count}
 
 
 # ── Connection tests ─────────────────────────────────────────────────────────

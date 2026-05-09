@@ -1,7 +1,7 @@
 """
 Radarr API v3 client.
 """
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import httpx
 
 from backend.models import AppSettings
@@ -36,6 +36,14 @@ async def is_movie_in_radarr(tmdb_id: int, settings: AppSettings) -> Optional[Di
             if m.get("tmdbId") == tmdb_id:
                 return m
     return None
+
+
+async def get_all_movies(settings: AppSettings) -> List[Dict[str, Any]]:
+    """Return all movies in Radarr."""
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(_url(settings, "/movie"), headers=_headers(settings))
+        resp.raise_for_status()
+        return resp.json()
 
 
 async def get_movie_queue_status(movie_id: int, settings: AppSettings) -> Optional[Dict[str, Any]]:
@@ -116,3 +124,23 @@ async def test_connection(settings: AppSettings) -> Dict[str, Any]:
         resp = await client.get(_url(settings, "/system/status"), headers=_headers(settings))
         resp.raise_for_status()
         return resp.json()
+
+
+async def update_movie_monitored(movie_id: int, monitored: bool, settings: AppSettings) -> bool:
+    """Updates the monitored status of a specific movie in Radarr."""
+    async with httpx.AsyncClient(timeout=15) as client:
+        # Fetch the full movie object first as required by Radarr's PUT endpoint
+        resp = await client.get(_url(settings, f"/movie/{movie_id}"), headers=_headers(settings))
+        resp.raise_for_status()
+        movie = resp.json()
+        
+        # Only update if the status is actually different
+        if movie.get("monitored") == monitored:
+            return True
+            
+        movie["monitored"] = monitored
+        
+        # Push the updated movie object back
+        put_resp = await client.put(_url(settings, f"/movie/{movie_id}"), headers=_headers(settings), json=movie)
+        put_resp.raise_for_status()
+        return True
