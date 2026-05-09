@@ -817,3 +817,13 @@ The agent must read this section before starting any work to understand what was
 - `backend/orchestrator.py`
 - `backend/services/tmdb.py`
 
+---
+
+## [2026-05-08] Fix MP4 Extraction JSON Parsing Error
+
+**Changes made:**
+- **Decrypted JSON Safety:** Added type checking to the decrypted `EJLinks` JSON response in `backend/services/einthusan.py`. Sometimes the Einthusan API returns a top-level string (or double-encoded JSON) instead of a dictionary, causing the app to crash with an unhandled `'str' object has no attribute 'get'` error when trying to extract the MP4 link. The function now correctly checks the type and parses it properly, or raises a descriptive exception containing the actual Einthusan API error message (e.g. if the IP was blocked).
+
+**Files changed:**
+- `backend/services/einthusan.py`
+

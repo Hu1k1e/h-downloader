@@ -226,8 +226,18 @@ async def extract_mp4_url(watch_url: str) -> Optional[str]:
             logging.error("Failed to parse AJAX JSON response")
             return None
 
+        if not isinstance(resp_json, dict):
+            logging.error(f"Einthusan AJAX response is not a dict: {resp_json}")
+            raise Exception(f"Einthusan API Invalid Response: {str(resp_json)[:100]}")
+
         # Step 3: Decrypt the EJLinks payload
-        ej_links_enc = resp_json.get("Data", {}).get("EJLinks", "")
+        data_block = resp_json.get("Data", {})
+        if not isinstance(data_block, dict):
+            error_msg = str(data_block).strip() if data_block else "Unknown Einthusan error"
+            logging.error(f"Einthusan AJAX returned error message: {error_msg}")
+            raise Exception(f"Einthusan API Error: {error_msg}")
+
+        ej_links_enc = data_block.get("EJLinks", "")
         if not ej_links_enc:
             logging.error("No EJLinks found in JSON response")
             return None
@@ -237,7 +247,13 @@ async def extract_mp4_url(watch_url: str) -> Optional[str]:
             dec_string = ej_links_enc[:10] + ej_links_enc[-1] + ej_links_enc[12:-1]
             decrypted_json_str = base64.b64decode(dec_string).decode('utf-8')
             video_data = json.loads(decrypted_json_str)
+            if isinstance(video_data, str):
+                video_data = json.loads(video_data)
+                
+            if not isinstance(video_data, dict):
+                raise Exception(f"Decrypted EJLinks is not a dict: {video_data}")
+                
             return video_data.get("MP4Link")
         except Exception as e:
             logging.error(f"Failed to decrypt or parse EJLinks: {e}")
-            return None
+            raise e
