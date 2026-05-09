@@ -219,6 +219,22 @@ async def trigger_import_radarr(background_tasks: BackgroundTasks, session: Sess
                         poster_path = "/" + remote_url.split("/")[-1]
                     break
 
+            # Check if job already exists
+            existing_job = session.exec(select(DownloadJob).where(DownloadJob.tmdb_id == tmdb_id)).first()
+            if existing_job:
+                # Heal previously imported jobs missing poster or stuck in PENDING
+                updated = False
+                if not existing_job.poster_path and poster_path:
+                    existing_job.poster_path = poster_path
+                    updated = True
+                if existing_job.status == JobStatus.PENDING and not movie.get("hasFile"):
+                    existing_job.status = JobStatus.MOVIE_MISSING
+                    updated = True
+                if updated:
+                    session.add(existing_job)
+                    imported_count += 1
+                continue
+
             new_job = DownloadJob(
                 tmdb_id=tmdb_id,
                 title=movie.get("title", "Unknown"),
