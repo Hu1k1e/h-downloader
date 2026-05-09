@@ -770,3 +770,15 @@ The agent must read this section before starting any work to understand what was
 **Files changed:**
 - `backend/routers/jobs.py`
 
+---
+
+## [2026-05-08] Auto-Import Regional Movies in Sync & Import Bugfixes
+
+**Changes made:**
+- **Auto-Import in Sync Loop:** Added a mechanism to `backend/sync.py` that automatically queries Radarr for all movies on every sync interval. It filters for the configured regional languages and imports any new movies directly into the database. If they don't have files and Radarr isn't actively downloading them, the Einthusan fallback search will automatically trigger.
+- **Import Bugfix (Early Exit):** Discovered and removed an old code snippet in `backend/routers/jobs.py` that caused the manual import endpoint to prematurely exit when it encountered existing database entries, which was entirely bypassing the newly added "healing" logic for posters and `MOVIE_MISSING` statuses. The manual import now properly heals and updates existing database records.
+
+**Files changed:**
+- `backend/routers/jobs.py`
+- `backend/sync.py`
+
