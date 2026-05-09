@@ -141,6 +141,63 @@ async def sync_jellyseerr_requests():
             session.add(job)
             session.commit()
 
+        # ── Step 1.5: Import regional movies from Radarr ──────────────────────
+        try:
+            logger.info("Fetching movies from Radarr to import new regional movies...")
+            radarr_movies = await radarr.get_all_movies(settings)
+            
+            configured_langs = _get_einthusan_languages(settings)
+            if configured_langs:
+                for movie in radarr_movies:
+                    lang_obj = movie.get("originalLanguage")
+                    if not lang_obj:
+                        continue
+                    
+                    lang_name = lang_obj.get("name", "").lower()
+                    if lang_name in configured_langs:
+                        tmdb_id = movie.get("tmdbId")
+                        if not tmdb_id:
+                            continue
+
+                        # Extract poster
+                        poster_path = None
+                        for img in movie.get("images", []):
+                            if img.get("coverType") == "poster":
+                                remote_url = img.get("remoteUrl", "")
+                                if remote_url and "tmdb.org" in remote_url:
+                                    poster_path = "/" + remote_url.split("/")[-1]
+                                break
+
+                        existing_job = session.exec(select(DownloadJob).where(DownloadJob.tmdb_id == tmdb_id)).first()
+                        if existing_job:
+                            # Heal existing jobs missing poster or stuck in PENDING
+                            updated = False
+                            if not existing_job.poster_path and poster_path:
+                                existing_job.poster_path = poster_path
+                                updated = True
+                            if existing_job.status == JobStatus.PENDING and not movie.get("hasFile"):
+                                existing_job.status = JobStatus.MOVIE_MISSING
+                                updated = True
+                            if updated:
+                                session.add(existing_job)
+                                session.commit()
+                            continue
+
+                        logger.info(f"Auto-importing regional movie from Radarr: '{movie.get('title')}' (TMDB {tmdb_id})")
+                        new_job = DownloadJob(
+                            tmdb_id=tmdb_id,
+                            title=movie.get("title", "Unknown"),
+                            year=movie.get("year"),
+                            language=lang_name,
+                            monitored=movie.get("monitored", True),
+                            status=JobStatus.DONE if movie.get("hasFile") else JobStatus.MOVIE_MISSING,
+                            poster_path=poster_path
+                        )
+                        session.add(new_job)
+                        session.commit()
+        except Exception as e:
+            logger.error(f"Failed to auto-import movies from Radarr: {e}")
+
         # ── Step 2: Monitored jobs ────────────────────────────────────────────
         monitored_jobs = session.exec(
             select(DownloadJob).where(DownloadJob.monitored == True)

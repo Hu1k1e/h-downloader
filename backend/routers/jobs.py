@@ -205,10 +205,7 @@ async def trigger_import_radarr(background_tasks: BackgroundTasks, session: Sess
             if not tmdb_id:
                 continue
 
-            # Check if job already exists
-            existing_job = session.exec(select(DownloadJob).where(DownloadJob.tmdb_id == tmdb_id)).first()
-            if existing_job:
-                continue
+            # Proceed with import or heal
 
             # Add it to jobs
             poster_path = None
