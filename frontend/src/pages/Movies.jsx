@@ -183,10 +183,19 @@ export default function Movies() {
         } catch (err) { console.error(err) }
     }
 
-    const triggerAll = async () => {
+    const triggerMonitored = async () => {
         setIsTriggering(true)
         try {
-            await fetch('/api/jobs/trigger-all', { method: 'POST' })
+            await api.triggerMonitored()
+            fetchMovies()
+        } catch (err) { console.error(err) }
+        finally { setIsTriggering(false) }
+    }
+
+    const triggerMissing = async () => {
+        setIsTriggering(true)
+        try {
+            await api.triggerMissing()
             fetchMovies()
         } catch (err) { console.error(err) }
         finally { setIsTriggering(false) }
@@ -238,8 +247,11 @@ export default function Movies() {
                     <button className="btn btn-secondary" onClick={syncJellyseerr} disabled={isSyncing}>
                         {isSyncing ? 'Syncing...' : 'Sync Requests'}
                     </button>
-                    <button className="btn btn-primary" onClick={triggerAll} disabled={isTriggering || movies.length === 0}>
-                        {isTriggering ? 'Triggering...' : 'Trigger All'}
+                    <button className="btn btn-primary" onClick={triggerMissing} disabled={isTriggering || movies.length === 0}>
+                        {isTriggering ? 'Triggering...' : 'Trigger Missing'}
+                    </button>
+                    <button className="btn btn-primary" onClick={triggerMonitored} disabled={isTriggering || movies.length === 0}>
+                        {isTriggering ? 'Triggering...' : 'Trigger Monitored'}
                     </button>
                 </div>
             </div>

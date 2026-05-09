@@ -782,3 +782,16 @@ The agent must read this section before starting any work to understand what was
 - `backend/routers/jobs.py`
 - `backend/sync.py`
 
+---
+
+## [2026-05-08] Movies UI Action Buttons
+
+**Changes made:**
+- **Trigger Missing Button:** Added a `POST /jobs/trigger-missing` endpoint and corresponding UI button to trigger the orchestrator search pipeline specifically for all movies with the `MOVIE_MISSING` status.
+- **Trigger Monitored Button:** Renamed and refactored the old "Trigger All" endpoint to `POST /jobs/trigger-monitored` and updated the UI button to "Trigger Monitored", explicitly targeting jobs where `monitored == True`.
+
+**Files changed:**
+- `backend/routers/jobs.py`
+- `frontend/src/api.js`
+- `frontend/src/pages/Movies.jsx`
+

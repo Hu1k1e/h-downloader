@@ -139,14 +139,26 @@ async def trigger_download(req: TriggerRequest, background_tasks: BackgroundTask
     background_tasks.add_task(process_request, tmdb_id, req.language)
     return {"status": "accepted", "tmdb_id": tmdb_id}
 
-@router.post("/jobs/trigger-all")
+@router.post("/jobs/trigger-monitored")
 async def trigger_all_monitored(background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
     """Manually trigger orchestrator for all monitored movies."""
     jobs = session.exec(select(DownloadJob).where(DownloadJob.monitored == True)).all()
     triggered = 0
     for job in jobs:
         # Avoid re-triggering jobs that are already actively processing
-        if job.status not in (JobStatus.DOWNLOADING, JobStatus.SEARCHING):
+        if job.status not in (JobStatus.DOWNLOADING, JobStatus.SEARCHING, JobStatus.IMPORTING):
+             background_tasks.add_task(process_request, job.tmdb_id, job.language)
+             triggered += 1
+             
+    return {"status": "accepted", "triggered": triggered}
+
+@router.post("/jobs/trigger-missing")
+async def trigger_missing(background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
+    """Manually trigger orchestrator for all MOVIE_MISSING movies."""
+    jobs = session.exec(select(DownloadJob).where(DownloadJob.status == JobStatus.MOVIE_MISSING)).all()
+    triggered = 0
+    for job in jobs:
+        if job.status not in (JobStatus.DOWNLOADING, JobStatus.SEARCHING, JobStatus.IMPORTING):
              background_tasks.add_task(process_request, job.tmdb_id, job.language)
              triggered += 1
              
