@@ -3,13 +3,19 @@ Database session management.
 """
 import os
 from sqlmodel import create_engine, SQLModel, Session, select
+from sqlalchemy.pool import NullPool
 from backend import config
 from backend.models import AppSettings
 
 os.makedirs(config.DATA_DIR, exist_ok=True)
 DATABASE_URL = f"sqlite:///{config.DATA_DIR}/einthusan_downloader.db"
 
-engine = create_engine(DATABASE_URL, echo=False)
+engine = create_engine(
+    DATABASE_URL, 
+    echo=False,
+    poolclass=NullPool,
+    connect_args={"check_same_thread": False, "timeout": 30.0}
+)
 
 def init_db():
     SQLModel.metadata.create_all(engine)

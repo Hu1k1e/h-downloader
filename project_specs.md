@@ -795,3 +795,13 @@ The agent must read this section before starting any work to understand what was
 - `frontend/src/api.js`
 - `frontend/src/pages/Movies.jsx`
 
+---
+
+## [2026-05-08] Fix Database Connection Exhaustion
+
+**Changes made:**
+- **Database Engine Config:** Replaced the default SQLAlchemy `SingletonThreadPool` (which has a limit of 5 connections) with `NullPool` for SQLite. Since SQLite handles concurrent tasks by waiting on file locks, using a connection pool is unnecessary and was causing `QueuePool limit of size 5 overflow 10 reached` timeout errors when triggering dozens of concurrent downloads using the new "Trigger Monitored" or "Trigger Missing" buttons. Added a 30-second timeout and disabled thread checking to allow high concurrency without crashing the app.
+
+**Files changed:**
+- `backend/database.py`
+
