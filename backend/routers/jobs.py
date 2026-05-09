@@ -211,21 +211,23 @@ async def trigger_import_radarr(background_tasks: BackgroundTasks, session: Sess
                 continue
 
             # Add it to jobs
+            poster_path = None
+            for img in movie.get("images", []):
+                if img.get("coverType") == "poster":
+                    remote_url = img.get("remoteUrl", "")
+                    if remote_url and "tmdb.org" in remote_url:
+                        poster_path = "/" + remote_url.split("/")[-1]
+                    break
+
             new_job = DownloadJob(
                 tmdb_id=tmdb_id,
                 title=movie.get("title", "Unknown"),
                 year=movie.get("year"),
                 language=lang_name,
                 monitored=movie.get("monitored", True),
-                status=JobStatus.DONE if movie.get("hasFile") else JobStatus.PENDING
+                status=JobStatus.DONE if movie.get("hasFile") else JobStatus.MOVIE_MISSING,
+                poster_path=poster_path
             )
-            
-            # Optionally populate poster path if available
-            images = movie.get("images", [])
-            for img in images:
-                if img.get("coverType") == "poster":
-                    # Radarr returns URLs, we can just save it or leave it
-                    pass
 
             session.add(new_job)
             imported_count += 1

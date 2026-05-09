@@ -759,3 +759,14 @@ The agent must read this section before starting any work to understand what was
 - `frontend/src/api.js`
 - `frontend/src/pages/Settings.jsx`
 
+---
+
+## [2026-05-08] Import Radarr Bugfixes
+
+**Changes made:**
+- **Missing Movies Status Fix:** Modified `backend/routers/jobs.py` so that movies imported from Radarr without files are given the `MOVIE_MISSING` status instead of `PENDING`. This fixes the issue where missing or unreleased movies incorrectly displayed "Downloading on Radarr". Since they are monitored, the background sync will accurately check their status, and trigger the Einthusan fallback search if they are not actively downloading.
+- **Import Posters Fix:** Updated the import logic to parse and save the TMDB `poster_path` from the Radarr `images` array (by parsing `remoteUrl`) so that newly imported movies display their posters correctly.
+
+**Files changed:**
+- `backend/routers/jobs.py`
+
