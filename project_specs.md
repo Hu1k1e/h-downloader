@@ -805,3 +805,15 @@ The agent must read this section before starting any work to understand what was
 **Files changed:**
 - `backend/database.py`
 
+---
+
+## [2026-05-08] Fix TMDB Rate Limiting and Duplicate Failed Jobs
+
+**Changes made:**
+- **TMDB API Backoff:** Added an exponential backoff and retry mechanism (`_fetch_with_retry`) in `backend/services/tmdb.py` to properly handle `429 Too Many Requests` responses from the TMDB API. This prevents lookups from immediately failing when triggering large batches of downloads concurrently.
+- **Duplicate Job Fix:** Modified the orchestrator (`backend/orchestrator.py`) so that if a TMDB lookup *does* fail, it first checks if the job already exists in the database and updates its status to `FAILED`. Previously, it was blindly creating a duplicate "TMDB:xxxxxx" fallback job every time the lookup failed.
+
+**Files changed:**
+- `backend/orchestrator.py`
+- `backend/services/tmdb.py`
+

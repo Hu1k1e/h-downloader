@@ -49,19 +49,21 @@ async def process_request(tmdb_id: int, requested_language: Optional[str] = None
         try:
             movie = await tmdb.get_movie_details(tmdb_id, settings)
         except Exception as e:
-            # Create a minimal failed job
-            job = DownloadJob(
-                tmdb_id=tmdb_id,
-                title=f"TMDB:{tmdb_id}",
-                status=JobStatus.FAILED,
-                monitored=False,
-                error_msg=f"TMDB lookup failed: {e}",
-            )
+            job = session.exec(select(DownloadJob).where(DownloadJob.tmdb_id == tmdb_id)).first()
+            if not job:
+                job = DownloadJob(
+                    tmdb_id=tmdb_id,
+                    title=f"TMDB:{tmdb_id}",
+                    status=JobStatus.FAILED,
+                    monitored=False,
+                    error_msg=f"TMDB lookup failed: {e}",
+                )
+            else:
+                job.status = JobStatus.FAILED
+                job.error_msg = f"TMDB lookup failed: {e}"
             session.add(job)
             session.commit()
-            session.refresh(job)
             return job.id
-
         title = movie["title"]
         year = movie["year"]
         original_lang_code = movie.get("original_language", "")
