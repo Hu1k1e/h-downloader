@@ -187,6 +187,22 @@ async def sync_jellyseerr(background_tasks: BackgroundTasks):
     return {"status": "sync_started"}
 
 
+@router.post("/jobs/sync-radarr")
+async def sync_radarr(session: Session = Depends(get_session)):
+    "Synchronously refresh all job statuses from Radarr."
+    import logging as _log
+    from backend.sync import sync_radarr_status
+    settings = get_settings(session)
+    if not settings.radarr_api_key:
+        raise HTTPException(status_code=400, detail="Radarr API key is not configured.")
+    try:
+        result = await sync_radarr_status(session, settings)
+    except Exception as e:
+        _log.getLogger(__name__).error(f"sync-radarr failed: {e}")
+        raise HTTPException(status_code=502, detail=f"Radarr sync failed: {e}")
+    return {"status": "ok", **result}
+
+
 @router.post("/jobs/import-radarr")
 async def trigger_import_radarr(background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
     """Import all movies from Radarr that match configured regional languages."""

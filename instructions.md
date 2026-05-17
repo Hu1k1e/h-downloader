@@ -299,3 +299,44 @@ git push
 The GitHub Actions workflow at `.github/workflows/docker.yml` automatically builds and pushes the Docker image to GHCR on every push to `main`.
 
 ---
+
+---
+
+## 2026-05-17 — Radarr Status Sync Fix
+
+**Problem diagnosed:**
+- The `Sync Requests` button called `POST /api/jobs/sync` which enqueues `sync_jellyseerr_requests()` as a FastAPI `BackgroundTask`.
+- The endpoint returns `{"status": "sync_started"}` immediately. The frontend then waited 1 second and re-fetched.
+- The sync function runs asynchronously in the background (can take 10-30s+ for many jobs), so re-fetch always saw stale data.
+- Additionally, each `is_movie_in_radarr()` call fetches ALL Radarr movies via a separate HTTP request (N+1 problem).
+- The 2-hour grace period in Step 3 prevented a freshly-deleted movie from becoming `MOVIE_MISSING` for 2 hours.
+
+**Fix implemented:**
+1. Added `sync_radarr_status(session, settings)` to `backend/sync.py`:
+   - Makes ONE `GET /api/v3/movie` call to Radarr
+   - Builds a `tmdb_id -> movie` dict
+   - Iterates all local jobs and updates `DONE` / `MOVIE_MISSING` / `monitored` / deleted statuses inline
+   - No 2-hour grace period (user explicitly triggered sync)
+   - Does not trigger Einthusan downloads (that remains the scheduler's job)
+   - Returns `{"updated": N, "deleted": N, "unchanged": N}`
+
+2. Added `POST /api/jobs/sync-radarr` endpoint to `backend/routers/jobs.py`:
+   - Calls `sync_radarr_status()` inline (NOT as a background task)
+   - Awaits completion before responding
+   - UI sees fully-updated DB state the moment the request returns
+
+3. Updated `frontend/src/api.js`:
+   - Added `syncRadarrStatus()` -> `POST /api/jobs/sync-radarr`
+
+4. Updated `frontend/src/pages/Movies.jsx` `syncJellyseerr()` function:
+   - Now calls `await api.syncRadarrStatus()` first (synchronous, result immediately in DB)
+   - Then fires `api.syncJellyseerr()` in the background (no await) for Jellyseerr new request pickup
+   - Then calls `await fetchMovies()` — sees correct statuses immediately
+   - Removed 1-second arbitrary `setTimeout` delay
+
+**Files changed:**
+- `backend/sync.py`
+- `backend/routers/jobs.py`
+- `frontend/src/api.js`
+- `frontend/src/pages/Movies.jsx`
+- `instructions.md`

@@ -26,7 +26,10 @@ export const api = {
     getJob: (id) => request(`/api/jobs/${id}`),
     deleteJob: (id) => request(`/api/jobs/${id}`, { method: 'DELETE' }),
     retryJob: (id) => request(`/api/jobs/${id}/retry`, { method: 'POST', body: {} }),
+    // Background Jellyseerr sync (picks up new approved requests)
     syncJellyseerr: () => request('/api/jobs/sync', { method: 'POST' }),
+    // Synchronous Radarr status sync — reflects updated state immediately in response
+    syncRadarrStatus: () => request('/api/jobs/sync-radarr', { method: 'POST' }),
     getStats: () => request('/api/stats'),
     triggerDownload: (data) => request('/api/jobs/trigger', { method: 'POST', body: data }),
     triggerMonitored: () => request('/api/jobs/trigger-monitored', { method: 'POST' }),

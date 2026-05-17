@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { api } from '../api'
 
 const STATUS_COLOR = {
@@ -203,11 +203,21 @@ export default function Movies() {
 
     const syncJellyseerr = async () => {
         setIsSyncing(true)
+        setError(null)
         try {
-            await api.syncJellyseerr()
-            setTimeout(fetchMovies, 1000)
-        } catch (err) { console.error(err) }
-        finally { setIsSyncing(false) }
+            // Radarr status sync runs INLINE on the server.
+            // DB is committed before the response returns,
+            // so fetchMovies() immediately after sees correct statuses.
+            await api.syncRadarrStatus()
+            // Also kick off background Jellyseerr sync for new approved requests
+            api.syncJellyseerr().catch(e => console.warn("Jellyseerr bg sync:", e))
+            await fetchMovies()
+        } catch (err) {
+            console.error("Sync failed:", err)
+            setError(err.message)
+        } finally {
+            setIsSyncing(false)
+        }
     }
 
     const deleteJob = async (id) => {

@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 import httpx
 from sqlmodel import Session, select
@@ -61,6 +61,66 @@ async def _is_radarr_actively_downloading(tmdb_id: int, settings: AppSettings) -
     except Exception as e:
         logger.warning(f"Could not check Radarr download status for TMDB {tmdb_id}: {e}")
         return False
+
+
+async def sync_radarr_status(session, settings):
+    """Sync all local jobs against Radarr in one API call (inline, no background task).
+
+    Fetches all Radarr movies once (no N+1 calls), updates all jobs synchronously.
+    No 2-hour grace period - user explicitly triggered sync.
+    Does NOT trigger Einthusan downloads.
+    """
+    if not settings.radarr_api_key:
+        logger.warning("sync_radarr_status: Radarr API key not configured.")
+        return {"updated": 0, "deleted": 0, "unchanged": 0}
+    try:
+        all_radarr = await radarr.get_all_movies(settings)
+    except Exception as e:
+        logger.error(f"sync_radarr_status: Radarr fetch failed: {e}")
+        raise
+    radarr_by_tmdb = {m["tmdbId"]: m for m in all_radarr if m.get("tmdbId")}
+    logger.info(f"sync_radarr_status: {len(radarr_by_tmdb)} Radarr movies, reconciling...")
+    jobs = session.exec(select(DownloadJob)).all()
+    updated = deleted = unchanged = 0
+    for job in jobs:
+        rm = radarr_by_tmdb.get(job.tmdb_id)
+        if rm is None:
+            logger.info(f"sync_radarr_status: {job.title!r} removed from Radarr, deleting job.")
+            session.delete(job)
+            deleted += 1
+            continue
+        has_file = rm.get("hasFile", False)
+        rm_monitored = rm.get("monitored", False)
+        changed = False
+        if job.monitored != rm_monitored:
+            job.monitored = rm_monitored
+            changed = True
+        if has_file:
+            if job.status != JobStatus.DONE:
+                logger.info(f"sync_radarr_status: {job.title!r} has file -> DONE")
+                job.status = JobStatus.DONE
+                job.progress_pct = 100
+                job.error_msg = None
+                changed = True
+        else:
+            if job.status in (JobStatus.DOWNLOADING, JobStatus.SEARCHING,
+                               JobStatus.IMPORTING, JobStatus.CHECKING_RADARR):
+                unchanged += 1
+                continue
+            if job.status == JobStatus.DONE:
+                logger.info(f"sync_radarr_status: {job.title!r} DONE but no file -> MOVIE_MISSING")
+                job.status = JobStatus.MOVIE_MISSING
+                job.error_msg = "File missing from Radarr folder"
+                job.monitored = rm_monitored
+                changed = True
+        if changed:
+            session.add(job)
+            updated += 1
+        else:
+            unchanged += 1
+    session.commit()
+    logger.info(f"sync_radarr_status: updated={updated} deleted={deleted} unchanged={unchanged}")
+    return {"updated": updated, "deleted": deleted, "unchanged": unchanged}
 
 
 async def sync_jellyseerr_requests():
