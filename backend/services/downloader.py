@@ -32,9 +32,15 @@ def _safe_name(s: str) -> str:
 
 
 def get_movie_file_path(folder: str, title: str, year: Optional[int]) -> str:
-    """Return the full file path where the movie should be saved."""
+    """Return the full file path where the movie should be saved.
+
+    The filename includes "720p" so that Radarr parses this as a 720p release
+    when it rescans after download. This lets Radarr upgrade the file to a
+    better quality release grabbed from a proper indexer later.
+    """
     folder_name = _safe_name(f"{title} ({year})" if year else title)
-    filename = f"{folder_name}.mp4"
+    # Tag as 720p so Radarr treats this as upgradeable quality
+    filename = f"{folder_name} - 720p.mp4"
     return os.path.join(folder, filename)
 
 

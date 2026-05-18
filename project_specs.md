@@ -827,3 +827,28 @@ The agent must read this section before starting any work to understand what was
 **Files changed:**
 - `backend/services/einthusan.py`
 
+
+---
+
+## [2026-05-17] Tag Einthusan Downloads as 720p for Radarr Upgrade Compatibility
+
+**Problem:**
+Files downloaded from Einthusan were saved without a quality tag in the filename (e.g. `Guppy (2015).mp4`).
+When Radarr rescanned the file, it had no quality information to parse, so it treated the file as `Unknown` quality.
+This prevented Radarr from upgrading the file when a proper higher-quality release became available on an indexer.
+
+**Fix:**
+Modified `get_movie_file_path()` in `backend/services/downloader.py` to append `- 720p` to every filename.
+Example: `Guppy (2015) - 720p.mp4`
+
+Radarr's filename parser recognises the `720p` token when it performs a `RescanMovie` after download.
+It records the file as 720p quality in its database.
+If the configured quality profile has upgrading enabled (e.g. 720p -> 1080p), Radarr will replace this file
+when it later grabs a 1080p release from a proper indexer.
+
+**Why 720p specifically:**
+Einthusan streams are typically 720p resolution web streams. Tagging them as 720p is accurate.
+It ensures Radarr does not keep the Einthusan copy permanently when a proper Blu-ray or 1080p WEB release becomes available.
+
+**Files changed:**
+- `backend/services/downloader.py`
