@@ -922,3 +922,20 @@ It ensures Radarr does not keep the Einthusan copy permanently when a proper Blu
 - `backend/routers/jobs.py`
 - `frontend/src/pages/Settings.jsx`
 - `frontend/src/pages/Movies.jsx`
+
+## 2026-05-31 - Sonarr API Errors & Trigger Fixes
+
+**Problem diagnosed:**
+- Testing Sonarr credentials resulted in an "[object Object]" error because FastAPI validation errors (422) return an array of error objects, which JavaScript converted to string `[object Object]`.
+- Radarr/Sonarr series weren't importing if their `originalLanguage` attribute was missing. Sonarr v3 completely omits `originalLanguage` from the series object, meaning *all* Sonarr series were skipping import unless manually fixed.
+- Clicking "Download" or "Download Season" inside the Series Modal did nothing because the frontend `triggerJob` function defaulted to sending `media_type="movie"` without passing the season/episode identifiers, causing the backend orchestrator to fail instantly.
+
+**Fix implemented:**
+1. Updated `frontend/src/api.js` to correctly map FastAPI array `detail` strings into human-readable comma-separated strings instead of raw JS objects.
+2. Rewrote the `import-radarr` and `import-sonarr` routines in `backend/routers/jobs.py`. If a series or movie lacks the `originalLanguage` attribute (which is always true for Sonarr), the backend will now gracefully look up the TMDB ID via TMDB's API and cache the real original language, properly routing it to match user-ticked filters.
+3. Updated `Movies.jsx` to correctly pass `movie.media_type`, `movie.season_number`, and `movie.episode_number` backwards down into the `triggerJob` function, properly routing 123movies TV show scrapes through the `process_request` endpoint.
+
+**Files changed:**
+- `frontend/src/api.js`
+- `backend/routers/jobs.py`
+- `frontend/src/pages/Movies.jsx`

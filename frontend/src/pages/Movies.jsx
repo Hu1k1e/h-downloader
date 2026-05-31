@@ -118,7 +118,7 @@ function PosterCard({ movie, onTrigger, onDelete, onToggleMonitor }) {
                 <button className="btn btn-secondary btn-sm" onClick={() => onToggleMonitor(movie.id, movie.monitored)} style={{ flex: 1 }}>
                     {movie.monitored ? 'Unmonitor' : 'Monitor'}
                 </button>
-                <button className="btn btn-primary btn-sm" onClick={() => onTrigger(movie.id, movie.tmdb_id, movie.language)} disabled={status === 'downloading' || status === 'importing'} title="Force Scraper Search" style={{ flex: 1 }}>
+                <button className="btn btn-primary btn-sm" onClick={() => onTrigger(movie.id, movie.tmdb_id, movie.language, movie.media_type, movie.season_number, movie.episode_number)} disabled={status === 'downloading' || status === 'importing'} title="Force Scraper Search" style={{ flex: 1 }}>
                     ▶
                 </button>
                 <button className="btn btn-danger btn-sm" onClick={() => onDelete(movie.id)} title="Delete">
@@ -211,7 +211,7 @@ function SeriesModal({ series, onClose, onTrigger, onDelete, onToggleMonitor }) 
                         <button className="btn btn-secondary btn-sm" onClick={() => seasonEpisodes.forEach(ep => { if (!ep.monitored) onToggleMonitor(ep.id, ep.monitored) })}>
                             Monitor Season
                         </button>
-                        <button className="btn btn-primary btn-sm" onClick={() => seasonEpisodes.forEach(ep => { if (ep.status !== 'downloading' && ep.status !== 'importing') onTrigger(ep.id, ep.tmdb_id, ep.language) })}>
+                        <button className="btn btn-primary btn-sm" onClick={() => seasonEpisodes.forEach(ep => { if (ep.status !== 'downloading' && ep.status !== 'importing') onTrigger(ep.id, ep.tmdb_id, ep.language, ep.media_type, ep.season_number, ep.episode_number) })}>
                             Download Season
                         </button>
                     </div>
@@ -236,7 +236,7 @@ function SeriesModal({ series, onClose, onTrigger, onDelete, onToggleMonitor }) 
                                     <button className="btn btn-secondary btn-sm" onClick={() => onToggleMonitor(ep.id, ep.monitored)}>
                                         {ep.monitored ? 'Unmonitor' : 'Monitor'}
                                     </button>
-                                    <button className="btn btn-primary btn-sm" onClick={() => onTrigger(ep.id, ep.tmdb_id, ep.language)} disabled={status === 'downloading' || status === 'importing'}>
+                                    <button className="btn btn-primary btn-sm" onClick={() => onTrigger(ep.id, ep.tmdb_id, ep.language, ep.media_type, ep.season_number, ep.episode_number)} disabled={status === 'downloading' || status === 'importing'}>
                                         Download
                                     </button>
                                     <button className="btn btn-danger btn-sm" onClick={() => onDelete(ep.id)}>✕</button>
@@ -332,12 +332,18 @@ export default function Movies({ mediaType = 'movie' }) {
         } catch (err) { console.error(err) }
     }
 
-    const triggerJob = async (id, tmdbId, lang) => {
+    const triggerJob = async (id, tmdbId, lang, mediaType = 'movie', seasonNumber = null, episodeNumber = null) => {
         try {
             await fetch('/api/jobs/trigger', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ tmdb_id: tmdbId, language: lang })
+                body: JSON.stringify({ 
+                    tmdb_id: tmdbId, 
+                    language: lang,
+                    media_type: mediaType,
+                    season_number: seasonNumber,
+                    episode_number: episodeNumber
+                })
             })
             fetchMovies()
         } catch (err) { console.error(err) }

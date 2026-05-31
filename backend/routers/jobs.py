@@ -206,6 +206,29 @@ async def sync_radarr(session: Session = Depends(get_session)):
     return {"status": "ok", **result}
 
 
+async def _get_tmdb_language(tmdb_id: int, media_type: str, settings: AppSettings, cache: dict) -> str:
+    if not tmdb_id:
+        return "unknown"
+    if tmdb_id in cache:
+        return cache[tmdb_id]
+    try:
+        from backend.services import tmdb
+        from backend import config
+        if media_type == "series":
+            details = await tmdb.get_series_details(tmdb_id, settings)
+        else:
+            details = await tmdb.get_movie_details(tmdb_id, settings)
+        orig = details.get("original_language", "")
+        if orig == "en":
+            mapped = "hollywood"
+        else:
+            mapped = config.TMDB_LANG_TO_EINTHUSAN.get(orig, "unknown")
+        cache[tmdb_id] = mapped
+        return mapped
+    except Exception:
+        cache[tmdb_id] = "unknown"
+        return "unknown"
+
 @router.post("/jobs/import-radarr")
 async def trigger_import_radarr(background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
     """Import all movies from Radarr that match configured regional languages."""
@@ -218,30 +241,29 @@ async def trigger_import_radarr(background_tasks: BackgroundTasks, session: Sess
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Failed to fetch movies from Radarr: {e}")
 
-    # Parse configured languages (e.g. "malayalam,tamil")
     configured_langs = [l.strip().lower() for l in settings.einthusan_languages_str.split(",") if l.strip()]
     if not configured_langs:
-        raise HTTPException(status_code=400, detail="No Einthusan languages configured in settings.")
+        raise HTTPException(status_code=400, detail="No Regional languages configured in settings.")
 
     imported_count = 0
+    lang_cache = {}
     for movie in movies:
-        # Radarr language comes as {"id": 4, "name": "Malayalam"}
-        lang_obj = movie.get("originalLanguage")
-        if not lang_obj:
+        tmdb_id = movie.get("tmdbId")
+        if not tmdb_id:
             continue
-        
-        lang_name = lang_obj.get("name", "").lower()
-        if lang_name == "english":
-            lang_name = "hollywood"
+
+        lang_name = ""
+        lang_obj = movie.get("originalLanguage")
+        if lang_obj:
+            lang_name = lang_obj.get("name", "").lower()
+            if lang_name == "english":
+                lang_name = "hollywood"
+                
+        # Fallback to TMDB if Radarr lacks the language
+        if not lang_name or lang_name == "unknown":
+            lang_name = await _get_tmdb_language(tmdb_id, "movie", settings, lang_cache)
             
         if lang_name in configured_langs:
-            tmdb_id = movie.get("tmdbId")
-            if not tmdb_id:
-                continue
-
-            # Proceed with import or heal
-
-            # Add it to jobs
             poster_path = None
             for img in movie.get("images", []):
                 if img.get("coverType") == "poster":
@@ -250,10 +272,8 @@ async def trigger_import_radarr(background_tasks: BackgroundTasks, session: Sess
                         poster_path = remote_url
                     break
 
-            # Check if job already exists
             existing_job = session.exec(select(DownloadJob).where(DownloadJob.tmdb_id == tmdb_id)).first()
             if existing_job:
-                # Heal previously imported jobs missing poster or stuck in PENDING
                 updated = False
                 if not existing_job.poster_path and poster_path:
                     existing_job.poster_path = poster_path
@@ -275,7 +295,6 @@ async def trigger_import_radarr(background_tasks: BackgroundTasks, session: Sess
                 status=JobStatus.DONE if movie.get("hasFile") else JobStatus.MOVIE_MISSING,
                 poster_path=poster_path
             )
-
             session.add(new_job)
             imported_count += 1
 
@@ -300,23 +319,27 @@ async def trigger_import_sonarr(background_tasks: BackgroundTasks, session: Sess
 
     configured_langs = [l.strip().lower() for l in settings.einthusan_languages_str.split(",") if l.strip()]
     if not configured_langs:
-        raise HTTPException(status_code=400, detail="No Einthusan languages configured in settings.")
+        raise HTTPException(status_code=400, detail="No Regional languages configured in settings.")
 
     imported_count = 0
+    lang_cache = {}
     for series in series_list:
-        lang_obj = series.get("originalLanguage")
-        if not lang_obj:
+        tmdb_id = series.get("tmdbId")
+        if not tmdb_id:
             continue
-        
-        lang_name = lang_obj.get("name", "").lower()
-        if lang_name == "english":
-            lang_name = "hollywood"
-            
-        if lang_name in configured_langs:
-            tmdb_id = series.get("tmdbId")
-            if not tmdb_id:
-                continue
 
+        lang_name = ""
+        lang_obj = series.get("originalLanguage")
+        if lang_obj:
+            lang_name = lang_obj.get("name", "").lower()
+            if lang_name == "english":
+                lang_name = "hollywood"
+                
+        # Sonarr often lacks originalLanguage entirely. Fallback to TMDB
+        if not lang_name or lang_name == "unknown":
+            lang_name = await _get_tmdb_language(tmdb_id, "series", settings, lang_cache)
+
+        if lang_name in configured_langs:
             try:
                 episodes = await sonarr_svc.get_episodes_for_series(series["id"], settings)
             except Exception:
