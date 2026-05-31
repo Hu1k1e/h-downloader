@@ -47,8 +47,8 @@ function matchesTab(movie, tab) {
     return true
 }
 
-function tabCount(movies, tab) {
-    return movies.filter(m => matchesTab(m, tab)).length
+function tabCount(moviesList, tab) {
+    return moviesList.filter(m => matchesTab(m, tab)).length
 }
 
 function PosterCard({ movie, onTrigger, onDelete, onToggleMonitor }) {
@@ -148,7 +148,7 @@ function PosterCard({ movie, onTrigger, onDelete, onToggleMonitor }) {
     )
 }
 
-export default function Movies() {
+export default function Movies({ mediaType = 'movie' }) {
     const [movies, setMovies] = useState([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState(null)
@@ -244,13 +244,15 @@ export default function Movies() {
         } catch (err) { console.error(err) }
     }
 
-    const filtered = movies.filter(m => {
+    const typeMovies = movies.filter(m => (m.media_type || 'movie') === mediaType)
+
+    const filtered = typeMovies.filter(m => {
         const matchSearch = m.title.toLowerCase().includes(search.toLowerCase())
         const matchTab = matchesTab(m, activeTab)
         return matchSearch && matchTab
     })
 
-    const uniqueLangs = [...new Set(movies.map(m => m.language).filter(Boolean))].sort()
+    const uniqueLangs = [...new Set(typeMovies.map(m => m.language).filter(Boolean))].sort()
     const dynamicTabs = [
         ...BASE_TABS,
         ...uniqueLangs.map(lang => ({ key: `lang_${lang}`, label: lang.charAt(0).toUpperCase() + lang.slice(1) }))
@@ -261,17 +263,17 @@ export default function Movies() {
             {/* Header */}
             <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
-                    <h1 className="page-title">Movies</h1>
-                    <p className="page-subtitle">{movies.length} tracked · {movies.filter(m => m.monitored).length} monitored</p>
+                    <h1 className="page-title">{mediaType === 'series' ? 'Series' : 'Movies'}</h1>
+                    <p className="page-subtitle">{typeMovies.length} tracked · {typeMovies.filter(m => m.monitored).length} monitored</p>
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
                     <button className="btn btn-secondary" onClick={syncJellyseerr} disabled={isSyncing}>
                         {isSyncing ? 'Syncing...' : 'Sync Requests'}
                     </button>
-                    <button className="btn btn-primary" onClick={triggerMissing} disabled={isTriggering || movies.length === 0}>
+                    <button className="btn btn-primary" onClick={triggerMissing} disabled={isTriggering || typeMovies.length === 0}>
                         {isTriggering ? 'Triggering...' : 'Trigger Missing'}
                     </button>
-                    <button className="btn btn-primary" onClick={triggerMonitored} disabled={isTriggering || movies.length === 0}>
+                    <button className="btn btn-primary" onClick={triggerMonitored} disabled={isTriggering || typeMovies.length === 0}>
                         {isTriggering ? 'Triggering...' : 'Trigger Monitored'}
                     </button>
                 </div>
@@ -288,7 +290,7 @@ export default function Movies() {
                 {/* Tab row */}
                 <div className="filter-tabs" style={{ display: 'flex', flexWrap: 'wrap' }}>
                     {dynamicTabs.map(tab => {
-                        const count = tabCount(movies, tab.key)
+                        const count = tabCount(typeMovies, tab.key)
                         return (
                             <button
                                 key={tab.key}
@@ -306,7 +308,7 @@ export default function Movies() {
                 {/* Search */}
                 <input
                     className="filter-search"
-                    placeholder="Search movies..."
+                    placeholder={`Search ${mediaType === 'series' ? 'series' : 'movies'}...`}
                     value={search}
                     onChange={e => setSearch(e.target.value)}
                 />
@@ -316,12 +318,12 @@ export default function Movies() {
             {loading && movies.length === 0 ? (
                 <div className="empty-state">
                     <div className="spinner" style={{ width: 28, height: 28, margin: '0 auto 16px' }} />
-                    <div className="empty-state-text">Loading movies...</div>
+                    <div className="empty-state-text">Loading {mediaType === 'series' ? 'series' : 'movies'}...</div>
                 </div>
             ) : filtered.length === 0 ? (
                 <div className="empty-state">
-                    <div className="empty-state-icon" style={{ fontSize: 40 }}>🎬</div>
-                    <div className="empty-state-text">No movies found</div>
+                    <div className="empty-state-icon" style={{ fontSize: 40 }}>{mediaType === 'series' ? '📺' : '🎬'}</div>
+                    <div className="empty-state-text">No {mediaType === 'series' ? 'series' : 'movies'} found</div>
                     <div className="empty-state-sub">
                         {activeTab !== 'all'
                             ? 'No movies in this category.'

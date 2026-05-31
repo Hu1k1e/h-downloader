@@ -39,6 +39,13 @@ def init_db():
             except OperationalError:
                 pass
                 
+        # Fill NULL values with defaults for existing rows that were altered
+        conn.execute(text("UPDATE appsettings SET sonarr_url = 'http://localhost:8989' WHERE sonarr_url IS NULL"))
+        conn.execute(text("UPDATE appsettings SET sonarr_api_key = '' WHERE sonarr_api_key IS NULL"))
+        conn.execute(text("UPDATE appsettings SET sonarr_root_folder = '/tv' WHERE sonarr_root_folder IS NULL"))
+        conn.execute(text("UPDATE appsettings SET sonarr_quality_profile_id = 1 WHERE sonarr_quality_profile_id IS NULL"))
+        conn.execute(text("UPDATE downloadjob SET media_type = 'movie' WHERE media_type IS NULL"))
+                
     # Initialize settings if table exists but is empty
     with Session(engine) as session:
         settings = session.exec(select(AppSettings)).first()
