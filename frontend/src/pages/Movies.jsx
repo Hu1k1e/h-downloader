@@ -27,7 +27,6 @@ const STATUS_LABEL = {
     movie_missing: 'File Missing',
 }
 
-// Base Filter tabs definition
 const BASE_TABS = [
     { key: 'all', label: 'All' },
     { key: 'available', label: 'Available' },
@@ -36,29 +35,31 @@ const BASE_TABS = [
     { key: 'unmonitored', label: 'Unmonitored' },
 ]
 
-function matchesTab(movie, tab) {
-    const s = movie.status
-    if (tab === 'all') return true
-    if (tab === 'available') return s === 'done'
-    if (tab === 'radarr') return s === 'pending' || s === 'checking_radarr'
-    if (tab === 'movie_missing') return s === 'movie_missing'
-    if (tab === 'unmonitored') return !movie.monitored
-    if (tab.startsWith('lang_')) return movie.language === tab.replace('lang_', '')
-    return true
+function matchesFilters(movie, filters) {
+    if (filters.length === 0 || filters.includes('all')) return true;
+    
+    // OR logic across all selected filters
+    return filters.some(tab => {
+        const s = movie.status
+        if (tab === 'available') return s === 'done'
+        if (tab === 'radarr') return s === 'pending' || s === 'checking_radarr'
+        if (tab === 'movie_missing') return s === 'movie_missing'
+        if (tab === 'unmonitored') return !movie.monitored
+        if (tab.startsWith('lang_')) return movie.language === tab.replace('lang_', '')
+        return false
+    })
 }
 
-function tabCount(moviesList, tab) {
-    return moviesList.filter(m => matchesTab(m, tab)).length
+function getPosterSrc(path) {
+    if (!path) return null;
+    return path.startsWith('http') ? path : `https://image.tmdb.org/t/p/w300${path}`;
 }
 
 function PosterCard({ movie, onTrigger, onDelete, onToggleMonitor }) {
     const status = (movie.status || '').toLowerCase()
     const colour = STATUS_COLOR[status] || 'var(--text-muted)'
     const label = STATUS_LABEL[status] || status.toUpperCase()
-
-    const posterSrc = movie.poster_path
-        ? `https://image.tmdb.org/t/p/w300${movie.poster_path}`
-        : null
+    const posterSrc = getPosterSrc(movie.poster_path)
 
     return (
         <div className="poster-card">
@@ -83,23 +84,18 @@ function PosterCard({ movie, onTrigger, onDelete, onToggleMonitor }) {
                         {movie.title?.charAt(0) || '?'}
                     </div>
                 )}
-                {/* Status bar overlay */}
                 <div className="poster-status-bar" style={{ '--status-color': colour }}>
                     <span className="poster-status-label">{label}</span>
                     {status === 'downloading' && movie.progress_pct > 0 && (
                         <div className="poster-progress-wrap">
-                            <div
-                                className="poster-progress-fill"
-                                style={{ width: `${movie.progress_pct}%` }}
-                            />
+                            <div className="poster-progress-fill" style={{ width: `${movie.progress_pct}%` }} />
                         </div>
                     )}
                 </div>
-                {/* Monitored / Missing indicator dot */}
                 {movie.monitored && (
                     <div
                         className={`poster-monitored-dot${status === 'movie_missing' ? ' poster-monitored-dot--missing' : ''}`}
-                        title={status === 'movie_missing' ? 'File missing from Radarr folder' : 'Monitored'}
+                        title={status === 'movie_missing' ? 'File missing' : 'Monitored'}
                     />
                 )}
             </div>
@@ -119,30 +115,136 @@ function PosterCard({ movie, onTrigger, onDelete, onToggleMonitor }) {
             </div>
 
             <div className="poster-actions">
-                <button
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => onToggleMonitor(movie.id, movie.monitored)}
-                    title={movie.monitored ? 'Unmonitor' : 'Re-monitor'}
-                    style={{ flex: 1 }}
-                >
+                <button className="btn btn-secondary btn-sm" onClick={() => onToggleMonitor(movie.id, movie.monitored)} style={{ flex: 1 }}>
                     {movie.monitored ? 'Unmonitor' : 'Monitor'}
                 </button>
-                <button
-                    className="btn btn-primary btn-sm"
-                    onClick={() => onTrigger(movie.id, movie.tmdb_id, movie.language)}
-                    disabled={status === 'downloading' || status === 'importing'}
-                    title="Force Einthusan search"
-                    style={{ flex: 1 }}
-                >
+                <button className="btn btn-primary btn-sm" onClick={() => onTrigger(movie.id, movie.tmdb_id, movie.language)} disabled={status === 'downloading' || status === 'importing'} title="Force Scraper Search" style={{ flex: 1 }}>
                     ▶
                 </button>
-                <button
-                    className="btn btn-danger btn-sm"
-                    onClick={() => onDelete(movie.id)}
-                    title="Delete"
-                >
+                <button className="btn btn-danger btn-sm" onClick={() => onDelete(movie.id)} title="Delete">
                     ✕
                 </button>
+            </div>
+        </div>
+    )
+}
+
+function SeriesCard({ series, onClick }) {
+    // series is an array of episodes
+    const rep = series[0] // representative episode
+    const posterSrc = getPosterSrc(rep.poster_path)
+    const monitoredCount = series.filter(e => e.monitored).length
+    const availableCount = series.filter(e => e.status === 'done').length
+
+    return (
+        <div className="poster-card" onClick={onClick} style={{ cursor: 'pointer' }}>
+            <div className="poster-img-wrap">
+                {posterSrc ? (
+                    <img
+                        src={posterSrc}
+                        alt={rep.title}
+                        className="poster-img"
+                        onError={e => {
+                            e.target.onerror = null
+                            e.target.replaceWith(
+                                Object.assign(document.createElement('div'), {
+                                    className: 'poster-placeholder',
+                                    textContent: rep.title?.charAt(0) || '?'
+                                })
+                            )
+                        }}
+                    />
+                ) : (
+                    <div className="poster-placeholder">
+                        {rep.title?.charAt(0) || '?'}
+                    </div>
+                )}
+                <div className="poster-status-bar" style={{ '--status-color': availableCount === series.length ? 'var(--success)' : 'var(--text-muted)' }}>
+                    <span className="poster-status-label">{availableCount} / {series.length} Available</span>
+                </div>
+                {monitoredCount > 0 && (
+                    <div className="poster-monitored-dot" title={`${monitoredCount} monitored`} />
+                )}
+            </div>
+
+            <div className="poster-info">
+                <div className="poster-title" title={rep.title}>{rep.title}</div>
+                <div className="poster-meta">
+                    <span>{series.length} Episodes</span>
+                    {rep.language && (
+                        <span className="poster-lang">{rep.language}</span>
+                    )}
+                </div>
+            </div>
+        </div>
+    )
+}
+
+function SeriesModal({ series, onClose, onTrigger, onDelete, onToggleMonitor }) {
+    const rep = series[0]
+    const seasons = [...new Set(series.map(e => e.season_number))].sort((a, b) => a - b)
+    const [selectedSeason, setSelectedSeason] = useState(seasons[0])
+
+    const seasonEpisodes = series.filter(e => e.season_number === selectedSeason).sort((a, b) => a.episode_number - b.episode_number)
+
+    return (
+        <div className="modal-overlay" onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }}>
+            <div className="modal-content card" onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 800, maxHeight: '90vh', display: 'flex', flexDirection: 'column', background: 'var(--bg-secondary)', overflow: 'hidden' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px', borderBottom: '1px solid var(--border)' }}>
+                    <h2 style={{ margin: 0 }}>{rep.title}</h2>
+                    <button className="btn btn-secondary" onClick={onClose}>✕</button>
+                </div>
+                
+                <div style={{ padding: '20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+                        <span style={{ fontWeight: 'bold' }}>Season:</span>
+                        <select 
+                            className="form-input" 
+                            value={selectedSeason} 
+                            onChange={e => setSelectedSeason(Number(e.target.value))}
+                            style={{ width: 120 }}
+                        >
+                            {seasons.map(s => <option key={s} value={s}>Season {s}</option>)}
+                        </select>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                        <button className="btn btn-secondary btn-sm" onClick={() => seasonEpisodes.forEach(ep => { if (!ep.monitored) onToggleMonitor(ep.id, ep.monitored) })}>
+                            Monitor Season
+                        </button>
+                        <button className="btn btn-primary btn-sm" onClick={() => seasonEpisodes.forEach(ep => { if (ep.status !== 'downloading' && ep.status !== 'importing') onTrigger(ep.id, ep.tmdb_id, ep.language) })}>
+                            Download Season
+                        </button>
+                    </div>
+                </div>
+
+                <div style={{ overflowY: 'auto', padding: '20px', flex: 1, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {seasonEpisodes.map(ep => {
+                        const status = (ep.status || '').toLowerCase()
+                        const colour = STATUS_COLOR[status] || 'var(--text-muted)'
+                        const label = STATUS_LABEL[status] || status.toUpperCase()
+
+                        return (
+                            <div key={ep.id} className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px' }}>
+                                <div>
+                                    <div style={{ fontWeight: 'bold', fontSize: 16 }}>Episode {ep.episode_number}</div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4 }}>
+                                        <span style={{ fontSize: 12, color: colour, fontWeight: 'bold' }}>{label}</span>
+                                        {ep.monitored ? <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>✓ Monitored</span> : <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>○ Unmonitored</span>}
+                                    </div>
+                                </div>
+                                <div style={{ display: 'flex', gap: 8 }}>
+                                    <button className="btn btn-secondary btn-sm" onClick={() => onToggleMonitor(ep.id, ep.monitored)}>
+                                        {ep.monitored ? 'Unmonitor' : 'Monitor'}
+                                    </button>
+                                    <button className="btn btn-primary btn-sm" onClick={() => onTrigger(ep.id, ep.tmdb_id, ep.language)} disabled={status === 'downloading' || status === 'importing'}>
+                                        Download
+                                    </button>
+                                    <button className="btn btn-danger btn-sm" onClick={() => onDelete(ep.id)}>✕</button>
+                                </div>
+                            </div>
+                        )
+                    })}
+                </div>
             </div>
         </div>
     )
@@ -155,7 +257,8 @@ export default function Movies({ mediaType = 'movie' }) {
     const [isTriggering, setIsTriggering] = useState(false)
     const [isSyncing, setIsSyncing] = useState(false)
     const [search, setSearch] = useState('')
-    const [activeTab, setActiveTab] = useState('all')
+    const [activeFilters, setActiveFilters] = useState(['all'])
+    const [selectedSeriesId, setSelectedSeriesId] = useState(null)
 
     const fetchMovies = async () => {
         try {
@@ -210,11 +313,7 @@ export default function Movies({ mediaType = 'movie' }) {
         setIsSyncing(true)
         setError(null)
         try {
-            // Radarr status sync runs INLINE on the server.
-            // DB is committed before the response returns,
-            // so fetchMovies() immediately after sees correct statuses.
             await api.syncRadarrStatus()
-            // Also kick off background Jellyseerr sync for new approved requests
             api.syncJellyseerr().catch(e => console.warn("Jellyseerr bg sync:", e))
             await fetchMovies()
         } catch (err) {
@@ -244,13 +343,36 @@ export default function Movies({ mediaType = 'movie' }) {
         } catch (err) { console.error(err) }
     }
 
+    const toggleFilter = (key) => {
+        setActiveFilters(prev => {
+            if (key === 'all') return ['all']
+            const next = prev.filter(f => f !== 'all')
+            if (next.includes(key)) {
+                const updated = next.filter(f => f !== key)
+                return updated.length === 0 ? ['all'] : updated
+            } else {
+                return [...next, key]
+            }
+        })
+    }
+
     const typeMovies = movies.filter(m => (m.media_type || 'movie') === mediaType)
 
+    // Apply Filters
     const filtered = typeMovies.filter(m => {
         const matchSearch = m.title.toLowerCase().includes(search.toLowerCase())
-        const matchTab = matchesTab(m, activeTab)
+        const matchTab = matchesFilters(m, activeFilters)
         return matchSearch && matchTab
     })
+
+    // Grouping for Series
+    let groupedSeries = {}
+    if (mediaType === 'series') {
+        filtered.forEach(m => {
+            if (!groupedSeries[m.tmdb_id]) groupedSeries[m.tmdb_id] = []
+            groupedSeries[m.tmdb_id].push(m)
+        })
+    }
 
     const uniqueLangs = [...new Set(typeMovies.map(m => m.language).filter(Boolean))].sort()
     const dynamicTabs = [
@@ -258,13 +380,14 @@ export default function Movies({ mediaType = 'movie' }) {
         ...uniqueLangs.map(lang => ({ key: `lang_${lang}`, label: lang.charAt(0).toUpperCase() + lang.slice(1) }))
     ]
 
+    const selectedSeriesEpisodes = selectedSeriesId && groupedSeries[selectedSeriesId] ? groupedSeries[selectedSeriesId] : null
+
     return (
         <div className="main-content">
-            {/* Header */}
             <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
                     <h1 className="page-title">{mediaType === 'series' ? 'Series' : 'Movies'}</h1>
-                    <p className="page-subtitle">{typeMovies.length} tracked · {typeMovies.filter(m => m.monitored).length} monitored</p>
+                    <p className="page-subtitle">{mediaType === 'series' ? Object.keys(groupedSeries).length : typeMovies.length} tracked</p>
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
                     <button className="btn btn-secondary" onClick={syncJellyseerr} disabled={isSyncing}>
@@ -285,27 +408,21 @@ export default function Movies({ mediaType = 'movie' }) {
                 </div>
             )}
 
-            {/* Filter tabs + search */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 20 }}>
-                {/* Tab row */}
                 <div className="filter-tabs" style={{ display: 'flex', flexWrap: 'wrap' }}>
                     {dynamicTabs.map(tab => {
-                        const count = tabCount(typeMovies, tab.key)
+                        const isActive = activeFilters.includes(tab.key)
                         return (
                             <button
                                 key={tab.key}
-                                className={`filter-tab${activeTab === tab.key ? ' active' : ''}`}
-                                onClick={() => setActiveTab(tab.key)}
+                                className={`filter-tab${isActive ? ' active' : ''}`}
+                                onClick={() => toggleFilter(tab.key)}
                             >
                                 {tab.label}
-                                {count > 0 && (
-                                    <span className="filter-tab-count">{count}</span>
-                                )}
                             </button>
                         )
                     })}
                 </div>
-                {/* Search */}
                 <input
                     className="filter-search"
                     placeholder={`Search ${mediaType === 'series' ? 'series' : 'movies'}...`}
@@ -314,7 +431,6 @@ export default function Movies({ mediaType = 'movie' }) {
                 />
             </div>
 
-            {/* Poster grid */}
             {loading && movies.length === 0 ? (
                 <div className="empty-state">
                     <div className="spinner" style={{ width: 28, height: 28, margin: '0 auto 16px' }} />
@@ -324,24 +440,38 @@ export default function Movies({ mediaType = 'movie' }) {
                 <div className="empty-state">
                     <div className="empty-state-icon" style={{ fontSize: 40 }}>{mediaType === 'series' ? '📺' : '🎬'}</div>
                     <div className="empty-state-text">No {mediaType === 'series' ? 'series' : 'movies'} found</div>
-                    <div className="empty-state-sub">
-                        {activeTab !== 'all'
-                            ? 'No movies in this category.'
-                            : 'Approve a request in Jellyseerr to get started.'}
-                    </div>
                 </div>
             ) : (
                 <div className="poster-grid">
-                    {filtered.map(movie => (
-                        <PosterCard
-                            key={movie.id}
-                            movie={movie}
-                            onTrigger={triggerJob}
-                            onDelete={deleteJob}
-                            onToggleMonitor={toggleMonitor}
-                        />
-                    ))}
+                    {mediaType === 'series' 
+                        ? Object.values(groupedSeries).map(series => (
+                            <SeriesCard
+                                key={series[0].tmdb_id}
+                                series={series}
+                                onClick={() => setSelectedSeriesId(series[0].tmdb_id)}
+                            />
+                        ))
+                        : filtered.map(movie => (
+                            <PosterCard
+                                key={movie.id}
+                                movie={movie}
+                                onTrigger={triggerJob}
+                                onDelete={deleteJob}
+                                onToggleMonitor={toggleMonitor}
+                            />
+                        ))
+                    }
                 </div>
+            )}
+
+            {selectedSeriesEpisodes && (
+                <SeriesModal 
+                    series={selectedSeriesEpisodes} 
+                    onClose={() => setSelectedSeriesId(null)}
+                    onTrigger={triggerJob}
+                    onDelete={deleteJob}
+                    onToggleMonitor={toggleMonitor}
+                />
             )}
         </div>
     )

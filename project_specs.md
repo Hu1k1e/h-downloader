@@ -901,3 +901,24 @@ It ensures Radarr does not keep the Einthusan copy permanently when a proper Blu
 - `backend/routers/jobs.py`
 - `frontend/src/api.js`
 - `frontend/src/pages/Settings.jsx`
+
+## 2026-05-31 - UI Clutter & Multi-Source Updates
+
+**Problem diagnosed:**
+- Syncing TV series created 100s of individual episode cards, clustering the UI.
+- TVDB and Sonarr native posters weren't showing because the import assumed all images came from `tmdb.org`.
+- Ticking "Hollywood" wasn't syncing movies because Radarr returns `"English"`, which didn't strictly map to the `"hollywood"` slug array.
+- "Einthusan" terminology was outdated since multiple scraper services exist now.
+- `Settings.jsx` importing states were shared, so clicking Sonarr import incorrectly showed text on the Radarr section.
+
+**Fix implemented:**
+1. Grouped Series: Completely overhauled `frontend/src/pages/Movies.jsx` when filtering `media_type === "series"`. Episodes are now grouped by `tmdb_id` under a unified `SeriesCard`. Clicking the card opens a `SeriesModal` that lets the user filter by season, trigger bulk "Download Season", or toggle monitoring states easily.
+2. Filter Tabs Multi-select: Language/Status filter tabs are now toggleable and support combination (e.g. `hollywood` + `hindi` + `movie_missing`).
+3. Fixed English mapping: Replaced `"English"` -> `"hollywood"` during `import-sonarr` and `import-radarr` to properly support Hollywood synchronization.
+4. Fixed Posters: `poster_path` can now correctly ingest and display full external image paths directly from TVDB.
+5. Renamed UI elements: Swapped specific backend scraper names out for "Scraper/Regional" and isolated Settings UI loading variables.
+
+**Files changed:**
+- `backend/routers/jobs.py`
+- `frontend/src/pages/Settings.jsx`
+- `frontend/src/pages/Movies.jsx`

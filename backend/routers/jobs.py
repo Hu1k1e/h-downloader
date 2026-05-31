@@ -231,6 +231,9 @@ async def trigger_import_radarr(background_tasks: BackgroundTasks, session: Sess
             continue
         
         lang_name = lang_obj.get("name", "").lower()
+        if lang_name == "english":
+            lang_name = "hollywood"
+            
         if lang_name in configured_langs:
             tmdb_id = movie.get("tmdbId")
             if not tmdb_id:
@@ -243,8 +246,8 @@ async def trigger_import_radarr(background_tasks: BackgroundTasks, session: Sess
             for img in movie.get("images", []):
                 if img.get("coverType") == "poster":
                     remote_url = img.get("remoteUrl", "")
-                    if remote_url and "tmdb.org" in remote_url:
-                        poster_path = "/" + remote_url.split("/")[-1]
+                    if remote_url:
+                        poster_path = remote_url
                     break
 
             # Check if job already exists
@@ -306,6 +309,9 @@ async def trigger_import_sonarr(background_tasks: BackgroundTasks, session: Sess
             continue
         
         lang_name = lang_obj.get("name", "").lower()
+        if lang_name == "english":
+            lang_name = "hollywood"
+            
         if lang_name in configured_langs:
             tmdb_id = series.get("tmdbId")
             if not tmdb_id:
@@ -320,8 +326,8 @@ async def trigger_import_sonarr(background_tasks: BackgroundTasks, session: Sess
             for img in series.get("images", []):
                 if img.get("coverType") == "poster":
                     remote_url = img.get("remoteUrl", "")
-                    if remote_url and "tmdb.org" in remote_url:
-                        poster_path = "/" + remote_url.split("/")[-1]
+                    if remote_url:
+                        poster_path = remote_url
                     break
 
             for ep in episodes:
