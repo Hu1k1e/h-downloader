@@ -39,6 +39,13 @@ async def is_episode_available(series_id: int, season_number: int, episode_numbe
                 return ep.get("hasFile", False)
     return False
 
+async def get_episodes_for_series(series_id: int, settings: AppSettings) -> List[Dict[str, Any]]:
+    """Return all episodes for a given series."""
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.get(_url(settings, f"/episode?seriesId={series_id}"), headers=_headers(settings))
+        resp.raise_for_status()
+        return resp.json()
+
 async def get_episode_queue_status(series_id: int, season_number: int, episode_number: int, settings: AppSettings) -> Optional[Dict[str, Any]]:
     """Checks the Sonarr queue for a specific episode."""
     async with httpx.AsyncClient(timeout=15) as client:

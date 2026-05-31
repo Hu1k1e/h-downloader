@@ -192,17 +192,17 @@ async def sync_jellyseerr(background_tasks: BackgroundTasks):
 
 @router.post("/jobs/sync-radarr")
 async def sync_radarr(session: Session = Depends(get_session)):
-    "Synchronously refresh all job statuses from Radarr."
+    "Synchronously refresh all job statuses from Radarr and Sonarr."
     import logging as _log
-    from backend.sync import sync_radarr_status
+    from backend.sync import sync_media_status
     settings = get_settings(session)
-    if not settings.radarr_api_key:
-        raise HTTPException(status_code=400, detail="Radarr API key is not configured.")
+    if not settings.radarr_api_key and not settings.sonarr_api_key:
+        raise HTTPException(status_code=400, detail="API keys are not configured.")
     try:
-        result = await sync_radarr_status(session, settings)
+        result = await sync_media_status(session, settings)
     except Exception as e:
         _log.getLogger(__name__).error(f"sync-radarr failed: {e}")
-        raise HTTPException(status_code=502, detail=f"Radarr sync failed: {e}")
+        raise HTTPException(status_code=502, detail=f"Media sync failed: {e}")
     return {"status": "ok", **result}
 
 
@@ -275,6 +275,90 @@ async def trigger_import_radarr(background_tasks: BackgroundTasks, session: Sess
 
             session.add(new_job)
             imported_count += 1
+
+    if imported_count > 0:
+        session.commit()
+        
+    return {"status": "success", "imported": imported_count}
+
+
+@router.post("/jobs/import-sonarr")
+async def trigger_import_sonarr(background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
+    """Import all series and episodes from Sonarr that match configured regional languages."""
+    from backend.services import sonarr as sonarr_svc
+    settings = get_settings(session)
+    if not settings.sonarr_api_key:
+        raise HTTPException(status_code=400, detail="Sonarr API key is not configured.")
+
+    try:
+        series_list = await sonarr_svc.get_all_series(settings)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to fetch series from Sonarr: {e}")
+
+    configured_langs = [l.strip().lower() for l in settings.einthusan_languages_str.split(",") if l.strip()]
+    if not configured_langs:
+        raise HTTPException(status_code=400, detail="No Einthusan languages configured in settings.")
+
+    imported_count = 0
+    for series in series_list:
+        lang_obj = series.get("originalLanguage")
+        if not lang_obj:
+            continue
+        
+        lang_name = lang_obj.get("name", "").lower()
+        if lang_name in configured_langs:
+            tmdb_id = series.get("tmdbId")
+            if not tmdb_id:
+                continue
+
+            try:
+                episodes = await sonarr_svc.get_episodes_for_series(series["id"], settings)
+            except Exception:
+                continue
+
+            poster_path = None
+            for img in series.get("images", []):
+                if img.get("coverType") == "poster":
+                    remote_url = img.get("remoteUrl", "")
+                    if remote_url and "tmdb.org" in remote_url:
+                        poster_path = "/" + remote_url.split("/")[-1]
+                    break
+
+            for ep in episodes:
+                existing_job = session.exec(select(DownloadJob).where(
+                    DownloadJob.tmdb_id == tmdb_id,
+                    DownloadJob.season_number == ep["seasonNumber"],
+                    DownloadJob.episode_number == ep["episodeNumber"],
+                    DownloadJob.media_type == "series"
+                )).first()
+                
+                if existing_job:
+                    updated = False
+                    if not existing_job.poster_path and poster_path:
+                        existing_job.poster_path = poster_path
+                        updated = True
+                    if existing_job.status == JobStatus.PENDING and not ep.get("hasFile"):
+                        existing_job.status = JobStatus.MOVIE_MISSING
+                        updated = True
+                    if updated:
+                        session.add(existing_job)
+                        imported_count += 1
+                    continue
+
+                new_job = DownloadJob(
+                    tmdb_id=tmdb_id,
+                    title=series.get("title", "Unknown"),
+                    year=series.get("year"),
+                    language=lang_name,
+                    media_type="series",
+                    season_number=ep["seasonNumber"],
+                    episode_number=ep["episodeNumber"],
+                    monitored=series.get("monitored", True) and ep.get("monitored", True),
+                    status=JobStatus.DONE if ep.get("hasFile") else JobStatus.MOVIE_MISSING,
+                    poster_path=poster_path
+                )
+                session.add(new_job)
+                imported_count += 1
 
     if imported_count > 0:
         session.commit()

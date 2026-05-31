@@ -882,3 +882,22 @@ It ensures Radarr does not keep the Einthusan copy permanently when a proper Blu
 - `frontend/src/pages/Movies.jsx`
 - `frontend/src/App.jsx`
 - `frontend/src/components/Sidebar.jsx`
+
+## 2026-05-31 - Sonarr TV Series Sync & Import Features
+
+**Problem diagnosed:**
+- There was no way to natively import TV series manually from Sonarr like we could with Radarr.
+- The `Sync Requests` interval and manual trigger button did not synchronize Sonarr statuses (`hasFile`, `monitored`, `MOVIE_MISSING`) correctly.
+
+**Fix implemented:**
+1. Updated `backend/services/sonarr.py` with `get_episodes_for_series()` to fetch all episodes for a given series.
+2. Replaced `sync_radarr_status` with `sync_media_status` inside `backend/sync.py`. It fetches all movies from Radarr and all series/episodes from Sonarr, updating local jobs to reflect exact `hasFile` and `monitored` states or marking missing files as `MOVIE_MISSING`.
+3. Created the `POST /api/jobs/import-sonarr` endpoint to bulk-import matched regional TV Series, parsing out every episode and saving it as an independent `DownloadJob` with correct tracking tags.
+4. Added an "Import Regional Series" button to the Sonarr Connection block inside `Settings.jsx` and updated UI tooltips to reflect that the sync scheduler impacts both Radarr and Sonarr.
+
+**Files changed:**
+- `backend/services/sonarr.py`
+- `backend/sync.py`
+- `backend/routers/jobs.py`
+- `frontend/src/api.js`
+- `frontend/src/pages/Settings.jsx`

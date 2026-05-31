@@ -76,57 +76,117 @@ async def _is_sonarr_actively_downloading(series_id: int, season: int, episode: 
         return False
 
 
-async def sync_radarr_status(session, settings):
+async def sync_media_status(session, settings):
     """Sync all local jobs against Radarr/Sonarr in one API call."""
-    if not settings.radarr_api_key:
-        logger.warning("sync_radarr_status: Radarr API key not configured.")
-        return {"updated": 0, "deleted": 0, "unchanged": 0}
-    try:
-        all_radarr = await radarr.get_all_movies(settings)
-    except Exception as e:
-        logger.error(f"sync_radarr_status: Radarr fetch failed: {e}")
-        raise
-        
-    radarr_by_tmdb = {m["tmdbId"]: m for m in all_radarr if m.get("tmdbId")}
-    
-    # We could also sync Sonarr here, but keeping it simple for movies right now
-    
-    jobs = session.exec(select(DownloadJob).where(DownloadJob.media_type == "movie")).all()
     updated = deleted = unchanged = 0
-    for job in jobs:
-        rm = radarr_by_tmdb.get(job.tmdb_id)
-        if rm is None:
-            session.delete(job)
-            deleted += 1
-            continue
-        has_file = rm.get("hasFile", False)
-        rm_monitored = rm.get("monitored", False)
-        changed = False
-        if job.monitored != rm_monitored:
-            job.monitored = rm_monitored
-            changed = True
-        if has_file:
-            if job.status != JobStatus.DONE:
-                job.status = JobStatus.DONE
-                job.progress_pct = 100
-                job.error_msg = None
-                changed = True
-        else:
-            if job.status in (JobStatus.DOWNLOADING, JobStatus.SEARCHING, JobStatus.IMPORTING, JobStatus.CHECKING_RADARR):
-                unchanged += 1
-                continue
-            if job.status == JobStatus.DONE:
-                job.status = JobStatus.MOVIE_MISSING
-                job.error_msg = "File missing from folder"
-                job.monitored = rm_monitored
-                changed = True
-        if changed:
-            session.add(job)
-            updated += 1
-        else:
-            unchanged += 1
+
+    if settings.radarr_api_key:
+        try:
+            all_radarr = await radarr.get_all_movies(settings)
+            radarr_by_tmdb = {m["tmdbId"]: m for m in all_radarr if m.get("tmdbId")}
+            
+            jobs = session.exec(select(DownloadJob).where(DownloadJob.media_type == "movie")).all()
+            for job in jobs:
+                rm = radarr_by_tmdb.get(job.tmdb_id)
+                if rm is None:
+                    session.delete(job)
+                    deleted += 1
+                    continue
+                has_file = rm.get("hasFile", False)
+                rm_monitored = rm.get("monitored", False)
+                changed = False
+                if job.monitored != rm_monitored:
+                    job.monitored = rm_monitored
+                    changed = True
+                if has_file:
+                    if job.status != JobStatus.DONE:
+                        job.status = JobStatus.DONE
+                        job.progress_pct = 100
+                        job.error_msg = None
+                        changed = True
+                else:
+                    if job.status in (JobStatus.DOWNLOADING, JobStatus.SEARCHING, JobStatus.IMPORTING, JobStatus.CHECKING_RADARR):
+                        unchanged += 1
+                        continue
+                    if job.status == JobStatus.DONE:
+                        job.status = JobStatus.MOVIE_MISSING
+                        job.error_msg = "File missing from folder"
+                        job.monitored = rm_monitored
+                        changed = True
+                if changed:
+                    session.add(job)
+                    updated += 1
+                else:
+                    unchanged += 1
+        except Exception as e:
+            logger.error(f"sync_media_status: Radarr fetch failed: {e}")
+
+    if settings.sonarr_api_key:
+        try:
+            all_sonarr = await sonarr.get_all_series(settings)
+            sonarr_by_tmdb = {s["tmdbId"]: s for s in all_sonarr if s.get("tmdbId")}
+            
+            series_jobs = session.exec(select(DownloadJob).where(DownloadJob.media_type == "series")).all()
+            from collections import defaultdict
+            jobs_by_tmdb = defaultdict(list)
+            for j in series_jobs:
+                jobs_by_tmdb[j.tmdb_id].append(j)
+
+            for tmdb_id, j_list in jobs_by_tmdb.items():
+                sm = sonarr_by_tmdb.get(tmdb_id)
+                if sm is None:
+                    for job in j_list:
+                        session.delete(job)
+                        deleted += 1
+                    continue
+                
+                episodes = await sonarr.get_episodes_for_series(sm["id"], settings)
+                ep_map = {(ep["seasonNumber"], ep["episodeNumber"]): ep for ep in episodes}
+                
+                sm_monitored = sm.get("monitored", False)
+
+                for job in j_list:
+                    ep = ep_map.get((job.season_number, job.episode_number))
+                    if ep is None:
+                        session.delete(job)
+                        deleted += 1
+                        continue
+                        
+                    has_file = ep.get("hasFile", False)
+                    # Sonarr episodes have their own monitored flag, plus the series monitored flag
+                    ep_monitored = sm_monitored and ep.get("monitored", False)
+                    
+                    changed = False
+                    if job.monitored != ep_monitored:
+                        job.monitored = ep_monitored
+                        changed = True
+                        
+                    if has_file:
+                        if job.status != JobStatus.DONE:
+                            job.status = JobStatus.DONE
+                            job.progress_pct = 100
+                            job.error_msg = None
+                            changed = True
+                    else:
+                        if job.status in (JobStatus.DOWNLOADING, JobStatus.SEARCHING, JobStatus.IMPORTING, JobStatus.CHECKING_RADARR):
+                            unchanged += 1
+                            continue
+                        if job.status == JobStatus.DONE:
+                            job.status = JobStatus.MOVIE_MISSING
+                            job.error_msg = "File missing from folder"
+                            job.monitored = ep_monitored
+                            changed = True
+                    if changed:
+                        session.add(job)
+                        updated += 1
+                    else:
+                        unchanged += 1
+        except Exception as e:
+            logger.error(f"sync_media_status: Sonarr fetch failed: {e}")
+
     session.commit()
     return {"updated": updated, "deleted": deleted, "unchanged": unchanged}
+
 
 
 async def sync_jellyseerr_requests():

@@ -127,6 +127,20 @@ export default function Settings() {
         }
     }
 
+    async function importSonarrSeries() {
+        if (!window.confirm("This will fetch all series and episodes from Sonarr and import any that match your configured regional languages. Continue?")) return;
+        setImporting(true)
+        setImportMsg('')
+        try {
+            const res = await api.importSonarr()
+            setImportMsg(`Successfully imported ${res.imported} episodes!`)
+        } catch (e) {
+            setImportMsg(`Import failed: ${e.message}`)
+        } finally {
+            setImporting(false)
+        }
+    }
+
     async function testTmdb() {
         setTmdbTesting(true)
         setTmdbStatus(null)
@@ -241,6 +255,15 @@ export default function Settings() {
                         {sonarrStatus === 'err' && <span className="test-result err">✗ {sonarrMsg}</span>}
                     </div>
                 </div>
+                <div className="form-row">
+                    <span className="form-label">Import</span>
+                    <div className="connection-test-row">
+                        <button className="btn btn-secondary btn-sm" onClick={importSonarrSeries} disabled={importing || (!settings.sonarr_api_key_set && !formData.sonarr_api_key)}>
+                            {importing ? <><span className="spinner" /> Importing…</> : 'Import Regional Series'}
+                        </button>
+                        {importMsg && <span className="test-result" style={{color: importMsg.includes('failed') ? 'var(--danger)' : 'var(--success)'}}>{importMsg}</span>}
+                    </div>
+                </div>
             </div>
 
             {/* Jellyseerr */}
@@ -315,7 +338,7 @@ export default function Settings() {
                             min={30}
                             style={{ maxWidth: 100 }}
                         />
-                        <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>seconds (min 30) — how often to poll Jellyseerr and sync with Radarr</span>
+                        <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>seconds (min 30) — how often to poll Jellyseerr and sync with Radarr and Sonarr</span>
                     </div>
                 </div>
             </div>

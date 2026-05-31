@@ -40,4 +40,5 @@ export const api = {
     testSonarr: (data) => request('/api/test/sonarr', { method: 'POST', body: data }),
     testTmdb: (data) => request('/api/test/tmdb', { method: 'POST', body: data }),
     importRadarr: () => request('/api/jobs/import-radarr', { method: 'POST' }),
+    importSonarr: () => request('/api/jobs/import-sonarr', { method: 'POST' }),
 }
