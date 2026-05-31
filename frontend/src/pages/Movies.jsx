@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { api } from '../api'
 
 const STATUS_COLOR = {
@@ -20,18 +20,18 @@ const STATUS_LABEL = {
     searching: 'Searching',
     failed: 'Failed',
     not_found: 'Not Found',
-    pending: 'Downloading on Radarr',
-    checking_radarr: 'Downloading on Radarr',
+    pending: 'Downloading on Server',
+    checking_radarr: 'Downloading on Server',
     importing: 'Importing',
     skipped: 'Skipped',
     movie_missing: 'File Missing',
 }
 
-// Filter tabs definition
-const TABS = [
+// Base Filter tabs definition
+const BASE_TABS = [
     { key: 'all', label: 'All' },
     { key: 'available', label: 'Available' },
-    { key: 'radarr', label: 'Downloading on Radarr' },
+    { key: 'radarr', label: 'Downloading on Server' },
     { key: 'movie_missing', label: 'File Missing' },
     { key: 'unmonitored', label: 'Unmonitored' },
 ]
@@ -43,6 +43,7 @@ function matchesTab(movie, tab) {
     if (tab === 'radarr') return s === 'pending' || s === 'checking_radarr'
     if (tab === 'movie_missing') return s === 'movie_missing'
     if (tab === 'unmonitored') return !movie.monitored
+    if (tab.startsWith('lang_')) return movie.language === tab.replace('lang_', '')
     return true
 }
 
@@ -106,7 +107,11 @@ function PosterCard({ movie, onTrigger, onDelete, onToggleMonitor }) {
             <div className="poster-info">
                 <div className="poster-title" title={movie.title}>{movie.title}</div>
                 <div className="poster-meta">
-                    {movie.year && <span>{movie.year}</span>}
+                    {movie.media_type === 'series' && movie.season_number && movie.episode_number ? (
+                        <span className="poster-lang" style={{ background: '#3b82f6' }}>S{String(movie.season_number).padStart(2, '0')}E{String(movie.episode_number).padStart(2, '0')}</span>
+                    ) : movie.year ? (
+                        <span>{movie.year}</span>
+                    ) : null}
                     {movie.language && (
                         <span className="poster-lang">{movie.language}</span>
                     )}
@@ -245,6 +250,12 @@ export default function Movies() {
         return matchSearch && matchTab
     })
 
+    const uniqueLangs = [...new Set(movies.map(m => m.language).filter(Boolean))].sort()
+    const dynamicTabs = [
+        ...BASE_TABS,
+        ...uniqueLangs.map(lang => ({ key: `lang_${lang}`, label: lang.charAt(0).toUpperCase() + lang.slice(1) }))
+    ]
+
     return (
         <div className="main-content">
             {/* Header */}
@@ -275,8 +286,8 @@ export default function Movies() {
             {/* Filter tabs + search */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 20 }}>
                 {/* Tab row */}
-                <div className="filter-tabs">
-                    {TABS.map(tab => {
+                <div className="filter-tabs" style={{ display: 'flex', flexWrap: 'wrap' }}>
+                    {dynamicTabs.map(tab => {
                         const count = tabCount(movies, tab.key)
                         return (
                             <button

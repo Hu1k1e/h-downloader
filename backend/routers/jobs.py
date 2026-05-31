@@ -103,6 +103,9 @@ class TriggerRequest(BaseModel):
     tmdb_id: Optional[int] = None
     title: Optional[str] = None
     language: Optional[str] = None
+    media_type: str = "movie"
+    season_number: Optional[int] = None
+    episode_number: Optional[int] = None
 
 
 @router.post("/jobs/trigger")
@@ -136,7 +139,7 @@ async def trigger_download(req: TriggerRequest, background_tasks: BackgroundTask
             raise HTTPException(status_code=404, detail=f"No TMDB results for '{req.title}'")
         tmdb_id = results[0]["id"]
 
-    background_tasks.add_task(process_request, tmdb_id, req.language)
+    background_tasks.add_task(process_request, tmdb_id, req.language, req.media_type, req.season_number, req.episode_number)
     return {"status": "accepted", "tmdb_id": tmdb_id}
 
 @router.post("/jobs/trigger-monitored")
@@ -176,7 +179,7 @@ async def retry_job(job_id: int, background_tasks: BackgroundTasks, session: Ses
     session.add(job)
     session.commit()
     
-    background_tasks.add_task(process_request, job.tmdb_id, job.language)
+    background_tasks.add_task(process_request, job.tmdb_id, job.language, job.media_type, job.season_number, job.episode_number)
     return {"status": "retrying", "tmdb_id": job.tmdb_id}
 
 @router.post("/jobs/sync")
@@ -286,6 +289,17 @@ async def test_radarr(session: Session = Depends(get_session)):
     settings = get_settings(session)
     try:
         result = await radarr_svc.test_connection(settings)
+        return {"status": "ok", "version": result.get("version")}
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+
+@router.get("/test/sonarr")
+async def test_sonarr(session: Session = Depends(get_session)):
+    from backend.services import sonarr as sonarr_svc
+    settings = get_settings(session)
+    try:
+        result = await sonarr_svc.test_connection(settings)
         return {"status": "ok", "version": result.get("version")}
     except Exception as e:
         raise HTTPException(status_code=503, detail=str(e))

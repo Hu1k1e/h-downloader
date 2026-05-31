@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 
-const ALL_LANGS = ['malayalam', 'tamil', 'telugu', 'hindi', 'kannada', 'bengali', 'marathi', 'punjabi']
+const ALL_LANGS = ['malayalam', 'tamil', 'telugu', 'hindi', 'kannada', 'bengali', 'marathi', 'punjabi', 'hollywood']
 
 export default function Settings() {
     const [settings, setSettings] = useState(null)
@@ -10,10 +10,13 @@ export default function Settings() {
     const [saveMsg, setSaveMsg] = useState('')
 
     const [radarrStatus, setRadarrStatus] = useState(null)  // null | 'ok' | 'err'
+    const [sonarrStatus, setSonarrStatus] = useState(null)
     const [tmdbStatus, setTmdbStatus] = useState(null)
     const [radarrTesting, setRadarrTesting] = useState(false)
+    const [sonarrTesting, setSonarrTesting] = useState(false)
     const [tmdbTesting, setTmdbTesting] = useState(false)
     const [radarrMsg, setRadarrMsg] = useState('')
+    const [sonarrMsg, setSonarrMsg] = useState('')
     const [copied, setCopied] = useState(false)
     
     const [importing, setImporting] = useState(false)
@@ -26,6 +29,9 @@ export default function Settings() {
                 radarr_url: data.radarr_url,
                 radarr_root_folder: data.radarr_root_folder,
                 radarr_api_key: '', // Empty means don't update
+                sonarr_url: data.sonarr_url,
+                sonarr_root_folder: data.sonarr_root_folder,
+                sonarr_api_key: '',
                 jellyseerr_url: data.jellyseerr_url,
                 jellyseerr_api_key: '',
                 tmdb_api_key: '',
@@ -83,6 +89,21 @@ export default function Settings() {
             setRadarrMsg(e.message)
         } finally {
             setRadarrTesting(false)
+        }
+    }
+
+    async function testSonarr() {
+        setSonarrTesting(true)
+        setSonarrStatus(null)
+        try {
+            const r = await api.testSonarr()
+            setSonarrStatus('ok')
+            setSonarrMsg(r.version ? `v${r.version}` : '')
+        } catch (e) {
+            setSonarrStatus('err')
+            setSonarrMsg(e.message)
+        } finally {
+            setSonarrTesting(false)
         }
     }
 
@@ -183,6 +204,33 @@ export default function Settings() {
                             {importing ? <><span className="spinner" /> Importing…</> : 'Import Regional Movies'}
                         </button>
                         {importMsg && <span className="test-result" style={{color: importMsg.includes('failed') ? 'var(--danger)' : 'var(--success)'}}>{importMsg}</span>}
+                    </div>
+                </div>
+            </div>
+
+            {/* Sonarr */}
+            <div className="card settings-section" style={{ marginBottom: 16 }}>
+                <div className="settings-section-title">Sonarr Connection</div>
+                <div className="form-row">
+                    <span className="form-label">URL</span>
+                    <input className="form-input" name="sonarr_url" value={formData.sonarr_url} onChange={handleChange} placeholder="http://localhost:8989" />
+                </div>
+                <div className="form-row">
+                    <span className="form-label">API Key</span>
+                    <input className="form-input" name="sonarr_api_key" value={formData.sonarr_api_key} onChange={handleChange} placeholder={settings.sonarr_api_key_set ? '●●●●●●●●● (Set - Type to change)' : 'Not set'} />
+                </div>
+                <div className="form-row">
+                    <span className="form-label">Root Folder</span>
+                    <input className="form-input" name="sonarr_root_folder" value={formData.sonarr_root_folder} onChange={handleChange} placeholder="/tv" />
+                </div>
+                <div className="form-row">
+                    <span className="form-label">Connection</span>
+                    <div className="connection-test-row">
+                        <button className="btn btn-secondary btn-sm" onClick={testSonarr} disabled={sonarrTesting}>
+                            {sonarrTesting ? <><span className="spinner" /> Testing…</> : 'Test Connection'}
+                        </button>
+                        {sonarrStatus === 'ok' && <span className="test-result ok">✓ Connected {sonarrMsg}</span>}
+                        {sonarrStatus === 'err' && <span className="test-result err">✗ {sonarrMsg}</span>}
                     </div>
                 </div>
             </div>
