@@ -262,7 +262,7 @@ export default function Movies({ mediaType = 'movie' }) {
 
     const fetchMovies = async () => {
         try {
-            const res = await fetch('/api/jobs')
+            const res = await fetch('/api/jobs?limit=10000')
             if (!res.ok) throw new Error('Failed to fetch movies')
             const data = await res.json()
             setMovies(data)

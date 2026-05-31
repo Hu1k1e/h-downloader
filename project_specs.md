@@ -934,6 +934,8 @@ It ensures Radarr does not keep the Einthusan copy permanently when a proper Blu
 1. Updated `frontend/src/api.js` to correctly map FastAPI array `detail` strings into human-readable comma-separated strings instead of raw JS objects.
 2. Rewrote the `import-radarr` and `import-sonarr` routines in `backend/routers/jobs.py`. If a series or movie lacks the `originalLanguage` attribute (which is always true for Sonarr), the backend will now gracefully look up the TMDB ID via TMDB's API and cache the real original language, properly routing it to match user-ticked filters.
 3. Updated `Movies.jsx` to correctly pass `movie.media_type`, `movie.season_number`, and `movie.episode_number` backwards down into the `triggerJob` function, properly routing 123movies TV show scrapes through the `process_request` endpoint.
+4. **API Testing Fix:** Relaxed the Pydantic payload models in `jobs.py` (`RadarrTestPayload`, `SonarrTestPayload`) to allow `api_key: Optional[str] = None`. This fixes the `422 Field required` error if the user cleared their frontend API key field.
+5. **Pagination Fix:** The `GET /api/jobs` endpoint historically defaulted to a `limit=100`. Because TV shows add hundreds or thousands of episode jobs, the frontend was instantly truncating the dataset, causing the UI to only show a handful of Series. Increased the limit parameter to `10000` so all groups populate correctly.
 
 **Files changed:**
 - `frontend/src/api.js`

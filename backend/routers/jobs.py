@@ -22,7 +22,7 @@ router = APIRouter(prefix="/api", tags=["jobs"])
 def list_jobs(
     status: Optional[str] = None,
     language: Optional[str] = None,
-    limit: int = 100,
+    limit: int = 10000,
     offset: int = 0,
     session: Session = Depends(get_session),
 ):
@@ -399,14 +399,14 @@ async def trigger_import_sonarr(background_tasks: BackgroundTasks, session: Sess
 
 class RadarrTestPayload(BaseModel):
     url: str
-    api_key: str
+    api_key: Optional[str] = None
 
 class SonarrTestPayload(BaseModel):
     url: str
-    api_key: str
+    api_key: Optional[str] = None
 
 class TmdbTestPayload(BaseModel):
-    api_key: str
+    api_key: Optional[str] = None
 
 @router.post("/test/radarr")
 async def test_radarr(payload: RadarrTestPayload, session: Session = Depends(get_session)):
