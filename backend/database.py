@@ -17,9 +17,28 @@ engine = create_engine(
     connect_args={"check_same_thread": False, "timeout": 30.0}
 )
 
+from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
+
 def init_db():
     SQLModel.metadata.create_all(engine)
     
+    # Simple auto-migration for newly added columns
+    with engine.begin() as conn:
+        for stmt in [
+            "ALTER TABLE appsettings ADD COLUMN sonarr_url VARCHAR",
+            "ALTER TABLE appsettings ADD COLUMN sonarr_api_key VARCHAR",
+            "ALTER TABLE appsettings ADD COLUMN sonarr_root_folder VARCHAR",
+            "ALTER TABLE appsettings ADD COLUMN sonarr_quality_profile_id INTEGER",
+            "ALTER TABLE downloadjob ADD COLUMN media_type VARCHAR DEFAULT 'movie'",
+            "ALTER TABLE downloadjob ADD COLUMN season_number INTEGER",
+            "ALTER TABLE downloadjob ADD COLUMN episode_number INTEGER",
+        ]:
+            try:
+                conn.execute(text(stmt))
+            except OperationalError:
+                pass
+                
     # Initialize settings if table exists but is empty
     with Session(engine) as session:
         settings = session.exec(select(AppSettings)).first()
