@@ -81,7 +81,10 @@ export default function Settings() {
         setRadarrTesting(true)
         setRadarrStatus(null)
         try {
-            const r = await api.testRadarr()
+            const r = await api.testRadarr({
+                url: formData.radarr_url,
+                api_key: formData.radarr_api_key || settings.radarr_api_key
+            })
             setRadarrStatus('ok')
             setRadarrMsg(r.version ? `v${r.version}` : '')
         } catch (e) {
@@ -96,7 +99,10 @@ export default function Settings() {
         setSonarrTesting(true)
         setSonarrStatus(null)
         try {
-            const r = await api.testSonarr()
+            const r = await api.testSonarr({
+                url: formData.sonarr_url,
+                api_key: formData.sonarr_api_key || settings.sonarr_api_key
+            })
             setSonarrStatus('ok')
             setSonarrMsg(r.version ? `v${r.version}` : '')
         } catch (e) {
@@ -125,7 +131,9 @@ export default function Settings() {
         setTmdbTesting(true)
         setTmdbStatus(null)
         try {
-            await api.testTmdb()
+            await api.testTmdb({
+                api_key: formData.tmdb_api_key || settings.tmdb_api_key
+            })
             setTmdbStatus('ok')
         } catch (e) {
             setTmdbStatus('err')

@@ -36,8 +36,8 @@ export const api = {
     triggerMissing: () => request('/api/jobs/trigger-missing', { method: 'POST' }),
     getSettings: () => request('/api/settings'),
     updateSettings: (data) => request('/api/settings', { method: 'POST', body: data }),
-    testRadarr: () => request('/api/test/radarr'),
-    testSonarr: () => request('/api/test/sonarr'),
-    testTmdb: () => request('/api/test/tmdb'),
+    testRadarr: (data) => request('/api/test/radarr', { method: 'POST', body: data }),
+    testSonarr: (data) => request('/api/test/sonarr', { method: 'POST', body: data }),
+    testTmdb: (data) => request('/api/test/tmdb', { method: 'POST', body: data }),
     importRadarr: () => request('/api/jobs/import-radarr', { method: 'POST' }),
 }

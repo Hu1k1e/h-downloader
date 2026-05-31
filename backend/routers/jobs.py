@@ -284,9 +284,25 @@ async def trigger_import_radarr(background_tasks: BackgroundTasks, session: Sess
 
 # ── Connection tests ─────────────────────────────────────────────────────────
 
-@router.get("/test/radarr")
-async def test_radarr(session: Session = Depends(get_session)):
+class RadarrTestPayload(BaseModel):
+    url: str
+    api_key: str
+
+class SonarrTestPayload(BaseModel):
+    url: str
+    api_key: str
+
+class TmdbTestPayload(BaseModel):
+    api_key: str
+
+@router.post("/test/radarr")
+async def test_radarr(payload: RadarrTestPayload, session: Session = Depends(get_session)):
     settings = get_settings(session)
+    # Override settings with payload for testing
+    settings.radarr_url = payload.url
+    if payload.api_key:
+        settings.radarr_api_key = payload.api_key
+        
     try:
         result = await radarr_svc.test_connection(settings)
         return {"status": "ok", "version": result.get("version")}
@@ -294,10 +310,15 @@ async def test_radarr(session: Session = Depends(get_session)):
         raise HTTPException(status_code=503, detail=str(e))
 
 
-@router.get("/test/sonarr")
-async def test_sonarr(session: Session = Depends(get_session)):
+@router.post("/test/sonarr")
+async def test_sonarr(payload: SonarrTestPayload, session: Session = Depends(get_session)):
     from backend.services import sonarr as sonarr_svc
     settings = get_settings(session)
+    # Override settings with payload for testing
+    settings.sonarr_url = payload.url
+    if payload.api_key:
+        settings.sonarr_api_key = payload.api_key
+        
     try:
         result = await sonarr_svc.test_connection(settings)
         return {"status": "ok", "version": result.get("version")}
@@ -305,9 +326,13 @@ async def test_sonarr(session: Session = Depends(get_session)):
         raise HTTPException(status_code=503, detail=str(e))
 
 
-@router.get("/test/tmdb")
-async def test_tmdb(session: Session = Depends(get_session)):
+@router.post("/test/tmdb")
+async def test_tmdb(payload: TmdbTestPayload, session: Session = Depends(get_session)):
     settings = get_settings(session)
+    # Override settings with payload for testing
+    if payload.api_key:
+        settings.tmdb_api_key = payload.api_key
+        
     try:
         await tmdb_svc.test_connection(settings)
         return {"status": "ok"}

@@ -852,3 +852,33 @@ It ensures Radarr does not keep the Einthusan copy permanently when a proper Blu
 
 **Files changed:**
 - `backend/services/downloader.py`
+
+## 2026-05-31 - Sonarr and TV Series Integration
+
+**Problem diagnosed:**
+- The application previously only supported Movies via Radarr.
+- Requested TV Series from Jellyseerr had to be manually processed, or ignored.
+- Einthusan lacks TV Series, requiring a fallback scraper.
+- The UI's "Test Connection" button previously tested settings saved in the DB instead of testing what the user was currently typing in the fields.
+
+**Fix implemented:**
+1. Built a `onetwothreemovies.py` scraper to scrape direct MP4 links from `https://ww8.123moviesfree.net` for TV episodes.
+2. Handled TV requests correctly from the Jellyseerr webhook (identifying season/episode).
+3. Developed `sonarr.py` to interface with Sonarr API v3 for checking queue health, triggering rescans, and managing monitoring state.
+4. Upgraded the Database `AppSettings` to hold Sonarr configuration options and `DownloadJob` to track `media_type`, `season_number`, and `episode_number`.
+5. Updated `orchestrator.py` to route to the fallback scraper natively for TV Series, ensuring Sonarr checks are made first.
+6. Refactored the Frontend UI (`Settings.jsx` & `Movies.jsx`) to expose a new "Series" tab, "Hollywood" language tag, and pass unsaved form parameters inside live POST connection tests.
+
+**Files changed:**
+- `backend/services/onetwothreemovies.py`
+- `backend/services/sonarr.py`
+- `backend/orchestrator.py`
+- `backend/sync.py`
+- `backend/routers/webhook.py`
+- `backend/routers/settings.py`
+- `backend/routers/jobs.py`
+- `frontend/src/api.js`
+- `frontend/src/pages/Settings.jsx`
+- `frontend/src/pages/Movies.jsx`
+- `frontend/src/App.jsx`
+- `frontend/src/components/Sidebar.jsx`
