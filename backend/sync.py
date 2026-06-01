@@ -80,9 +80,17 @@ async def sync_radarr_status(session, settings):
         raise
     radarr_by_tmdb = {m["tmdbId"]: m for m in all_radarr if m.get("tmdbId")}
     logger.info(f"sync_radarr_status: {len(radarr_by_tmdb)} Radarr movies, reconciling...")
+    configured_langs = _get_einthusan_languages(settings)
     jobs = session.exec(select(DownloadJob)).all()
     updated = deleted = unchanged = 0
     for job in jobs:
+        # Delete if language is no longer relevant
+        if job.language and configured_langs and job.language.lower() not in configured_langs:
+            logger.info(f"sync_radarr_status: {job.title!r} language '{job.language}' not in configured languages, deleting job.")
+            session.delete(job)
+            deleted += 1
+            continue
+            
         rm = radarr_by_tmdb.get(job.tmdb_id)
         if rm is None:
             logger.info(f"sync_radarr_status: {job.title!r} removed from Radarr, deleting job.")
@@ -208,6 +216,13 @@ async def sync_jellyseerr_requests():
             
             configured_langs = _get_einthusan_languages(settings)
             if configured_langs:
+                # Clean up existing non-relevant jobs
+                all_jobs = session.exec(select(DownloadJob)).all()
+                for job in all_jobs:
+                    if job.language and job.language.lower() not in configured_langs:
+                        logger.info(f"Auto-import cleanup: '{job.title}' language not relevant, deleting.")
+                        session.delete(job)
+                
                 for movie in radarr_movies:
                     lang_obj = movie.get("originalLanguage")
                     if not lang_obj:

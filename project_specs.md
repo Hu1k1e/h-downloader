@@ -852,3 +852,19 @@ It ensures Radarr does not keep the Einthusan copy permanently when a proper Blu
 
 **Files changed:**
 - `backend/services/downloader.py`
+
+---
+
+## [2026-06-01] Fix Language Filtering and Job Cleanup
+
+**Problem:**
+The database contained legacy Hollywood movies from a reverted update, and the app was displaying them. Radarr import and sync processes were not actively removing jobs that no longer matched the configured languages in settings.
+
+**Changes made:**
+- **UI Filtering:** Updated GET /api/jobs in ackend/routers/jobs.py to strictly filter returned jobs by the languages currently ticked in settings (unless specifically querying a single language). This immediately hides any irrelevant legacy movies from the UI.
+- **Active Cleanup on Import:** Modified the POST /jobs/import-radarr endpoint to proactively delete any existing jobs from the database whose language does not match the configured languages.
+- **Active Cleanup on Sync:** Modified both sync_radarr_status and sync_jellyseerr_requests in ackend/sync.py to identify and delete any jobs from the database that no longer match the configured languages.
+
+**Files changed:**
+- ackend/routers/jobs.py
+- ackend/sync.py

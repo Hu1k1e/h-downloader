@@ -26,11 +26,18 @@ def list_jobs(
     offset: int = 0,
     session: Session = Depends(get_session),
 ):
+    settings = get_settings(session)
+    configured_langs = [l.strip().lower() for l in settings.einthusan_languages_str.split(",") if l.strip()]
+
     query = select(DownloadJob).order_by(DownloadJob.created_at.desc())
     if status:
         query = query.where(DownloadJob.status == status)
     if language:
         query = query.where(DownloadJob.language == language)
+    elif configured_langs:
+        # Only show languages that have been ticked in settings
+        query = query.where(DownloadJob.language.in_(configured_langs))
+        
     query = query.offset(offset).limit(limit)
     return session.exec(query).all()
 
@@ -221,6 +228,15 @@ async def trigger_import_radarr(background_tasks: BackgroundTasks, session: Sess
         raise HTTPException(status_code=400, detail="No Einthusan languages configured in settings.")
 
     imported_count = 0
+    deleted_count = 0
+    
+    # First, remove non-relevant imports that are already in the DB
+    existing_jobs = session.exec(select(DownloadJob)).all()
+    for job in existing_jobs:
+        if job.language and job.language.lower() not in configured_langs:
+            session.delete(job)
+            deleted_count += 1
+            
     for movie in movies:
         # Radarr language comes as {"id": 4, "name": "Malayalam"}
         lang_obj = movie.get("originalLanguage")
@@ -273,10 +289,10 @@ async def trigger_import_radarr(background_tasks: BackgroundTasks, session: Sess
             session.add(new_job)
             imported_count += 1
 
-    if imported_count > 0:
+    if imported_count > 0 or deleted_count > 0:
         session.commit()
         
-    return {"status": "success", "imported": imported_count}
+    return {"status": "success", "imported": imported_count, "deleted": deleted_count}
 
 
 # ── Connection tests ─────────────────────────────────────────────────────────
