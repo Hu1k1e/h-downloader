@@ -26,7 +26,7 @@ def list_jobs(
     offset: int = 0,
     session: Session = Depends(get_session),
 ):
-    query = select(DownloadJob).order_by(DownloadJob.created_at.desc())
+    query = select(DownloadJob).order_by(DownloadJob.updated_at.desc())
     if status:
         query = query.where(DownloadJob.status == status)
     if language:

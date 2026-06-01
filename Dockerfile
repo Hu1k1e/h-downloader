@@ -24,7 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 RUN playwright install chromium
-RUN playwright install-deps
+RUN apt-get update && playwright install-deps && rm -rf /var/lib/apt/lists/*
 
 # Backend source
 COPY backend/ ./backend/

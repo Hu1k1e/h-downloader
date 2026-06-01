@@ -38,29 +38,33 @@ async def search_media(title: str, year: Optional[int], is_series: bool = False,
     base_url = config.ONETWOTHREEMOVIES_BASE_URL.rstrip('/')
     
     search_query = title.replace(" ", "+")
-    if is_series and season is not None:
-        search_query += f"+season+{season}"
+    # API might return 0 results if we append "season X" to the search query, 
+    # so we just search for the title and filter the results.
         
-    search_url = f"{base_url}/search/{search_query}.html"
+    search_url = f"{base_url}/searching?q={search_query}&limit=40&offset=0"
     
     try:
-        async with httpx.AsyncClient(timeout=30, follow_redirects=True, headers=_HEADERS) as client:
+        headers = _HEADERS.copy()
+        headers["Accept"] = "application/json, text/plain, */*"
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True, headers=headers) as client:
             resp = await client.get(search_url)
             resp.raise_for_status()
-            soup = BeautifulSoup(resp.text, "lxml")
             
-            items = soup.select(".flw-item, .film-poster, .ml-item, .item")
+            try:
+                data = resp.json()
+                items = data.get("data", [])
+            except Exception:
+                items = []
             
             for item in items:
-                a_tag = item.find("a")
-                if not a_tag or not a_tag.get("href"):
+                item_title = item.get("t", "")
+                slug = item.get("s", "")
+                media_type = item.get("d", "")
+                
+                if not slug:
                     continue
                     
-                href = a_tag["href"]
-                item_title = a_tag.get("title", "") or a_tag.get_text(strip=True)
-                
-                quality_tag = item.select_one(".quality, .pick, .film-poster-quality, .tag")
-                quality_badge = quality_tag.get_text(strip=True) if quality_tag else ""
+                quality_badge = item.get("q", "")
                 
                 if _is_theatre_screening(item_title, quality_badge):
                     logger.info(f"Skipping '{item_title}' - identified as theatre screening (CAM/TS).")
@@ -72,9 +76,18 @@ async def search_media(title: str, year: Optional[int], is_series: bool = False,
                 clean_item_title = re.sub(r'[^\w\s]', '', item_title).lower()
                 
                 if clean_title in clean_item_title:
-                    if href.startswith("http"):
-                        return href
-                    return f"{base_url}{href if href.startswith('/') else '/' + href}"
+                    if is_series and season is not None:
+                        # Ensure the correct season is matched
+                        if media_type != "s":
+                            continue
+                        if f"season {season}" not in clean_item_title:
+                            continue
+                    else:
+                        if media_type == "s" and not is_series:
+                            continue
+                            
+                    href = f"/season/{slug}/" if media_type == "s" else f"/movie/{slug}/"
+                    return f"{base_url}{href}"
                     
     except Exception as e:
         logger.error(f"123movies search failed: {e}")
