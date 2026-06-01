@@ -955,3 +955,21 @@ It ensures Radarr does not keep the Einthusan copy permanently when a proper Blu
 - `frontend/src/components/Sidebar.jsx`
 - `frontend/src/pages/Dashboard.jsx`
 - `frontend/index.html`
+
+---
+
+## 2026-06-01 - Remove 123movies Playwright Implementation
+
+**Problem diagnosed:**
+- The Playwright headless browser implementation used to bypass Cloudflare and obfuscation on 123movies was very resource-heavy and brittle.
+- The `ffmpeg` downloads were still returning HTTP 404s due to IP and session binding on the extracted `.m3u8` streams.
+
+**Changes made:**
+- **Reverted Headless Browser**: Removed the `onetwothreemovies.py` service and its Playwright dependencies entirely to reduce resource usage.
+- **Removed Hollywood Scraper Logic**: Removed references to `onetwothreemovies` in the `orchestrator.py` fallback search and MP4 extraction logic.
+- **Cleaned Up Node.js**: Cleaned up the temporary `package.json` and Node modules added for alternative open-source API evaluations.
+- **Kept UI Changes**: Maintained all the UI enhancements for Series, filtering, and rebranding (so users can still manually interact with existing jobs or use Einthusan correctly).
+
+**Files changed:**
+- `backend/services/onetwothreemovies.py` (deleted)
+- `backend/orchestrator.py`
