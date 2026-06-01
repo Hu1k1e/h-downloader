@@ -176,7 +176,7 @@ async def extract_mp4_url(watch_url: str, is_series: bool = False, season: Optio
                     # Clear stream_url before clicking to capture the new one
                     stream_url = None
                     captured_m3u8 = None
-                    await page.locator(ep_sel).click()
+                    await page.locator(ep_sel).click(force=True)
                     # Short sleep to allow network request to fire
                     await asyncio.sleep(2)
                 except Exception as e:
