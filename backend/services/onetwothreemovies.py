@@ -102,15 +102,24 @@ async def extract_mp4_url(watch_url: str, is_series: bool = False, season: Optio
     import json
     
     stream_url = None
+    captured_m3u8 = None
     
     try:
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            page = await browser.new_page()
+            browser = await p.chromium.launch(
+                headless=True,
+                args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled']
+            )
+            context = await browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            )
+            page = await context.new_page()
 
             async def handle_response(response):
-                nonlocal stream_url
+                nonlocal stream_url, captured_m3u8
                 url = response.url
+                if ".m3u8" in url and "master" in url:
+                    captured_m3u8 = url
                 if "/get/" in url and response.status == 200:
                     try:
                         text = await response.text()
@@ -159,26 +168,38 @@ async def extract_mp4_url(watch_url: str, is_series: bool = False, season: Optio
             logger.info(f"Navigating to {watch_url}")
             await page.goto(watch_url, timeout=30000)
             
+            # Click the episode first so we get the RIGHT stream
+            if is_series and episode:
+                try:
+                    ep_sel = f"#ep-{episode}"
+                    await page.wait_for_selector(ep_sel, state="attached", timeout=5000)
+                    # Clear stream_url before clicking to capture the new one
+                    stream_url = None
+                    captured_m3u8 = None
+                    await page.locator(ep_sel).click()
+                    # Short sleep to allow network request to fire
+                    await asyncio.sleep(2)
+                except Exception as e:
+                    logger.warning(f"Failed to click episode {episode}: {e}")
+            
             try:
+                # Click play-now if it exists
                 await page.wait_for_selector("#play-now", state="attached", timeout=5000)
                 await page.locator("#play-now").click()
             except Exception:
                 pass
                 
-            if is_series and episode:
-                try:
-                    ep_sel = f"#ep-{episode}"
-                    await page.wait_for_selector(ep_sel, state="attached", timeout=5000)
-                    await page.locator(ep_sel).click()
-                except Exception:
-                    pass
-            
             for _ in range(15):
                 if stream_url:
+                    break
+                if captured_m3u8:
+                    stream_url = captured_m3u8
                     break
                 await asyncio.sleep(1)
                 
             await browser.close()
+            
+            return stream_url
             
     except Exception as e:
         logger.error(f"123movies MP4 extraction failed: {e}")
