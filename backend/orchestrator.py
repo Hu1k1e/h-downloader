@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 from backend import config
 from backend.database import engine, get_settings
 from backend.models import DownloadJob, JobStatus, AppSettings
-from backend.services import einthusan, radarr, sonarr, tmdb, onetwothreemovies
+from backend.services import einthusan, radarr, sonarr, tmdb
 from backend.services.downloader import download_movie, get_movie_file_path
 
 
@@ -204,15 +204,7 @@ async def _run_pipeline(
                 except Exception:
                     continue
 
-        # Fallback to 123movies if Einthusan fails, OR if it's a series, OR if language is hollywood
-        if not watch_url and (is_hollywood or media_type == "series" or not watch_url):
-            try:
-                url = await onetwothreemovies.search_media(title, year, media_type == "series", season_number, episode_number)
-                if url:
-                    watch_url = url
-                    found_lang = "hollywood" if is_hollywood else langs_to_try[0]
-            except Exception as e:
-                logger.error(f"123movies fallback failed: {e}")
+        # Einthusan search logic only
 
         if not watch_url:
             _update_job(session, job, status=JobStatus.NOT_FOUND,
@@ -223,10 +215,7 @@ async def _run_pipeline(
 
         # ── Step 5: Extract direct MP4 URL ──────────────────────────────────
         try:
-            if "einthusan" in watch_url:
-                direct_url = await einthusan.extract_mp4_url(watch_url)
-            else:
-                direct_url = await onetwothreemovies.extract_mp4_url(watch_url, media_type == "series", season_number, episode_number)
+            direct_url = await einthusan.extract_mp4_url(watch_url)
         except Exception as e:
             _update_job(session, job, status=JobStatus.FAILED, error_msg=f"MP4 extraction failed: {e}")
             return
