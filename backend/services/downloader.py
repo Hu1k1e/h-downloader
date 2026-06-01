@@ -76,16 +76,14 @@ async def download_movie(
             # Use ffmpeg for m3u8
             _update_job_progress(session, job_id, 0, 0, 0, status=JobStatus.DOWNLOADING)
             
-            headers_str = (
-                f"User-Agent: {_HEADERS['User-Agent']}\r\n"
-                f"Referer: https://ww8.123moviesfree.net/\r\n"
-            )
+            headers_str = f"Referer: https://ww8.123moviesfree.net/\r\n"
             if cookies_str:
                 headers_str += f"Cookie: {cookies_str}\r\n"
             
             # Simple ffmpeg command to copy streams to mp4
             cmd = [
                 "ffmpeg", "-y",
+                "-user_agent", _HEADERS["User-Agent"],
                 "-headers", headers_str,
                 "-i", url,
                 "-c", "copy",
