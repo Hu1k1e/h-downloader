@@ -68,13 +68,25 @@ async def download_movie(
     try:
         os.makedirs(os.path.dirname(dest_path), exist_ok=True)
         
+        cookies_str = ""
+        if "|cookies=" in url:
+            url, cookies_str = url.split("|cookies=", 1)
+            
         if ".m3u8" in url:
             # Use ffmpeg for m3u8
             _update_job_progress(session, job_id, 0, 0, 0, status=JobStatus.DOWNLOADING)
             
+            headers_str = (
+                f"User-Agent: {_HEADERS['User-Agent']}\r\n"
+                f"Referer: https://ww8.123moviesfree.net/\r\n"
+            )
+            if cookies_str:
+                headers_str += f"Cookie: {cookies_str}\r\n"
+            
             # Simple ffmpeg command to copy streams to mp4
             cmd = [
                 "ffmpeg", "-y",
+                "-headers", headers_str,
                 "-i", url,
                 "-c", "copy",
                 "-bsf:a", "aac_adtstoasc",

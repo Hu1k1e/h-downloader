@@ -196,9 +196,14 @@ async def extract_mp4_url(watch_url: str, is_series: bool = False, season: Optio
                     stream_url = captured_m3u8
                     break
                 await asyncio.sleep(1)
+            
+            cookies = await context.cookies()
+            cookie_str = "; ".join([f"{c['name']}={c['value']}" for c in cookies])
                 
             await browser.close()
             
+            if stream_url and cookie_str:
+                return f"{stream_url}|cookies={cookie_str}"
             return stream_url
             
     except Exception as e:
