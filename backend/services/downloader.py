@@ -61,42 +61,68 @@ async def download_movie(
     job_id: int, url: str, dest_path: str, session: Session
 ) -> bool:
     """
-    Downloads a file in chunks and updates the DB with progress.
-    Returns True if successful, False otherwise.
+    Downloads a file. If .m3u8, uses ffmpeg. Otherwise, streams in chunks.
+    Updates the DB with progress. Returns True if successful, False otherwise.
     """
     logger.info(f"Starting download to {dest_path}")
     try:
-        # Ensure parent directory exists
         os.makedirs(os.path.dirname(dest_path), exist_ok=True)
         
-        async with httpx.AsyncClient(timeout=30, follow_redirects=True, headers=_HEADERS) as client:
-            async with client.stream("GET", url) as resp:
-                resp.raise_for_status()
-                total_bytes = int(resp.headers.get("content-length", 0))
+        if ".m3u8" in url:
+            # Use ffmpeg for m3u8
+            _update_job_progress(session, job_id, 0, 0, 0, status=JobStatus.DOWNLOADING)
+            
+            # Simple ffmpeg command to copy streams to mp4
+            cmd = [
+                "ffmpeg", "-y",
+                "-i", url,
+                "-c", "copy",
+                "-bsf:a", "aac_adtstoasc",
+                dest_path
+            ]
+            
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            stdout, stderr = await process.communicate()
+            if process.returncode != 0:
+                raise Exception(f"ffmpeg failed: {stderr.decode()}")
+                
+            _update_job_progress(session, job_id, 1, 1, 100, status=JobStatus.DONE)
+            return True
+            
+        else:
+            # Standard MP4 stream
+            async with httpx.AsyncClient(timeout=30, follow_redirects=True, headers=_HEADERS) as client:
+                async with client.stream("GET", url) as resp:
+                    resp.raise_for_status()
+                    total_bytes = int(resp.headers.get("content-length", 0))
 
-                with open(dest_path, "wb") as f:
-                    downloaded = 0
-                    last_pct = -1
+                    with open(dest_path, "wb") as f:
+                        downloaded = 0
+                        last_pct = -1
 
-                    async for chunk in resp.aiter_bytes(chunk_size=1024 * 1024):  # 1MB chunks
-                        f.write(chunk)
-                        downloaded += len(chunk)
+                        async for chunk in resp.aiter_bytes(chunk_size=1024 * 1024):  # 1MB chunks
+                            f.write(chunk)
+                            downloaded += len(chunk)
 
-                        if total_bytes:
-                            pct = int((downloaded / total_bytes) * 100)
-                            if pct > last_pct:
-                                _update_job_progress(
-                                    session, job_id, downloaded, total_bytes, pct
-                                )
-                                last_pct = pct
-                                
-        logger.info(f"Finished download for Job {job_id}")
-        return True
+                            if total_bytes:
+                                pct = int((downloaded / total_bytes) * 100)
+                                if pct > last_pct:
+                                    _update_job_progress(
+                                        session, job_id, downloaded, total_bytes, pct
+                                    )
+                                    last_pct = pct
+                                    
+            logger.info(f"Finished download for Job {job_id}")
+            return True
 
     except Exception as e:
         logger.error(f"Download error for Job {job_id}: {e}")
         _update_job_progress(session, job_id, 0, 0, 0, status=JobStatus.FAILED, error=str(e))
-        # Clean up partial file
         if os.path.exists(dest_path):
             os.remove(dest_path)
         return False

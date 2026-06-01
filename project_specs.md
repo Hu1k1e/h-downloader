@@ -941,3 +941,17 @@ It ensures Radarr does not keep the Einthusan copy permanently when a proper Blu
 - `frontend/src/api.js`
 - `backend/routers/jobs.py`
 - `frontend/src/pages/Movies.jsx`
+
+## 2026-06-01 - FFmpeg integration and UI Polish
+
+**Changes made:**
+- **FFmpeg Integration**: Modified `Dockerfile` to install `ffmpeg`. Updated `backend/services/downloader.py` to check if a stream ends with `.m3u8` and seamlessly download it into a finalized `.mp4` file via `ffmpeg` instead of standard `httpx` streaming.
+- **Series UI**: The `Sidebar.jsx`, `App.jsx`, and `Movies.jsx` were polished to natively support Series downloading as distinct from Movies. 
+- **Rebranding**: Removed outdated "Einthusan" terminology from `Dashboard.jsx`, `index.html`, and `Sidebar.jsx` and updated UI elements.
+
+**Files changed:**
+- `Dockerfile`
+- `backend/services/downloader.py`
+- `frontend/src/components/Sidebar.jsx`
+- `frontend/src/pages/Dashboard.jsx`
+- `frontend/index.html`

@@ -283,30 +283,27 @@ async def trigger_import_radarr(background_tasks: BackgroundTasks, session: Sess
                     updated = True
                 if updated:
                     session.add(existing_job)
-                    imported_count += 1
-                continue
-
-            new_job = DownloadJob(
-                tmdb_id=tmdb_id,
-                title=movie.get("title", "Unknown"),
-                year=movie.get("year"),
-                language=lang_name,
-                monitored=movie.get("monitored", True),
-                status=JobStatus.DONE if movie.get("hasFile") else JobStatus.MOVIE_MISSING,
-                poster_path=poster_path
-            )
-            session.add(new_job)
-            imported_count += 1
-
-    if imported_count > 0:
-        session.commit()
-        
-    return {"status": "success", "imported": imported_count}
-
+            else:
+                new_job = DownloadJob(
+                    tmdb_id=tmdb_id,
+                    title=movie.get("title"),
+                    year=movie.get("year"),
+                    media_type="movie",
+                    language=lang_name,
+                    status=JobStatus.PENDING,
+                    monitored=movie.get("monitored", True),
+                    poster_path=poster_path,
+                )
+                session.add(new_job)
+                imported_count += 1
+                
+    session.commit()
+    background_tasks.add_task(sync_jellyseerr_requests)
+    return {"status": "ok", "imported": imported_count, "message": f"Imported {imported_count} new movie(s) from Radarr."}
 
 @router.post("/jobs/import-sonarr")
 async def trigger_import_sonarr(background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
-    """Import all series and episodes from Sonarr that match configured regional languages."""
+    """Import all series from Sonarr that match configured regional languages."""
     from backend.services import sonarr as sonarr_svc
     settings = get_settings(session)
     if not settings.sonarr_api_key:

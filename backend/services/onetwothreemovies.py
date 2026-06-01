@@ -83,41 +83,91 @@ async def search_media(title: str, year: Optional[int], is_series: bool = False,
 
 async def extract_mp4_url(watch_url: str, is_series: bool = False, season: Optional[int] = None, episode: Optional[int] = None) -> Optional[str]:
     """
-    Extract the direct video stream URL from the watch page.
+    Extract the direct video stream URL from the watch page using Playwright.
     """
+    from playwright.async_api import async_playwright
+    import json
+    
+    stream_url = None
+    
     try:
-        async with httpx.AsyncClient(timeout=30, follow_redirects=True, headers=_HEADERS) as client:
-            # If it's a series, we might need to modify the watch url to point to the specific episode
-            # Many 123movies clones use URL patterns like /watch-tv/show-name-season-1-episode-2.html
-            if is_series and season and episode:
-                # Attempt to append or replace episode string
-                watch_url = re.sub(r'episode-\d+', f'episode-{episode}', watch_url)
-                
-            resp = await client.get(watch_url)
-            resp.raise_for_status()
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            page = await browser.new_page()
+
+            async def handle_response(response):
+                nonlocal stream_url
+                url = response.url
+                if "/get/" in url and response.status == 200:
+                    try:
+                        text = await response.text()
+                        data = json.loads(text)
+                        if "info" in data:
+                            info_hex = data["info"]
+                            decrypted = await page.evaluate('''async ([infoHex, password]) => {
+                                const parts = infoHex.split("-");
+                                const salt = new Uint8Array(parts[0].match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+                                const iv = new Uint8Array(parts[1].match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+                                const ciphertext = new Uint8Array(parts[2].match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+                                
+                                const keyMaterial = await crypto.subtle.importKey(
+                                    "raw",
+                                    new TextEncoder().encode(password),
+                                    "PBKDF2",
+                                    false,
+                                    ["deriveKey"]
+                                );
+                                
+                                const key = await crypto.subtle.deriveKey(
+                                    { name: "PBKDF2", salt: salt, iterations: 1000, hash: "SHA-256" },
+                                    keyMaterial,
+                                    { name: "AES-GCM", length: 256 },
+                                    false,
+                                    ["decrypt"]
+                                );
+                                
+                                const decryptedBuffer = await crypto.subtle.decrypt(
+                                    { name: "AES-GCM", iv: iv },
+                                    key,
+                                    ciphertext
+                                );
+                                
+                                return new TextDecoder().decode(decryptedBuffer);
+                            }''', [info_hex, "player"])
+                            
+                            domain = url.split("/get/")[0]
+                            stream_url = f"{domain}/hls/{decrypted}/master.m3u8"
+                            logger.info(f"Successfully extracted stream URL: {stream_url}")
+                    except Exception as e:
+                        logger.error(f"Failed to decrypt info: {e}")
+
+            page.on("response", handle_response)
             
-            soup = BeautifulSoup(resp.text, "lxml")
+            logger.info(f"Navigating to {watch_url}")
+            await page.goto(watch_url, timeout=30000)
             
-            # Look for common iframe players
-            iframe = soup.find("iframe")
-            if iframe and iframe.get("src"):
-                iframe_src = iframe["src"]
+            try:
+                await page.wait_for_selector("#play-now", state="attached", timeout=5000)
+                await page.locator("#play-now").click()
+            except Exception:
+                pass
                 
-                if not iframe_src.startswith("http"):
-                    iframe_src = "https:" + iframe_src if iframe_src.startswith("//") else iframe_src
-                    
-                iframe_resp = await client.get(iframe_src)
+            if is_series and episode:
+                try:
+                    ep_sel = f"#ep-{episode}"
+                    await page.wait_for_selector(ep_sel, state="attached", timeout=5000)
+                    await page.locator(ep_sel).click()
+                except Exception:
+                    pass
+            
+            for _ in range(15):
+                if stream_url:
+                    break
+                await asyncio.sleep(1)
                 
-                match = re.search(r'(https?://[^\s\'"]+\.(?:mp4|m3u8)[^\s\'"]*)', iframe_resp.text)
-                if match:
-                    return match.group(1)
-                    
-            # Fallback directly in page
-            match = re.search(r'(https?://[^\s\'"]+\.(?:mp4|m3u8)[^\s\'"]*)', resp.text)
-            if match:
-                return match.group(1)
-                
+            await browser.close()
+            
     except Exception as e:
         logger.error(f"123movies MP4 extraction failed: {e}")
         
-    return None
+    return stream_url

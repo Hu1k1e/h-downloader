@@ -33,7 +33,7 @@ export default function Dashboard() {
             <div className="page-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div>
                     <h1 className="page-title">Dashboard</h1>
-                    <p className="page-subtitle">Monitor and manage your Einthusan downloads</p>
+                    <p className="page-subtitle">Monitor and manage your downloads</p>
                 </div>
                 <button className="btn btn-primary" onClick={() => setShowModal(true)}>
                     ＋ Trigger Download
@@ -90,7 +90,7 @@ export default function Dashboard() {
                                             </span>
                                         )}
                                         {job.einthusan_url && (
-                                            <span style={{ color: 'var(--text-muted)' }}>· via Einthusan</span>
+                                            <span style={{ color: 'var(--text-muted)' }}>· via Search</span>
                                         )}
                                     </div>
                                 </div>
