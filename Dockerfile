@@ -11,13 +11,13 @@ COPY frontend/ ./
 RUN npm run build
 
 # ── Stage 2: Python backend ───────────────────────────────────────────────────
-FROM mcr.microsoft.com/playwright/python:v1.44.0-jammy AS backend
+FROM python:3.12-slim AS backend
 
 WORKDIR /app
 
 # System deps for lxml / httpx
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc libxml2-dev libxslt-dev curl ffmpeg \
+    gcc libxml2-dev libxslt-dev curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Python deps

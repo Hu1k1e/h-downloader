@@ -10,19 +10,13 @@ def _get_list(key: str, default: str = "") -> List[str]:
     return [v.strip() for v in raw.split(",") if v.strip()]
 
 
-# 🎬 Radarr 🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬
+# ── Radarr ──────────────────────────────────────────────────────────────────
 RADARR_URL: str = os.getenv("RADARR_URL", "http://localhost:7878")
 RADARR_API_KEY: str = os.getenv("RADARR_API_KEY", "")
 RADARR_ROOT_FOLDER: str = os.getenv("RADARR_ROOT_FOLDER", "/movies")
 RADARR_QUALITY_PROFILE_ID: int = int(os.getenv("RADARR_QUALITY_PROFILE_ID", "1"))
 
-# 🎬 Sonarr 🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬
-SONARR_URL: str = os.getenv("SONARR_URL", "http://localhost:8989")
-SONARR_API_KEY: str = os.getenv("SONARR_API_KEY", "")
-SONARR_ROOT_FOLDER: str = os.getenv("SONARR_ROOT_FOLDER", "/tv")
-SONARR_QUALITY_PROFILE_ID: int = int(os.getenv("SONARR_QUALITY_PROFILE_ID", "1"))
-
-# 🎬 Jellyseerr 🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬───────────────────────────────────────────────────────────────
+# ── Jellyseerr ───────────────────────────────────────────────────────────────
 JELLYSEERR_URL: str = os.getenv("JELLYSEERR_URL", "http://localhost:5055")
 JELLYSEERR_API_KEY: str = os.getenv("JELLYSEERR_API_KEY", "")
 WEBHOOK_SECRET: str = os.getenv("WEBHOOK_SECRET", "")
@@ -31,15 +25,12 @@ WEBHOOK_SECRET: str = os.getenv("WEBHOOK_SECRET", "")
 TMDB_API_KEY: str = os.getenv("TMDB_API_KEY", "")
 TMDB_BASE_URL: str = "https://api.themoviedb.org/3"
 
-# 🎬 Einthusan 🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬
+# ── Einthusan ────────────────────────────────────────────────────────────────
 EINTHUSAN_LANGUAGES: List[str] = _get_list(
     "EINTHUSAN_LANGUAGES", "malayalam,tamil,telugu"
 )
 
-# 🎬 123movies 🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬
-ONETWOTHREEMOVIES_BASE_URL: str = os.getenv("ONETWOTHREEMOVIES_BASE_URL", "https://ww8.123moviesfree.net")
-
-# 🎬 Download behaviour 🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬────────────────────────────────────────────────────────
+# ── Download behaviour ────────────────────────────────────────────────────────
 # Fallback: if no digital release date exists, check this many days after
 # the theatrical release before attempting Einthusan search
 DIGITAL_RELEASE_FALLBACK_DAYS: int = int(
@@ -60,7 +51,6 @@ LANGUAGE_SLUG_MAP = {
     "bengali": "bengali",
     "marathi": "marathi",
     "punjabi": "punjabi",
-    "hollywood": "hollywood", # Virtual slug for 123movies fallback
 }
 
 # TMDB spoken language codes → Einthusan language slug
@@ -73,5 +63,4 @@ TMDB_LANG_TO_EINTHUSAN = {
     "bn": "bengali",
     "mr": "marathi",
     "pa": "punjabi",
-    "en": "hollywood", # Map English TMDB movies to our "hollywood" virtual slug
 }

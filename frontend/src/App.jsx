@@ -11,8 +11,7 @@ export default function App() {
             <Sidebar />
             <Routes>
                 <Route path="/" element={<Dashboard />} />
-                <Route path="/movies" element={<Movies mediaType="movie" />} />
-                <Route path="/series" element={<Movies mediaType="series" />} />
+                <Route path="/movies" element={<Movies />} />
                 <Route path="/jobs" element={<Jobs />} />
                 <Route path="/settings" element={<Settings />} />
             </Routes>

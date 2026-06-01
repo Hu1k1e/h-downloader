@@ -12,12 +12,8 @@ async function request(path, options = {}) {
         body: options.body ? JSON.stringify(options.body) : undefined,
     })
     if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        let msg = err.detail || err.message || `Request failed with status ${res.status}`;
-        if (Array.isArray(msg)) {
-            msg = msg.map(m => m.msg).join(', ');
-        }
-        throw new Error(msg)
+        const err = await res.json().catch(() => ({ detail: res.statusText }))
+        throw new Error(err.detail || 'Request failed')
     }
     return res.json()
 }
@@ -40,9 +36,7 @@ export const api = {
     triggerMissing: () => request('/api/jobs/trigger-missing', { method: 'POST' }),
     getSettings: () => request('/api/settings'),
     updateSettings: (data) => request('/api/settings', { method: 'POST', body: data }),
-    testRadarr: (data) => request('/api/test/radarr', { method: 'POST', body: data }),
-    testSonarr: (data) => request('/api/test/sonarr', { method: 'POST', body: data }),
-    testTmdb: (data) => request('/api/test/tmdb', { method: 'POST', body: data }),
+    testRadarr: () => request('/api/test/radarr'),
+    testTmdb: () => request('/api/test/tmdb'),
     importRadarr: () => request('/api/jobs/import-radarr', { method: 'POST' }),
-    importSonarr: () => request('/api/jobs/import-sonarr', { method: 'POST' }),
 }

@@ -27,9 +27,6 @@ class DownloadJob(SQLModel, table=True):
     tmdb_id: int = Field(index=True)
     title: str
     year: Optional[int] = None
-    media_type: str = Field(default="movie", index=True) # "movie" or "series"
-    season_number: Optional[int] = None
-    episode_number: Optional[int] = None
     language: Optional[str] = None          # e.g. "malayalam"
     status: JobStatus = JobStatus.PENDING
     einthusan_url: Optional[str] = None     # watch page URL
@@ -51,9 +48,6 @@ class DownloadJobRead(SQLModel):
     tmdb_id: int
     title: str
     year: Optional[int]
-    media_type: str
-    season_number: Optional[int]
-    episode_number: Optional[int]
     language: Optional[str]
     status: JobStatus
     einthusan_url: Optional[str]
@@ -77,11 +71,6 @@ class AppSettings(SQLModel, table=True):
     radarr_api_key: str = Field(default="")
     radarr_root_folder: str = Field(default="/movies")
     radarr_quality_profile_id: int = Field(default=1)
-
-    sonarr_url: str = Field(default="http://localhost:8989")
-    sonarr_api_key: str = Field(default="")
-    sonarr_root_folder: str = Field(default="/tv")
-    sonarr_quality_profile_id: int = Field(default=1)
     
     jellyseerr_url: str = Field(default="http://localhost:5055")
     jellyseerr_api_key: str = Field(default="")
@@ -100,9 +89,6 @@ class AppSettingsRead(SQLModel):
     radarr_url: str
     radarr_root_folder: str
     radarr_api_key_set: bool
-    sonarr_url: str
-    sonarr_root_folder: str
-    sonarr_api_key_set: bool
     jellyseerr_url: str
     jellyseerr_api_key_set: bool
     tmdb_api_key_set: bool
@@ -117,10 +103,6 @@ class AppSettingsUpdate(SQLModel):
     radarr_url: Optional[str] = None
     radarr_root_folder: Optional[str] = None
     radarr_api_key: Optional[str] = None # Empty string means don't update
-    
-    sonarr_url: Optional[str] = None
-    sonarr_root_folder: Optional[str] = None
-    sonarr_api_key: Optional[str] = None
     
     jellyseerr_url: Optional[str] = None
     jellyseerr_api_key: Optional[str] = None

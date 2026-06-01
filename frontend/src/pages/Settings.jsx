@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 
-const ALL_LANGS = ['malayalam', 'tamil', 'telugu', 'hindi', 'kannada', 'bengali', 'marathi', 'punjabi', 'hollywood']
+const ALL_LANGS = ['malayalam', 'tamil', 'telugu', 'hindi', 'kannada', 'bengali', 'marathi', 'punjabi']
 
 export default function Settings() {
     const [settings, setSettings] = useState(null)
@@ -10,19 +10,14 @@ export default function Settings() {
     const [saveMsg, setSaveMsg] = useState('')
 
     const [radarrStatus, setRadarrStatus] = useState(null)  // null | 'ok' | 'err'
-    const [sonarrStatus, setSonarrStatus] = useState(null)
     const [tmdbStatus, setTmdbStatus] = useState(null)
     const [radarrTesting, setRadarrTesting] = useState(false)
-    const [sonarrTesting, setSonarrTesting] = useState(false)
     const [tmdbTesting, setTmdbTesting] = useState(false)
     const [radarrMsg, setRadarrMsg] = useState('')
-    const [sonarrMsg, setSonarrMsg] = useState('')
     const [copied, setCopied] = useState(false)
     
-    const [radarrImporting, setRadarrImporting] = useState(false)
-    const [radarrImportMsg, setRadarrImportMsg] = useState('')
-    const [sonarrImporting, setSonarrImporting] = useState(false)
-    const [sonarrImportMsg, setSonarrImportMsg] = useState('')
+    const [importing, setImporting] = useState(false)
+    const [importMsg, setImportMsg] = useState('')
 
     const loadSettings = () => {
         api.getSettings().then(data => {
@@ -31,9 +26,6 @@ export default function Settings() {
                 radarr_url: data.radarr_url,
                 radarr_root_folder: data.radarr_root_folder,
                 radarr_api_key: '', // Empty means don't update
-                sonarr_url: data.sonarr_url,
-                sonarr_root_folder: data.sonarr_root_folder,
-                sonarr_api_key: '',
                 jellyseerr_url: data.jellyseerr_url,
                 jellyseerr_api_key: '',
                 tmdb_api_key: '',
@@ -83,10 +75,7 @@ export default function Settings() {
         setRadarrTesting(true)
         setRadarrStatus(null)
         try {
-            const r = await api.testRadarr({
-                url: formData.radarr_url,
-                api_key: formData.radarr_api_key || settings.radarr_api_key
-            })
+            const r = await api.testRadarr()
             setRadarrStatus('ok')
             setRadarrMsg(r.version ? `v${r.version}` : '')
         } catch (e) {
@@ -97,49 +86,17 @@ export default function Settings() {
         }
     }
 
-    async function testSonarr() {
-        setSonarrTesting(true)
-        setSonarrStatus(null)
-        try {
-            const r = await api.testSonarr({
-                url: formData.sonarr_url,
-                api_key: formData.sonarr_api_key || settings.sonarr_api_key
-            })
-            setSonarrStatus('ok')
-            setSonarrMsg(r.version ? `v${r.version}` : '')
-        } catch (e) {
-            setSonarrStatus('err')
-            setSonarrMsg(e.message)
-        } finally {
-            setSonarrTesting(false)
-        }
-    }
-
     async function importRadarrMovies() {
         if (!window.confirm("This will fetch all movies from Radarr and import any that match your configured regional languages. Continue?")) return;
-        setRadarrImporting(true)
-        setRadarrImportMsg('')
+        setImporting(true)
+        setImportMsg('')
         try {
             const res = await api.importRadarr()
-            setRadarrImportMsg(`Successfully imported ${res.imported} movies!`)
+            setImportMsg(`Successfully imported ${res.imported} movies!`)
         } catch (e) {
-            setRadarrImportMsg(`Import failed: ${e.message}`)
+            setImportMsg(`Import failed: ${e.message}`)
         } finally {
-            setRadarrImporting(false)
-        }
-    }
-
-    async function importSonarrSeries() {
-        if (!window.confirm("This will fetch all series and episodes from Sonarr and import any that match your configured regional languages. Continue?")) return;
-        setSonarrImporting(true)
-        setSonarrImportMsg('')
-        try {
-            const res = await api.importSonarr()
-            setSonarrImportMsg(`Successfully imported ${res.imported} episodes!`)
-        } catch (e) {
-            setSonarrImportMsg(`Import failed: ${e.message}`)
-        } finally {
-            setSonarrImporting(false)
+            setImporting(false)
         }
     }
 
@@ -147,9 +104,7 @@ export default function Settings() {
         setTmdbTesting(true)
         setTmdbStatus(null)
         try {
-            await api.testTmdb({
-                api_key: formData.tmdb_api_key || settings.tmdb_api_key
-            })
+            await api.testTmdb()
             setTmdbStatus('ok')
         } catch (e) {
             setTmdbStatus('err')
@@ -224,46 +179,10 @@ export default function Settings() {
                 <div className="form-row">
                     <span className="form-label">Import</span>
                     <div className="connection-test-row">
-                        <button className="btn btn-secondary btn-sm" onClick={importRadarrMovies} disabled={radarrImporting || (!settings.radarr_api_key_set && !formData.radarr_api_key)}>
-                            {radarrImporting ? <><span className="spinner" /> Importing…</> : 'Import Regional Movies'}
+                        <button className="btn btn-secondary btn-sm" onClick={importRadarrMovies} disabled={importing || (!settings.radarr_api_key_set && !formData.radarr_api_key)}>
+                            {importing ? <><span className="spinner" /> Importing…</> : 'Import Regional Movies'}
                         </button>
-                        {radarrImportMsg && <span className="test-result" style={{color: radarrImportMsg.includes('failed') ? 'var(--danger)' : 'var(--success)'}}>{radarrImportMsg}</span>}
-                    </div>
-                </div>
-            </div>
-
-            {/* Sonarr */}
-            <div className="card settings-section" style={{ marginBottom: 16 }}>
-                <div className="settings-section-title">Sonarr Connection</div>
-                <div className="form-row">
-                    <span className="form-label">URL</span>
-                    <input className="form-input" name="sonarr_url" value={formData.sonarr_url} onChange={handleChange} placeholder="http://localhost:8989" />
-                </div>
-                <div className="form-row">
-                    <span className="form-label">API Key</span>
-                    <input className="form-input" name="sonarr_api_key" value={formData.sonarr_api_key} onChange={handleChange} placeholder={settings.sonarr_api_key_set ? '●●●●●●●●● (Set - Type to change)' : 'Not set'} />
-                </div>
-                <div className="form-row">
-                    <span className="form-label">Root Folder</span>
-                    <input className="form-input" name="sonarr_root_folder" value={formData.sonarr_root_folder} onChange={handleChange} placeholder="/tv" />
-                </div>
-                <div className="form-row">
-                    <span className="form-label">Connection</span>
-                    <div className="connection-test-row">
-                        <button className="btn btn-secondary btn-sm" onClick={testSonarr} disabled={sonarrTesting}>
-                            {sonarrTesting ? <><span className="spinner" /> Testing…</> : 'Test Connection'}
-                        </button>
-                        {sonarrStatus === 'ok' && <span className="test-result ok">✓ Connected {sonarrMsg}</span>}
-                        {sonarrStatus === 'err' && <span className="test-result err">✗ {sonarrMsg}</span>}
-                    </div>
-                </div>
-                <div className="form-row">
-                    <span className="form-label">Import</span>
-                    <div className="connection-test-row">
-                        <button className="btn btn-secondary btn-sm" onClick={importSonarrSeries} disabled={sonarrImporting || (!settings.sonarr_api_key_set && !formData.sonarr_api_key)}>
-                            {sonarrImporting ? <><span className="spinner" /> Importing…</> : 'Import Regional Series'}
-                        </button>
-                        {sonarrImportMsg && <span className="test-result" style={{color: sonarrImportMsg.includes('failed') ? 'var(--danger)' : 'var(--success)'}}>{sonarrImportMsg}</span>}
+                        {importMsg && <span className="test-result" style={{color: importMsg.includes('failed') ? 'var(--danger)' : 'var(--success)'}}>{importMsg}</span>}
                     </div>
                 </div>
             </div>
@@ -340,14 +259,14 @@ export default function Settings() {
                             min={30}
                             style={{ maxWidth: 100 }}
                         />
-                        <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>seconds (min 30) — how often to poll Jellyseerr and sync with Radarr and Sonarr</span>
+                        <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>seconds (min 30) — how often to poll Jellyseerr and sync with Radarr</span>
                     </div>
                 </div>
             </div>
 
-            {/* Regional Languages */}
+            {/* Einthusan Languages */}
             <div className="card settings-section" style={{ marginBottom: 16 }}>
-                <div className="settings-section-title">Regional & Hollywood</div>
+                <div className="settings-section-title">Einthusan Languages</div>
                 <div className="form-row">
                     <span className="form-label">Monitored Languages</span>
                     <div className="lang-grid">

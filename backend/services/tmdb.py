@@ -77,28 +77,6 @@ async def get_movie_details(tmdb_id: int, settings: AppSettings) -> Dict[str, An
     }
 
 
-async def get_series_details(tmdb_id: int, settings: AppSettings) -> Dict[str, Any]:
-    """Fetch title, year, original_language, and poster for a TV series."""
-    async with httpx.AsyncClient(timeout=15) as client:
-        resp = await _fetch_with_retry(
-            client,
-            _url(f"/tv/{tmdb_id}"),
-            headers=_headers(settings),
-            params={"api_key": settings.tmdb_api_key},
-        )
-        data = resp.json()
-        
-    first_air_date = data.get("first_air_date", "")
-    year = int(first_air_date[:4]) if first_air_date else None
-    return {
-        "tmdb_id": tmdb_id,
-        "title": data.get("name", "Unknown"),
-        "original_language": data.get("original_language", ""),
-        "year": year,
-        "poster_path": data.get("poster_path"),
-    }
-
-
 async def get_digital_release_date(tmdb_id: int, settings: AppSettings) -> Optional[date]:
     """
     Return the best estimated digital release date:

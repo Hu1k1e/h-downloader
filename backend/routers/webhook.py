@@ -22,9 +22,7 @@ class JellyseerrPayload(BaseModel):
     notification_type: Optional[str] = None
     media_type: Optional[str] = None
     tmdbId: Optional[str] = None
-    tvdbId: Optional[str] = None
     title: Optional[str] = None
-    extra: Optional[list] = None
 
 
 @router.post("/jellyseerr")
@@ -36,7 +34,7 @@ async def jellyseerr_webhook(
 ):
     """
     Receives Jellyseerr webhook events (media_pending, media_approved, etc.)
-    and kicks off the download pipeline for movies and TV shows.
+    and kicks off the download pipeline for movies.
     """
     settings = get_settings(session)
     raw_body = await request.body()
@@ -57,30 +55,21 @@ async def jellyseerr_webhook(
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
 
+    # Only handle movie requests
+    if payload.media_type and payload.media_type.lower() != "movie":
+        return {"status": "skipped", "reason": "not a movie"}
+
     # Only act on pending/approved events
     allowed_types = {"media_pending", "media_approved", "media-pending", "media-approved"}
     if payload.notification_type and payload.notification_type.lower() not in allowed_types:
         return {"status": "skipped", "reason": f"unhandled notification_type: {payload.notification_type}"}
 
-    if not payload.tmdbId and not payload.tvdbId:
-        raise HTTPException(status_code=400, detail="tmdbId or tvdbId missing from payload")
+    if not payload.tmdbId:
+        raise HTTPException(status_code=400, detail="tmdbId missing from payload")
 
-    tmdb_id = int(payload.tmdbId) if payload.tmdbId else 0
-
-    media_type = payload.media_type.lower() if payload.media_type else "movie"
+    tmdb_id = int(payload.tmdbId)
 
     # Fire and forget — don't block the webhook response
-    if media_type == "tv":
-        if payload.extra:
-            for extra_item in payload.extra:
-                season = extra_item.get("season")
-                episode = extra_item.get("episode")
-                if season and episode:
-                    background_tasks.add_task(process_request, tmdb_id, None, "series", season, episode)
-        else:
-            # If no specific episodes, maybe just trigger season 1 episode 1 or generic
-            background_tasks.add_task(process_request, tmdb_id, None, "series", 1, 1)
-    else:
-        background_tasks.add_task(process_request, tmdb_id, None, "movie", None, None)
+    background_tasks.add_task(process_request, tmdb_id)
 
-    return {"status": "accepted", "tmdb_id": tmdb_id, "title": payload.title, "media_type": media_type}
+    return {"status": "accepted", "tmdb_id": tmdb_id, "title": payload.title}

@@ -17,35 +17,9 @@ engine = create_engine(
     connect_args={"check_same_thread": False, "timeout": 30.0}
 )
 
-from sqlalchemy import text
-from sqlalchemy.exc import OperationalError
-
 def init_db():
     SQLModel.metadata.create_all(engine)
     
-    # Simple auto-migration for newly added columns
-    with engine.begin() as conn:
-        for stmt in [
-            "ALTER TABLE appsettings ADD COLUMN sonarr_url VARCHAR",
-            "ALTER TABLE appsettings ADD COLUMN sonarr_api_key VARCHAR",
-            "ALTER TABLE appsettings ADD COLUMN sonarr_root_folder VARCHAR",
-            "ALTER TABLE appsettings ADD COLUMN sonarr_quality_profile_id INTEGER",
-            "ALTER TABLE downloadjob ADD COLUMN media_type VARCHAR DEFAULT 'movie'",
-            "ALTER TABLE downloadjob ADD COLUMN season_number INTEGER",
-            "ALTER TABLE downloadjob ADD COLUMN episode_number INTEGER",
-        ]:
-            try:
-                conn.execute(text(stmt))
-            except OperationalError:
-                pass
-                
-        # Fill NULL values with defaults for existing rows that were altered
-        conn.execute(text("UPDATE appsettings SET sonarr_url = 'http://localhost:8989' WHERE sonarr_url IS NULL"))
-        conn.execute(text("UPDATE appsettings SET sonarr_api_key = '' WHERE sonarr_api_key IS NULL"))
-        conn.execute(text("UPDATE appsettings SET sonarr_root_folder = '/tv' WHERE sonarr_root_folder IS NULL"))
-        conn.execute(text("UPDATE appsettings SET sonarr_quality_profile_id = 1 WHERE sonarr_quality_profile_id IS NULL"))
-        conn.execute(text("UPDATE downloadjob SET media_type = 'movie' WHERE media_type IS NULL"))
-                
     # Initialize settings if table exists but is empty
     with Session(engine) as session:
         settings = session.exec(select(AppSettings)).first()
@@ -55,10 +29,6 @@ def init_db():
                 radarr_api_key=config.RADARR_API_KEY,
                 radarr_root_folder=config.RADARR_ROOT_FOLDER,
                 radarr_quality_profile_id=config.RADARR_QUALITY_PROFILE_ID,
-                sonarr_url=config.SONARR_URL,
-                sonarr_api_key=config.SONARR_API_KEY,
-                sonarr_root_folder=config.SONARR_ROOT_FOLDER,
-                sonarr_quality_profile_id=config.SONARR_QUALITY_PROFILE_ID,
                 jellyseerr_url=config.JELLYSEERR_URL,
                 jellyseerr_api_key=config.JELLYSEERR_API_KEY,
                 webhook_secret=config.WEBHOOK_SECRET,
