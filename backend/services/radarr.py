@@ -48,7 +48,7 @@ async def get_all_movies(settings: AppSettings) -> List[Dict[str, Any]]:
 async def get_full_queue(settings: AppSettings) -> List[Dict[str, Any]]:
     """Return all records in the Radarr queue."""
     async with httpx.AsyncClient(timeout=15) as client:
-        resp = await client.get(_url(settings, "/queue"), headers=_headers(settings))
+        resp = await client.get(_url(settings, "/queue?pageSize=10000"), headers=_headers(settings))
         resp.raise_for_status()
         data = resp.json()
         return data.get("records", []) if isinstance(data, dict) else data
@@ -62,7 +62,7 @@ async def get_movie_queue_status(movie_id: int, settings: AppSettings) -> Option
     """
     async with httpx.AsyncClient(timeout=15) as client:
         # Get all records in queue
-        resp = await client.get(_url(settings, "/queue"), headers=_headers(settings))
+        resp = await client.get(_url(settings, "/queue?pageSize=10000"), headers=_headers(settings))
         resp.raise_for_status()
         queue_data = resp.json()
         

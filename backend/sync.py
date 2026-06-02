@@ -28,7 +28,7 @@ async def fetch_approved_requests(settings: AppSettings) -> List[dict]:
     
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(url, headers=headers, params={"filter": "approved", "take": 50})
+            resp = await client.get(url, headers=headers, params={"filter": "approved", "take": 10000})
             resp.raise_for_status()
             data = resp.json()
             return data.get("results", [])

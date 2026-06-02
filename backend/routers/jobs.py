@@ -22,7 +22,7 @@ router = APIRouter(prefix="/api", tags=["jobs"])
 def list_jobs(
     status: Optional[str] = None,
     language: Optional[str] = None,
-    limit: int = 100,
+    limit: int = 10000,
     offset: int = 0,
     session: Session = Depends(get_session),
 ):
