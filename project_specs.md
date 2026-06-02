@@ -861,13 +861,13 @@ It ensures Radarr does not keep the Einthusan copy permanently when a proper Blu
 The database contained legacy Hollywood movies from a reverted update, and the app was displaying them. Radarr import and sync processes were not actively removing jobs that no longer matched the configured languages in settings.
 
 **Changes made:**
-- **UI Filtering:** Updated GET /api/jobs in ackend/routers/jobs.py to strictly filter returned jobs by the languages currently ticked in settings (unless specifically querying a single language). This immediately hides any irrelevant legacy movies from the UI.
-- **Active Cleanup on Import:** Modified the POST /jobs/import-radarr endpoint to proactively delete any existing jobs from the database whose language does not match the configured languages.
-- **Active Cleanup on Sync:** Modified both sync_radarr_status and sync_jellyseerr_requests in ackend/sync.py to identify and delete any jobs from the database that no longer match the configured languages.
+- **UI Filtering:** Updated `GET /api/jobs` in `backend/routers/jobs.py` to strictly filter returned jobs by the languages currently ticked in settings (unless specifically querying a single language). This immediately hides any irrelevant legacy movies from the UI.
+- **Active Cleanup on Import:** Modified the `POST /jobs/import-radarr` endpoint to proactively delete any existing jobs from the database whose language does not match the configured languages.
+- **Active Cleanup on Sync:** Modified both `sync_radarr_status` and `sync_jellyseerr_requests` in `backend/sync.py` to identify and delete any jobs from the database that no longer match the configured languages.
 
 **Files changed:**
-- ackend/routers/jobs.py
-- ackend/sync.py
+- `backend/routers/jobs.py`
+- `backend/sync.py`
 
 ---
 
@@ -878,12 +878,23 @@ The background sync loop (sync_jellyseerr_requests) was executing an N+1 API cal
 Additionally, the previous language cleanup loop was missing a session.commit(), which meant legacy jobs were deleted from memory but never permanently removed from the SQLite database.
 
 **Changes made:**
-- **N+1 Optimization:** Completely rewrote the sync_jellyseerr_requests loop. It now fetches the Radarr movie list and Radarr queue exactly ONCE at the start of the loop and converts them into constant-time dictionaries (
-adarr_by_tmdb and queue_by_movie_id).
-- **Eliminated HTTP Spam:** Replaced all iterative is_movie_in_radarr and get_movie_queue_status calls with instant dictionary lookups.
-- **Fixed DB Cleanup:** Added the missing session.commit() inside the auto-cleanup block so that Hollywood movies are permanently purged from the database.
-- **Refactored Radarr Client:** Added get_full_queue to ackend/services/radarr.py to support bulk queue fetching.
+- **N+1 Optimization:** Completely rewrote the `sync_jellyseerr_requests` loop. It now fetches the Radarr movie list and Radarr queue exactly ONCE at the start of the loop and converts them into constant-time dictionaries (`radarr_by_tmdb` and `queue_by_movie_id`).
+- **Eliminated HTTP Spam:** Replaced all iterative `is_movie_in_radarr` and `get_movie_queue_status` calls with instant dictionary lookups.
+- **Fixed DB Cleanup:** Added the missing `session.commit()` inside the auto-cleanup block so that Hollywood movies are permanently purged from the database.
+- **Refactored Radarr Client:** Added `get_full_queue` to `backend/services/radarr.py` to support bulk queue fetching.
 
 **Files changed:**
-- ackend/sync.py
-- ackend/services/radarr.py
+- `backend/sync.py`
+- `backend/services/radarr.py`
+
+---
+
+## [2026-06-02] Fix Pagination Limits for Large Collections
+
+**Problem:**
+The API default `limit` for fetching movies was 100, which caused the frontend to silently truncate the list to 100 movies. Jellyseerr also had a `take: 50` limit when fetching approved requests.
+
+**Changes made:**
+- Increased API limits for `GET /api/jobs` to 10000.
+- Increased Jellyseerr approved request fetch `take` parameter to 10000.
+- Added `pageSize=10000` to Radarr `/queue` API calls to ensure large queues are not truncated.
