@@ -27,7 +27,7 @@ def list_jobs(
     session: Session = Depends(get_session),
 ):
     settings = get_settings(session)
-    configured_langs = [l.strip().lower() for l in settings.einthusan_languages_str.split(",") if l.strip()]
+    configured_langs = [l.strip().lower() for l in settings.einthusan_languages_str.split(",") if l.strip().lower() in config.LANGUAGE_SLUG_MAP]
 
     query = select(DownloadJob).order_by(DownloadJob.created_at.desc())
     if status:
@@ -223,7 +223,7 @@ async def trigger_import_radarr(background_tasks: BackgroundTasks, session: Sess
         raise HTTPException(status_code=502, detail=f"Failed to fetch movies from Radarr: {e}")
 
     # Parse configured languages (e.g. "malayalam,tamil")
-    configured_langs = [l.strip().lower() for l in settings.einthusan_languages_str.split(",") if l.strip()]
+    configured_langs = [l.strip().lower() for l in settings.einthusan_languages_str.split(",") if l.strip().lower() in config.LANGUAGE_SLUG_MAP]
     if not configured_langs:
         raise HTTPException(status_code=400, detail="No Einthusan languages configured in settings.")
 

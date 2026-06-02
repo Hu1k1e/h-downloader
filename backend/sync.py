@@ -38,7 +38,7 @@ async def fetch_approved_requests(settings: AppSettings) -> List[dict]:
 
 
 def _get_einthusan_languages(settings: AppSettings) -> List[str]:
-    return [l.strip().lower() for l in settings.einthusan_languages_str.split(",") if l.strip()]
+    return [l.strip().lower() for l in settings.einthusan_languages_str.split(",") if l.strip().lower() in config.LANGUAGE_SLUG_MAP]
 
 
 def _is_supported_language(original_lang_code: str, einthusan_languages: List[str]) -> bool:
