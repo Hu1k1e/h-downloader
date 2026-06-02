@@ -868,3 +868,22 @@ The database contained legacy Hollywood movies from a reverted update, and the a
 **Files changed:**
 - ackend/routers/jobs.py
 - ackend/sync.py
+
+---
+
+## [2026-06-02] Fix CPU Utilization and N+1 API Spam
+
+**Problem:**
+The background sync loop (sync_jellyseerr_requests) was executing an N+1 API call pattern. For every single monitored and unmonitored job in the database, it was calling is_movie_in_radarr and get_movie_queue_status. Each of these functions made an HTTP GET request to Radarr that fetched the *entire* movie library or queue. This resulted in hundreds of heavy HTTP requests every 30 seconds, maxing out CPU utilization to ~70% and causing extreme UI latency. 
+Additionally, the previous language cleanup loop was missing a session.commit(), which meant legacy jobs were deleted from memory but never permanently removed from the SQLite database.
+
+**Changes made:**
+- **N+1 Optimization:** Completely rewrote the sync_jellyseerr_requests loop. It now fetches the Radarr movie list and Radarr queue exactly ONCE at the start of the loop and converts them into constant-time dictionaries (
+adarr_by_tmdb and queue_by_movie_id).
+- **Eliminated HTTP Spam:** Replaced all iterative is_movie_in_radarr and get_movie_queue_status calls with instant dictionary lookups.
+- **Fixed DB Cleanup:** Added the missing session.commit() inside the auto-cleanup block so that Hollywood movies are permanently purged from the database.
+- **Refactored Radarr Client:** Added get_full_queue to ackend/services/radarr.py to support bulk queue fetching.
+
+**Files changed:**
+- ackend/sync.py
+- ackend/services/radarr.py
