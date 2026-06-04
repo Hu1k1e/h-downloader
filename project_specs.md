@@ -891,6 +891,201 @@ Additionally, the previous language cleanup loop was missing a session.commit(),
 
 ## [2026-06-02] Fix Pagination Limits for Large Collections
 
+- Year matching unchanged: bonus-only, walks up DOM to parent li for year extraction
+
+**Files changed:**
+- `backend/services/einthusan.py`
+
+---
+
+## 2026-03-12 — Documentation Restructured
+
+**Changes made:**
+- Removed implementation history from `instructions.md` — it now contains only operating rules
+- Moved full implementation history to `project_specs.md` (this section)
+- Updated Section 9 of `instructions.md` to reference `project_specs.md` for history
+
+**Files changed:**
+- `instructions.md`
+- `project_specs.md`
+
+---
+
+## [2026-05-02] Fix Edge Cases for Search & Downloading
+
+**Changes made:**
+- **Search Accuracy:** Modified `backend/services/einthusan.py` to add strict penalty for standalone number mismatches. This prevents false positive matches like querying "Aadu" and downloading the sequel "Aadu 2".
+- **Release Date Fallback:** Modified `backend/orchestrator.py` to allow the search to proceed if the digital release date is unknown (`None`), preventing movies like "Bokshi" from being skipped unnecessarily.
+- **Retry Logic (Refind):** Modified `backend/routers/jobs.py` to reset the job status to `PENDING` when the user clicks Retry. This resolves the bug where pressing the button on a `DONE` or `FAILED` job did nothing because the orchestrator guard immediately rejected it.
+
+**Files changed:**
+- `backend/services/einthusan.py`
+- `backend/orchestrator.py`
+- `backend/routers/jobs.py`
+
+---
+
+## [2026-05-02] Fix Stale Errors & Unmonitored Sync
+
+**Changes made:**
+- **Clear Error on Success:** Modified `backend/orchestrator.py` to clear `error_msg` when a job finishes successfully. Previously, an old error (like "Release date not yet passed") would persist even after the movie was successfully downloaded on a later sync.
+- **Sync Unmonitored Jobs:** Modified `backend/sync.py` so the background sync scheduler checks Radarr for *all* unmonitored jobs, not just `DONE` jobs. This ensures movies marked as `MOVIE_MISSING` or `SKIPPED` are updated to `DONE` if the user downloaded them manually via another indexer.
+
+**Files changed:**
+- `backend/orchestrator.py`
+- `backend/sync.py`
+
+---
+
+## [2026-05-08] Two-Way Monitored Sync and Radarr Import
+
+**Changes made:**
+- **Two-Way Sync for Monitored Status:**
+  - Radarr to App: Modified `backend/sync.py` to compare and fetch the Radarr `monitored` status for both monitored and unmonitored local jobs during the standard background sync loop.
+  - App to Radarr: Updated `backend/routers/jobs.py` (`PUT /jobs/{job_id}/monitor`) to instantly push local UI monitored toggles directly to Radarr.
+- **Import Regional Movies Feature:**
+  - Added `POST /jobs/import-radarr` endpoint in `backend/routers/jobs.py` that fetches all movies from Radarr, checks if their `originalLanguage` matches configured Einthusan languages, and populates them into the database.
+  - Added an "Import Regional Movies" UI button inside the `Settings.jsx` Radarr configuration section to trigger this API endpoint.
+
+**Files changed:**
+- `backend/services/radarr.py`
+- `backend/routers/jobs.py`
+- `backend/sync.py`
+- `frontend/src/api.js`
+- `frontend/src/pages/Settings.jsx`
+
+---
+
+## [2026-05-08] Import Radarr Bugfixes
+
+**Changes made:**
+- **Missing Movies Status Fix:** Modified `backend/routers/jobs.py` so that movies imported from Radarr without files are given the `MOVIE_MISSING` status instead of `PENDING`. This fixes the issue where missing or unreleased movies incorrectly displayed "Downloading on Radarr". Since they are monitored, the background sync will accurately check their status, and trigger the Einthusan fallback search if they are not actively downloading.
+- **Import Posters Fix:** Updated the import logic to parse and save the TMDB `poster_path` from the Radarr `images` array (by parsing `remoteUrl`) so that newly imported movies display their posters correctly.
+
+**Files changed:**
+- `backend/routers/jobs.py`
+
+---
+
+## [2026-05-08] Auto-Import Regional Movies in Sync & Import Bugfixes
+
+**Changes made:**
+- **Auto-Import in Sync Loop:** Added a mechanism to `backend/sync.py` that automatically queries Radarr for all movies on every sync interval. It filters for the configured regional languages and imports any new movies directly into the database. If they don't have files and Radarr isn't actively downloading them, the Einthusan fallback search will automatically trigger.
+- **Import Bugfix (Early Exit):** Discovered and removed an old code snippet in `backend/routers/jobs.py` that caused the manual import endpoint to prematurely exit when it encountered existing database entries, which was entirely bypassing the newly added "healing" logic for posters and `MOVIE_MISSING` statuses. The manual import now properly heals and updates existing database records.
+
+**Files changed:**
+- `backend/routers/jobs.py`
+- `backend/sync.py`
+
+---
+
+## [2026-05-08] Movies UI Action Buttons
+
+**Changes made:**
+- **Trigger Missing Button:** Added a `POST /jobs/trigger-missing` endpoint and corresponding UI button to trigger the orchestrator search pipeline specifically for all movies with the `MOVIE_MISSING` status.
+- **Trigger Monitored Button:** Renamed and refactored the old "Trigger All" endpoint to `POST /jobs/trigger-monitored` and updated the UI button to "Trigger Monitored", explicitly targeting jobs where `monitored == True`.
+
+**Files changed:**
+- `backend/routers/jobs.py`
+- `frontend/src/api.js`
+- `frontend/src/pages/Movies.jsx`
+
+---
+
+## [2026-05-08] Fix Database Connection Exhaustion
+
+**Changes made:**
+- **Database Engine Config:** Replaced the default SQLAlchemy `SingletonThreadPool` (which has a limit of 5 connections) with `NullPool` for SQLite. Since SQLite handles concurrent tasks by waiting on file locks, using a connection pool is unnecessary and was causing `QueuePool limit of size 5 overflow 10 reached` timeout errors when triggering dozens of concurrent downloads using the new "Trigger Monitored" or "Trigger Missing" buttons. Added a 30-second timeout and disabled thread checking to allow high concurrency without crashing the app.
+
+**Files changed:**
+- `backend/database.py`
+
+---
+
+## [2026-05-08] Fix TMDB Rate Limiting and Duplicate Failed Jobs
+
+**Changes made:**
+- **TMDB API Backoff:** Added an exponential backoff and retry mechanism (`_fetch_with_retry`) in `backend/services/tmdb.py` to properly handle `429 Too Many Requests` responses from the TMDB API. This prevents lookups from immediately failing when triggering large batches of downloads concurrently.
+- **Duplicate Job Fix:** Modified the orchestrator (`backend/orchestrator.py`) so that if a TMDB lookup *does* fail, it first checks if the job already exists in the database and updates its status to `FAILED`. Previously, it was blindly creating a duplicate "TMDB:xxxxxx" fallback job every time the lookup failed.
+
+**Files changed:**
+- `backend/orchestrator.py`
+- `backend/services/tmdb.py`
+
+---
+
+## [2026-05-08] Fix MP4 Extraction JSON Parsing Error
+
+**Changes made:**
+- **Decrypted JSON Safety:** Added type checking to the decrypted `EJLinks` JSON response in `backend/services/einthusan.py`. Sometimes the Einthusan API returns a top-level string (or double-encoded JSON) instead of a dictionary, causing the app to crash with an unhandled `'str' object has no attribute 'get'` error when trying to extract the MP4 link. The function now correctly checks the type and parses it properly, or raises a descriptive exception containing the actual Einthusan API error message (e.g. if the IP was blocked).
+
+**Files changed:**
+- `backend/services/einthusan.py`
+
+
+---
+
+## [2026-05-17] Tag Einthusan Downloads as 720p for Radarr Upgrade Compatibility
+
+**Problem:**
+Files downloaded from Einthusan were saved without a quality tag in the filename (e.g. `Guppy (2015).mp4`).
+When Radarr rescanned the file, it had no quality information to parse, so it treated the file as `Unknown` quality.
+This prevented Radarr from upgrading the file when a proper higher-quality release became available on an indexer.
+
+**Fix:**
+Modified `get_movie_file_path()` in `backend/services/downloader.py` to append `- 720p` to every filename.
+Example: `Guppy (2015) - 720p.mp4`
+
+Radarr's filename parser recognises the `720p` token when it performs a `RescanMovie` after download.
+It records the file as 720p quality in its database.
+If the configured quality profile has upgrading enabled (e.g. 720p -> 1080p), Radarr will replace this file
+when it later grabs a 1080p release from a proper indexer.
+
+**Why 720p specifically:**
+Einthusan streams are typically 720p resolution web streams. Tagging them as 720p is accurate.
+It ensures Radarr does not keep the Einthusan copy permanently when a proper Blu-ray or 1080p WEB release becomes available.
+
+**Files changed:**
+- `backend/services/downloader.py`
+
+---
+
+## [2026-06-01] Fix Language Filtering and Job Cleanup
+
+**Problem:**
+The database contained legacy Hollywood movies from a reverted update, and the app was displaying them. Radarr import and sync processes were not actively removing jobs that no longer matched the configured languages in settings.
+
+**Changes made:**
+- **UI Filtering:** Updated `GET /api/jobs` in `backend/routers/jobs.py` to strictly filter returned jobs by the languages currently ticked in settings (unless specifically querying a single language). This immediately hides any irrelevant legacy movies from the UI.
+- **Active Cleanup on Import:** Modified the `POST /jobs/import-radarr` endpoint to proactively delete any existing jobs from the database whose language does not match the configured languages.
+- **Active Cleanup on Sync:** Modified both `sync_radarr_status` and `sync_jellyseerr_requests` in `backend/sync.py` to identify and delete any jobs from the database that no longer match the configured languages.
+
+**Files changed:**
+- `backend/routers/jobs.py`
+- `backend/sync.py`
+
+---
+
+## [2026-06-02] Fix CPU Utilization and N+1 API Spam
+
+**Problem:**
+The background sync loop (sync_jellyseerr_requests) was executing an N+1 API call pattern. For every single monitored and unmonitored job in the database, it was calling is_movie_in_radarr and get_movie_queue_status. Each of these functions made an HTTP GET request to Radarr that fetched the *entire* movie library or queue. This resulted in hundreds of heavy HTTP requests every 30 seconds, maxing out CPU utilization to ~70% and causing extreme UI latency. 
+Additionally, the previous language cleanup loop was missing a session.commit(), which meant legacy jobs were deleted from memory but never permanently removed from the SQLite database.
+
+**Changes made:**
+- **N+1 Optimization:** Completely rewrote the `sync_jellyseerr_requests` loop. It now fetches the Radarr movie list and Radarr queue exactly ONCE at the start of the loop and converts them into constant-time dictionaries (`radarr_by_tmdb` and `queue_by_movie_id`).
+- **Eliminated HTTP Spam:** Replaced all iterative `is_movie_in_radarr` and `get_movie_queue_status` calls with instant dictionary lookups.
+- **Fixed DB Cleanup:** Added the missing `session.commit()` inside the auto-cleanup block so that Hollywood movies are permanently purged from the database.
+- **Refactored Radarr Client:** Added `get_full_queue` to `backend/services/radarr.py` to support bulk queue fetching.
+
+**Files changed:**
+- `backend/sync.py`
+- `backend/services/radarr.py`
+
+---
+
+## [2026-06-02] Fix Pagination Limits for Large Collections
+
 **Problem:**
 The API default `limit` for fetching movies was 100, which caused the frontend to silently truncate the list to 100 movies. Jellyseerr also had a `take: 50` limit when fetching approved requests.
 
@@ -898,3 +1093,15 @@ The API default `limit` for fetching movies was 100, which caused the frontend t
 - Increased API limits for `GET /api/jobs` to 10000.
 - Increased Jellyseerr approved request fetch `take` parameter to 10000.
 - Added `pageSize=10000` to Radarr `/queue` API calls to ensure large queues are not truncated.
+
+---
+
+## [2026-06-03] Delayed Missing Searches and Configurable Background Sync
+
+**Problem:**
+The app would either immediately query qBittorrent and execute searches, leading to double-searches before Radarr had a chance to import and stall them. It also lacked a way to cleanly space out background searches for movies that were stuck in the `MOVIE_MISSING` status without tying it to the frequent Jellyseerr sync loop.
+
+**Changes made:**
+- **Delayed Search Execution:** Implemented a `delayed_search()` async function in `backend/sync.py`. When a new missing movie is synced from Radarr or Jellyseerr, it is delayed by 2 minutes. The system then queries Radarr directly—if Radarr is actively downloading it (e.g. from a different list sync), the fallback Einthusan/1TamilMV search is skipped entirely.
+- **Configurable Background Loop:** Added a separate `sync_missing_movies()` async loop specifically for retrying `MOVIE_MISSING` jobs. Configured a brand new `missing_search_interval_hours` and `missing_search_batch_size` parameter in `backend/models.py`. Exposed these to the user in the `Settings` UI page, parsing them accurately in the frontend.
+- **Generalize Torrent Checks:** Removed hardcoded `"1tamilmv"` string checks across the app where it attempted to monitor torrent hashes. The system now evaluates progress for ANY download source that populates `job.torrent_hash`, providing future-proof compatibility with apps like `cleanuparr`.

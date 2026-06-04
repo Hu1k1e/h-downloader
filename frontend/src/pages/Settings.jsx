@@ -37,6 +37,8 @@ export default function Settings() {
                 einthusan_languages: data.einthusan_languages || [],
                 digital_release_fallback_days: data.digital_release_fallback_days,
                 sync_interval_seconds: data.sync_interval_seconds ?? 900,
+                missing_search_interval_hours: data.missing_search_interval_hours ?? 24,
+                missing_search_batch_size: data.missing_search_batch_size ?? 10,
                 download_sources_priority: data.download_sources_priority || ['einthusan', '1tamilmv'],
                 qbittorrent_url: data.qbittorrent_url || '',
                 qbittorrent_username: data.qbittorrent_username || '',
@@ -413,6 +415,32 @@ export default function Settings() {
                             style={{ maxWidth: 100 }}
                         />
                         <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>seconds (min 30) — how often to poll Jellyseerr and sync with Radarr</span>
+                    </div>
+                </div>
+                <div className="form-row">
+                    <span className="form-label">Missing Movies Search</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>Every</span>
+                        <input
+                            className="form-input"
+                            type="number"
+                            name="missing_search_interval_hours"
+                            value={formData.missing_search_interval_hours}
+                            onChange={handleChange}
+                            min={1}
+                            style={{ maxWidth: 80 }}
+                        />
+                        <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>hours, search up to</span>
+                        <input
+                            className="form-input"
+                            type="number"
+                            name="missing_search_batch_size"
+                            value={formData.missing_search_batch_size}
+                            onChange={handleChange}
+                            min={1}
+                            style={{ maxWidth: 80 }}
+                        />
+                        <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>movies</span>
                     </div>
                 </div>
             </div>

@@ -50,9 +50,35 @@ def _is_queue_item_active(queue_item: Optional[dict]) -> bool:
     """Return True if Radarr has a healthy (non-stalled) queue entry."""
     if not queue_item:
         return False
-    status = queue_item.get("status", "").lower()
     tracked = queue_item.get("trackedDownloadStatus", "").lower()
-    return status in ("downloading", "delay", "queued") and tracked not in ("warning", "error")
+    if tracked in ("warning", "error"):
+        return False
+    status = queue_item.get("status", "").lower()
+    if status == "completed":
+        return False
+    return True
+
+async def delayed_search(tmdb_id: int, language: str):
+    """Wait 2m, check if Radarr is actively downloading, if not, trigger process_request."""
+    await asyncio.sleep(120)
+    with Session(engine) as session:
+        settings = get_settings(session)
+        job = session.exec(select(DownloadJob).where(DownloadJob.tmdb_id == tmdb_id)).first()
+        if not job or job.status != JobStatus.MOVIE_MISSING:
+            return  # Already processing or deleted
+        
+        try:
+            radarr_movie = await radarr.is_movie_in_radarr(tmdb_id, settings)
+            if radarr_movie and "id" in radarr_movie:
+                queue_item = await radarr.get_movie_queue_status(radarr_movie["id"], settings)
+                if _is_queue_item_active(queue_item):
+                    logger.info(f"Delayed search check: Radarr actively downloading '{job.title}', skipping search.")
+                    return
+        except Exception as e:
+            logger.warning(f"Error checking Radarr queue in delayed search: {e}")
+            
+        logger.info(f"Delayed search check: No active Radarr download for '{job.title}'. Triggering fallback.")
+        asyncio.create_task(process_request(tmdb_id, language))
 
 
 async def sync_radarr_status(session, settings):
@@ -229,12 +255,19 @@ async def sync_jellyseerr_requests():
                         if not existing_job.poster_path and poster_path:
                             existing_job.poster_path = poster_path
                             updated = True
+                        
+                        became_missing = False
                         if existing_job.status == JobStatus.PENDING and not movie.get("hasFile"):
                             existing_job.status = JobStatus.MOVIE_MISSING
                             updated = True
+                            became_missing = True
+                            
                         if updated:
                             session.add(existing_job)
                             session.commit()
+                            
+                        if became_missing:
+                            asyncio.create_task(delayed_search(tmdb_id, lang_name))
                         continue
 
                     logger.info(f"Auto-importing regional movie from Radarr: '{movie.get('title')}' (TMDB {tmdb_id})")
@@ -249,6 +282,10 @@ async def sync_jellyseerr_requests():
                     )
                     session.add(new_job)
                     session.commit()
+                    
+                    # Trigger a delayed search check
+                    if not movie.get("hasFile"):
+                        asyncio.create_task(delayed_search(tmdb_id, lang_name))
 
         # ── Step 2: Monitored jobs ────────────────────────────────────────────
         monitored_jobs = session.exec(
@@ -287,7 +324,7 @@ async def sync_jellyseerr_requests():
                     session.commit()
                     continue
 
-                if job.status == JobStatus.DOWNLOADING and job.source_indexer == "1tamilmv" and job.torrent_hash:
+                if job.status == JobStatus.DOWNLOADING and job.torrent_hash:
                     t_info = await asyncio.to_thread(qbittorrent.get_torrent_info, job.torrent_hash, settings)
                     if not t_info:
                         logger.warning(f"Torrent {job.torrent_hash} missing from qBittorrent. Blacklisting and retrying...")
@@ -306,7 +343,11 @@ async def sync_jellyseerr_requests():
                         if job.progress_pct == 100:
                             if radarr_movie and "id" in radarr_movie:
                                 await radarr.trigger_rescan(radarr_movie["id"], settings)
-                            # Wait for Radarr to import it. We can leave it in DOWNLOADING at 100% until Radarr hasFile=True.
+                        continue
+
+                if job.status == JobStatus.DOWNLOADING:
+                    # If it's actively downloading (e.g. Einthusan), don't trigger fallback
+                    continue
 
                 # No file. Is it actively downloading?
                 queue_item = queue_by_movie_id.get(radarr_movie.get("id"))
@@ -367,7 +408,7 @@ async def sync_jellyseerr_requests():
                         session.commit()
                     continue
 
-                if job.status == JobStatus.DOWNLOADING and job.source_indexer == "1tamilmv" and job.torrent_hash:
+                if job.status == JobStatus.DOWNLOADING and job.torrent_hash:
                     t_info = await asyncio.to_thread(qbittorrent.get_torrent_info, job.torrent_hash, settings)
                     if not t_info:
                         logger.warning(f"Unmonitored torrent {job.torrent_hash} missing from qBittorrent. Blacklisting...")
@@ -405,4 +446,28 @@ async def sync_jellyseerr_requests():
                     session.commit()
 
             except Exception as e:
-                logger.error(f"Error checking unmonitored job '{job.title}': {e}")
+                logger.error(f"Error checking unmonitored '{job.title}': {e}")
+
+
+async def sync_missing_movies():
+    """
+    Background task that runs periodically to retry searching for MOVIE_MISSING jobs.
+    """
+    logger.info("Starting Periodic Missing Movies Search...")
+    with Session(engine) as session:
+        settings = get_settings(session)
+        batch_size = max(1, settings.missing_search_batch_size)
+        
+        missing_jobs = session.exec(
+            select(DownloadJob)
+            .where(DownloadJob.status == JobStatus.MOVIE_MISSING)
+            .limit(batch_size)
+        ).all()
+        
+        if not missing_jobs:
+            logger.info("No missing movies found to search.")
+            return
+            
+        logger.info(f"Found {len(missing_jobs)} missing movies. Triggering searches (max {batch_size})...")
+        for job in missing_jobs:
+            asyncio.create_task(process_request(job.tmdb_id, job.language))
