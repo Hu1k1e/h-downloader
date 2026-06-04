@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom'
+import { Routes, Route, NavLink, Navigate } from 'react-router-dom'
 import Dashboard from './pages/Dashboard'
 import Movies from './pages/Movies'
 import Settings from './pages/Settings'
@@ -38,18 +38,16 @@ function Sidebar() {
 
 function App() {
     return (
-        <BrowserRouter>
-            <div className="app-shell">
-                <Sidebar />
-                <Routes>
-                    <Route path="/dashboard" element={<Dashboard />} />
-                    <Route path="/movies" element={<Movies />} />
-                    <Route path="/settings" element={<Settings />} />
-                    <Route path="/logs" element={<Logs />} />
-                    <Route path="*" element={<Navigate to="/dashboard" replace />} />
-                </Routes>
-            </div>
-        </BrowserRouter>
+        <div className="app-shell">
+            <Sidebar />
+            <Routes>
+                <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="/movies" element={<Movies />} />
+                <Route path="/settings" element={<Settings />} />
+                <Route path="/logs" element={<Logs />} />
+                <Route path="*" element={<Navigate to="/dashboard" replace />} />
+            </Routes>
+        </div>
     )
 }
 
