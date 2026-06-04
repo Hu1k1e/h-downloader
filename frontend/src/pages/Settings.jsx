@@ -81,6 +81,18 @@ export default function Settings() {
         });
     }
 
+    const toggleSource = (source) => {
+        setFormData(prev => {
+            const current = prev.download_sources_priority || [];
+            if (current.includes(source)) {
+                return { ...prev, download_sources_priority: current.filter(s => s !== source) };
+            } else {
+                return { ...prev, download_sources_priority: [...current, source] };
+            }
+        });
+    }
+
+
 
     const handleSave = async () => {
         setSaving(true)
@@ -296,19 +308,42 @@ export default function Settings() {
             <div className="card settings-section" style={{ marginBottom: 16 }}>
                 <div className="settings-section-title">Download Sources</div>
                 <div className="form-row">
-                    <span className="form-label">Priority Order</span>
+                    <span className="form-label">Active Sources</span>
                     <div>
                         <div style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 8 }}>
-                            Sources will be searched in this order.
+                            Check to enable. Drag arrows to set search priority.
                         </div>
-                        {(formData.download_sources_priority || []).map((source, idx) => (
-                            <div key={source} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px', background: 'var(--bg-tertiary)', marginBottom: 4, borderRadius: 6 }}>
-                                <span style={{ fontWeight: 'bold', minWidth: 20 }}>{idx + 1}.</span>
-                                <span style={{ flex: 1 }}>{source === '1tamilmv' ? '1TamilMV' : source === 'einthusan' ? 'Einthusan' : source}</span>
-                                <button className="btn btn-secondary btn-sm" onClick={() => moveSource(idx, 'up')} disabled={idx === 0}>↑</button>
-                                <button className="btn btn-secondary btn-sm" onClick={() => moveSource(idx, 'down')} disabled={idx === (formData.download_sources_priority || []).length - 1}>↓</button>
-                            </div>
-                        ))}
+                        {['1tamilmv', 'einthusan']
+                            .sort((a, b) => {
+                                const aIdx = (formData.download_sources_priority || []).indexOf(a);
+                                const bIdx = (formData.download_sources_priority || []).indexOf(b);
+                                if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
+                                if (aIdx !== -1) return -1;
+                                if (bIdx !== -1) return 1;
+                                return a.localeCompare(b);
+                            })
+                            .map((source) => {
+                                const isEnabled = (formData.download_sources_priority || []).includes(source);
+                                const idx = (formData.download_sources_priority || []).indexOf(source);
+                                return (
+                                    <div key={source} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px', background: 'var(--bg-tertiary)', marginBottom: 4, borderRadius: 6, opacity: isEnabled ? 1 : 0.6 }}>
+                                        <input 
+                                            type="checkbox" 
+                                            checked={isEnabled} 
+                                            onChange={() => toggleSource(source)} 
+                                            style={{ cursor: 'pointer' }}
+                                        />
+                                        <span style={{ fontWeight: 'bold', minWidth: 20 }}>{isEnabled ? `${idx + 1}.` : '-'}</span>
+                                        <span style={{ flex: 1 }}>{source === '1tamilmv' ? '1TamilMV' : source === 'einthusan' ? 'Einthusan' : source}</span>
+                                        {isEnabled && (
+                                            <>
+                                                <button className="btn btn-secondary btn-sm" onClick={() => moveSource(idx, 'up')} disabled={idx === 0}>↑</button>
+                                                <button className="btn btn-secondary btn-sm" onClick={() => moveSource(idx, 'down')} disabled={idx === (formData.download_sources_priority || []).length - 1}>↓</button>
+                                            </>
+                                        )}
+                                    </div>
+                                )
+                            })}
                     </div>
                 </div>
             </div>

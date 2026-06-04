@@ -117,7 +117,7 @@ def test_qbittorrent_connection(req: QbittorrentTestRequest):
         qbt_client.auth_log_in()
         
         # Fetch categories
-        categories = qbt_client.torrent_categories.categories()
+        categories = qbt_client.torrents_categories()
         cat_names = list(categories.keys())
         return {"status": "ok", "categories": cat_names}
     except Exception as e:
