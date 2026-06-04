@@ -83,3 +83,70 @@ def get_torrent_info(torrent_hash: str, settings: AppSettings) -> Optional[Dict[
     except Exception as e:
         logger.error(f"Failed to get torrent info from qBittorrent: {e}")
         return None
+
+def filter_torrent_files(torrent_hash: str, settings: AppSettings) -> bool:
+    """
+    Looks at all files in the torrent. Identifies the largest video file and 
+    sets the priority of all other files to 0 (Do Not Download).
+    Returns True if filtering was applied/successful, False otherwise.
+    """
+    if not settings.qbittorrent_url or not torrent_hash:
+        return False
+        
+    try:
+        qbt_client = qbittorrentapi.Client(
+            host=settings.qbittorrent_url,
+            username=settings.qbittorrent_username,
+            password=settings.qbittorrent_password,
+        )
+        qbt_client.auth_log_in()
+        
+        files = qbt_client.torrents_files(torrent_hash=torrent_hash)
+        if not files:
+            return False
+            
+        video_exts = ('.mp4', '.mkv', '.avi', '.webm', '.ts')
+        
+        # Find the largest video file
+        largest_video = None
+        max_size = -1
+        
+        for f in files:
+            name = f.get('name', '').lower()
+            size = f.get('size', 0)
+            if name.endswith(video_exts) and size > max_size:
+                max_size = size
+                largest_video = f
+                
+        if not largest_video:
+            # Fallback: just use the absolute largest file if no video extension matches
+            for f in files:
+                size = f.get('size', 0)
+                if size > max_size:
+                    max_size = size
+                    largest_video = f
+                    
+        if not largest_video:
+            return False
+            
+        # Set priority=0 for all other files
+        unwanted_indices = []
+        for f in files:
+            if f.get('index') != largest_video.get('index'):
+                # Only change priority if it's not already 0
+                if f.get('priority') != 0:
+                    unwanted_indices.append(f.get('index'))
+                    
+        if unwanted_indices:
+            qbt_client.torrents_file_priority(
+                torrent_hash=torrent_hash, 
+                file_ids='|'.join(str(idx) for idx in unwanted_indices), 
+                priority=0
+            )
+            logger.info(f"Filtered torrent {torrent_hash}: downloading main file '{largest_video.get('name')}', ignoring {len(unwanted_indices)} other file(s).")
+            return True
+            
+        return False
+    except Exception as e:
+        logger.error(f"Failed to filter torrent files: {e}")
+        return False

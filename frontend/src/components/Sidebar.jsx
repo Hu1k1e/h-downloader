@@ -33,6 +33,9 @@ export default function Sidebar() {
                         {label}
                     </NavLink>
                 ))}
+                <NavLink to="/logs" className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>
+                    Logs
+                </NavLink>
             </nav>
 
             <div className="sidebar-footer">H Downloader v1.0</div>

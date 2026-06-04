@@ -23,9 +23,10 @@ logger = logging.getLogger(__name__)
 
 from backend import config
 from backend.database import engine, get_settings
-from backend.models import DownloadJob, JobStatus, AppSettings
+from backend.models import DownloadJob, JobStatus, AppSettings, LogLevel
 from backend.services import einthusan, radarr, tmdb, tamilmv, qbittorrent
 from backend.services.downloader import download_movie, get_movie_file_path
+from backend.db_logger import log_action
 
 
 def _update_job(session: Session, job: DownloadJob, **kwargs):
@@ -199,7 +200,12 @@ async def _run_pipeline(
                             if torrent_hash:
                                 success_source = "1tamilmv"
                                 _update_job(session, job, status=JobStatus.DOWNLOADING, error_msg=None, source_indexer="1tamilmv", torrent_hash=torrent_hash)
-                                logger.info(f"Successfully added '{title}' magnet to qBittorrent via 1TamilMV. Hash: {torrent_hash}")
+                                log_action(
+                                    action="search_success",
+                                    message=f"Successfully added '{title}' magnet to qBittorrent via 1TamilMV. Hash: {torrent_hash}",
+                                    tmdb_id=tmdb_id,
+                                    job_id=job.id
+                                )
                                 break
                 except Exception as e:
                     logger.error(f"1TamilMV search/add failed for {title}: {e}")
@@ -237,10 +243,24 @@ async def _run_pipeline(
                                     await radarr.trigger_rescan(movie_data["id"], settings)
                                 _update_job(session, job, status=JobStatus.DONE, progress_pct=100,
                                             monitored=False, file_path=file_path, error_msg=None)
+                                log_action(
+                                    action="search_success",
+                                    message=f"Successfully downloaded '{title}' via Einthusan.",
+                                    tmdb_id=tmdb_id,
+                                    job_id=job.id
+                                )
                                 break
                     except Exception as e:
                         logger.error(f"Einthusan download failed for {title}: {e}")
 
         if not success_source:
+            msg = f"Not found or failed on all configured sources ({', '.join(sources)})"
             _update_job(session, job, status=JobStatus.NOT_FOUND,
-                        error_msg=f"Not found or failed on all configured sources ({', '.join(sources)})")
+                        error_msg=msg)
+            log_action(
+                action="search_failed",
+                message=msg,
+                level=LogLevel.WARNING,
+                tmdb_id=tmdb_id,
+                job_id=job.id
+            )

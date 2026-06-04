@@ -4,6 +4,7 @@ import Dashboard from './pages/Dashboard'
 import Jobs from './pages/Jobs'
 import Settings from './pages/Settings'
 import Movies from './pages/Movies'
+import Logs from './pages/Logs'
 
 export default function App() {
     return (
@@ -14,6 +15,7 @@ export default function App() {
                 <Route path="/movies" element={<Movies />} />
                 <Route path="/jobs" element={<Jobs />} />
                 <Route path="/settings" element={<Settings />} />
+                <Route path="/logs" element={<Logs />} />
             </Routes>
         </div>
     )

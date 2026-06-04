@@ -13,6 +13,7 @@ from backend.orchestrator import process_request
 from backend.services import radarr as radarr_svc
 from backend.services import tmdb as tmdb_svc
 from backend import config
+from backend.services import qbittorrent
 
 router = APIRouter(prefix="/api", tags=["jobs"])
 
@@ -40,6 +41,32 @@ def list_jobs(
         
     query = query.offset(offset).limit(limit)
     return session.exec(query).all()
+
+
+@router.get("/jobs/active", response_model=List[DownloadJobRead])
+def get_active_jobs(session: Session = Depends(get_session)):
+    """
+    Returns jobs that are actively downloading or searching right now.
+    For qBittorrent jobs, validates they are actually in an active state.
+    """
+    settings = get_settings(session)
+    jobs = session.exec(select(DownloadJob).where(DownloadJob.status.in_([JobStatus.DOWNLOADING, JobStatus.SEARCHING, JobStatus.CHECKING_RADARR, JobStatus.IMPORTING]))).all()
+    
+    active_jobs = []
+    for job in jobs:
+        if job.status == JobStatus.DOWNLOADING and job.torrent_hash:
+            t_info = qbittorrent.get_torrent_info(job.torrent_hash, settings)
+            if not t_info:
+                continue # Not in qbittorrent anymore
+            state = t_info.get("state", "").lower()
+            if "pause" in state or "error" in state or "up" in state or state == "uploading":
+                continue # paused, errored, or seeding
+            active_jobs.append(job)
+        else:
+            # direct downloads or searching
+            active_jobs.append(job)
+            
+    return active_jobs
 
 
 @router.get("/jobs/{job_id}", response_model=DownloadJobRead)
@@ -94,9 +121,10 @@ async def update_monitor_status(job_id: int, update: MonitorUpdate, session: Ses
 @router.get("/stats")
 def get_stats(session: Session = Depends(get_session)):
     jobs = session.exec(select(DownloadJob)).all()
+    active_jobs = get_active_jobs(session)
     return {
         "total": len(jobs),
-        "active": sum(1 for j in jobs if j.status in (JobStatus.DOWNLOADING, JobStatus.SEARCHING)),
+        "active": len(active_jobs),
         "completed": sum(1 for j in jobs if j.status == JobStatus.DONE),
         "failed": sum(1 for j in jobs if j.status == JobStatus.FAILED),
         "not_found": sum(1 for j in jobs if j.status == JobStatus.NOT_FOUND),

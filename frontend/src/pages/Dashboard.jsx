@@ -6,16 +6,19 @@ import TriggerModal from '../components/TriggerModal'
 export default function Dashboard() {
     const [stats, setStats] = useState(null)
     const [jobs, setJobs] = useState([])
+    const [activeJobs, setActiveJobs] = useState([])
     const [showModal, setShowModal] = useState(false)
 
     const load = useCallback(async () => {
         try {
-            const [s, j] = await Promise.all([
+            const [s, j, a] = await Promise.all([
                 api.getStats(),
                 api.getJobs({ limit: 50 }),
+                api.getActiveJobs()
             ])
             setStats(s)
             setJobs(j)
+            setActiveJobs(a)
         } catch { }
     }, [])
 
@@ -23,9 +26,6 @@ export default function Dashboard() {
         load()
         const t = setInterval(load, 5000)
         return () => clearInterval(t)
-    }, [load])
-
-    const active = jobs.filter(j => ['downloading', 'searching', 'checking_radarr', 'importing'].includes(j.status))
     const recent = jobs.slice(0, 8)
 
     return (
@@ -72,12 +72,12 @@ export default function Dashboard() {
             {/* Active downloads */}
             <div className="section-title">Active Downloads</div>
             <div className="download-list">
-                {active.length === 0 ? (
+                {activeJobs.length === 0 ? (
                     <div className="card" style={{ textAlign: 'center', padding: '32px', color: 'var(--text-secondary)' }}>
                         No active downloads
                     </div>
                 ) : (
-                    active.map(job => (
+                    activeJobs.map(job => (
                         <div className="download-card" key={job.id}>
                             <div className="download-card-top">
                                 <div>

@@ -1119,3 +1119,15 @@ The app showed conflicting statuses: it downloaded via Einthusan but simultaneou
 - **Stale Error Cleanup:** Updated `backend/orchestrator.py` to explicitly clear `error_msg=None` when transitioning a job to `JobStatus.DOWNLOADING` via Einthusan, resolving the contradictory UI state.
 
 
+
+---
+
+## [2026-06-04] System Logs, Active Downloads Validation, and Torrent File Filtering
+
+**Problem:**
+The app lacked detailed logs for searches and background tasks, making it difficult to monitor. The 'Active Downloads' UI was falling out of sync with qBittorrent, showing an active count but an empty list because the default 50-limit fetch missed older downloading jobs. Furthermore, qBittorrent was downloading unnecessary non-movie files (e.g. .exe, .txt) from 1TamilMV torrents.
+
+**Changes made:**
+- **System Logs:** Created a `LogEntry` database model and a dedicated `Logs` UI page. Actions such as auto-searches, manual searches, filtering, and import events are now explicitly logged and viewable in the UI, complete with filtering and bulk-deletion options.
+- **Active Downloads Fix:** Replaced generic DB status checks with a new `GET /api/jobs/active` endpoint. This endpoint actively queries qBittorrent's real-time state, stripping out jobs that are paused or errored, ensuring the UI list strictly reflects live active downloads regardless of their age.
+- **Torrent File Filtering:** Added `filter_torrent_files` to `backend/services/qbittorrent.py`. When a torrent fetches metadata, the system now automatically scans the files, identifies the largest video file (`.mp4`, `.mkv`, etc.), and disables downloading (sets priority to 0) for all other junk files.

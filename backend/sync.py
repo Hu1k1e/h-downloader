@@ -7,9 +7,10 @@ from sqlmodel import Session, select
 
 from backend import config
 from backend.database import engine, get_settings
-from backend.models import DownloadJob, JobStatus, AppSettings
+from backend.models import DownloadJob, JobStatus, AppSettings, LogLevel
 from backend.orchestrator import process_request
 from backend.services import radarr, tmdb, qbittorrent
+from backend.db_logger import log_action
 
 logger = logging.getLogger(__name__)
 
@@ -213,7 +214,11 @@ async def sync_jellyseerr_requests():
                 )
                 continue
 
-            logger.info(f"Adding new approved movie: '{title}' ({year}) TMDB {tmdb_id}")
+            log_action(
+                action="auto_search",
+                message=f"Added new approved movie: '{title}' ({year})",
+                tmdb_id=tmdb_id
+            )
             job = DownloadJob(
                 tmdb_id=tmdb_id,
                 title=title,
@@ -270,7 +275,11 @@ async def sync_jellyseerr_requests():
                             asyncio.create_task(delayed_search(tmdb_id, lang_name))
                         continue
 
-                    logger.info(f"Auto-importing regional movie from Radarr: '{movie.get('title')}' (TMDB {tmdb_id})")
+                    log_action(
+                        action="radarr_import",
+                        message=f"Auto-importing regional movie from Radarr: '{movie.get('title')}'",
+                        tmdb_id=tmdb_id
+                    )
                     new_job = DownloadJob(
                         tmdb_id=tmdb_id,
                         title=movie.get("title", "Unknown"),
@@ -338,6 +347,19 @@ async def sync_jellyseerr_requests():
                         continue
                     else:
                         job.progress_pct = int(t_info.get("progress", 0) * 100)
+                        
+                        # Apply filtering once metadata is downloaded
+                        if t_info.get("state") not in ["metaDL", "allocating", "checkingUP", "checkingDL"]:
+                            filtered = await asyncio.to_thread(qbittorrent.filter_torrent_files, job.torrent_hash, settings)
+                            if filtered:
+                                log_action(
+                                    action="torrent_filter",
+                                    message=f"Filtered qBittorrent files for '{job.title}'. Selected main movie file only.",
+                                    level=LogLevel.INFO,
+                                    tmdb_id=job.tmdb_id,
+                                    job_id=job.id
+                                )
+
                         session.add(job)
                         session.commit()
                         if job.progress_pct == 100:
@@ -422,6 +444,18 @@ async def sync_jellyseerr_requests():
                         continue
                     else:
                         job.progress_pct = int(t_info.get("progress", 0) * 100)
+                        
+                        if t_info.get("state") not in ["metaDL", "allocating", "checkingUP", "checkingDL"]:
+                            filtered = await asyncio.to_thread(qbittorrent.filter_torrent_files, job.torrent_hash, settings)
+                            if filtered:
+                                log_action(
+                                    action="torrent_filter",
+                                    message=f"Filtered qBittorrent files for '{job.title}'. Selected main movie file only.",
+                                    level=LogLevel.INFO,
+                                    tmdb_id=job.tmdb_id,
+                                    job_id=job.id
+                                )
+
                         session.add(job)
                         session.commit()
                         if job.progress_pct == 100:

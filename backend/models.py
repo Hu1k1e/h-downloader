@@ -9,6 +9,33 @@ import json
 from sqlmodel import Field, SQLModel
 
 
+class LogLevel(str, Enum):
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
+    DEBUG = "debug"
+
+
+class LogEntry(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    timestamp: datetime = Field(default_factory=datetime.utcnow, index=True)
+    level: LogLevel = LogLevel.INFO
+    action: str = Field(index=True)
+    message: str
+    tmdb_id: Optional[int] = None
+    job_id: Optional[int] = None
+
+
+class LogEntryRead(SQLModel):
+    id: int
+    timestamp: datetime
+    level: LogLevel
+    action: str
+    message: str
+    tmdb_id: Optional[int]
+    job_id: Optional[int]
+
+
 class JobStatus(str, Enum):
     PENDING = "pending"
     CHECKING_RADARR = "checking_radarr"

@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 from backend.database import init_db
-from backend.routers import webhook, jobs, settings
+from backend.routers import webhook, jobs, settings, logs
 from backend import config
 
 
@@ -63,6 +63,7 @@ app.add_middleware(
 app.include_router(webhook.router)
 app.include_router(jobs.router)
 app.include_router(settings.router)
+app.include_router(logs.router)
 
 # ── Health check ──────────────────────────────────────────────────────────────
 @app.get("/health")
