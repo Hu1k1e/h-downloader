@@ -26,6 +26,8 @@ export default function Dashboard() {
         load()
         const t = setInterval(load, 5000)
         return () => clearInterval(t)
+    }, [load])
+
     const recent = jobs.slice(0, 8)
 
     return (
