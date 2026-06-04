@@ -28,7 +28,7 @@ async def search_movie(title: str, year: int, domain: str, langs: list[str] = No
         params = {"q": f"{title} {year}"}
         headers = {"User-Agent": "Mozilla/5.0"}
         
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=15.0) as client:
             response = await client.get(search_url, params=params, headers=headers)
             response.raise_for_status()
             
@@ -86,7 +86,7 @@ async def extract_magnet(thread_url: str, blacklisted_urls: list[str] = None) ->
         
     try:
         headers = {"User-Agent": "Mozilla/5.0"}
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=15.0) as client:
             response = await client.get(thread_url, headers=headers)
             response.raise_for_status()
             
