@@ -180,6 +180,7 @@ async def retry_job(job_id: int, background_tasks: BackgroundTasks, session: Ses
     job.status = JobStatus.PENDING
     job.progress_pct = 0
     job.error_msg = None
+    job.blacklisted_urls = None
     session.add(job)
     session.commit()
     
