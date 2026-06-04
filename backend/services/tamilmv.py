@@ -24,21 +24,30 @@ BAD_KEYWORDS = ['predvd', 'cam', 'hdts', 'hd-ts', 'hdcam', 'hd-cam', 'pdvd', 'sc
 async def search_movie(title: str, year: int, domain: str, langs: list[str] = None, radarr_resolution: str = None, blacklisted_urls: list[str] = None) -> str:
     """Searches for a movie and returns the best forum thread URL, or None."""
     try:
-        search_url = f"{domain}/search/"
+        search_url = f"{domain}/search/api/search.php"
         params = {"q": f"{title} {year}"}
         headers = {"User-Agent": "Mozilla/5.0"}
         
-        async with httpx.AsyncClient(follow_redirects=True, timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.get(search_url, params=params, headers=headers)
             response.raise_for_status()
             
-            soup = BeautifulSoup(response.text, 'html.parser')
-            links = soup.find_all('a', href=re.compile(r'/index\.php\?/forums/topic/'))
+            data = response.json()
+            results = data.get("results", [])
             
             valid_links = []
-            for link in links:
-                href = link.get('href')
-                link_text = link.text.strip().lower()
+            for item in results:
+                tid = item.get("tid")
+                item_title = item.get("title", "")
+                if not tid:
+                    continue
+                    
+                link_text = item_title.lower()
+                
+                # Build thread URL using slugify logic from site JS
+                base = re.sub(r'[^a-z0-9\s-]+', ' ', link_text).strip()
+                slug = re.sub(r'\s+', '-', base)[:80] or 't'
+                href = f"{domain}/index.php?/forums/topic/{tid}-{slug}/"
                 
                 # Title and year check
                 if title.lower() not in link_text:
