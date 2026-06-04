@@ -9,7 +9,7 @@ from backend import config
 from backend.database import engine, get_settings
 from backend.models import DownloadJob, JobStatus, AppSettings
 from backend.orchestrator import process_request
-from backend.services import radarr, tmdb
+from backend.services import radarr, tmdb, qbittorrent
 
 logger = logging.getLogger(__name__)
 
@@ -287,6 +287,27 @@ async def sync_jellyseerr_requests():
                     session.commit()
                     continue
 
+                if job.status == JobStatus.DOWNLOADING and job.source_indexer == "1tamilmv" and job.torrent_hash:
+                    t_info = await asyncio.to_thread(qbittorrent.get_torrent_info, job.torrent_hash, settings)
+                    if not t_info:
+                        logger.warning(f"Torrent {job.torrent_hash} missing from qBittorrent. Blacklisting and retrying...")
+                        current_bl = job.blacklisted_urls or ""
+                        job.blacklisted_urls = f"{current_bl},{job.torrent_hash}".strip(",")
+                        job.status = JobStatus.PENDING
+                        job.progress_pct = 0
+                        session.add(job)
+                        session.commit()
+                        asyncio.create_task(process_request(job.tmdb_id, job.language))
+                        continue
+                    else:
+                        job.progress_pct = int(t_info.get("progress", 0) * 100)
+                        session.add(job)
+                        session.commit()
+                        if job.progress_pct == 100:
+                            if radarr_movie and "id" in radarr_movie:
+                                await radarr.trigger_rescan(radarr_movie["id"], settings)
+                            # Wait for Radarr to import it. We can leave it in DOWNLOADING at 100% until Radarr hasFile=True.
+
                 # No file. Is it actively downloading?
                 queue_item = queue_by_movie_id.get(radarr_movie.get("id"))
                 if _is_queue_item_active(queue_item):
@@ -345,6 +366,26 @@ async def sync_jellyseerr_requests():
                         session.add(job)
                         session.commit()
                     continue
+
+                if job.status == JobStatus.DOWNLOADING and job.source_indexer == "1tamilmv" and job.torrent_hash:
+                    t_info = await asyncio.to_thread(qbittorrent.get_torrent_info, job.torrent_hash, settings)
+                    if not t_info:
+                        logger.warning(f"Unmonitored torrent {job.torrent_hash} missing from qBittorrent. Blacklisting...")
+                        current_bl = job.blacklisted_urls or ""
+                        job.blacklisted_urls = f"{current_bl},{job.torrent_hash}".strip(",")
+                        job.status = JobStatus.PENDING
+                        job.progress_pct = 0
+                        session.add(job)
+                        session.commit()
+                        asyncio.create_task(process_request(job.tmdb_id, job.language))
+                        continue
+                    else:
+                        job.progress_pct = int(t_info.get("progress", 0) * 100)
+                        session.add(job)
+                        session.commit()
+                        if job.progress_pct == 100:
+                            if radarr_movie and "id" in radarr_movie:
+                                await radarr.trigger_rescan(radarr_movie["id"], settings)
 
                 if job.status == JobStatus.DONE:
                     import datetime

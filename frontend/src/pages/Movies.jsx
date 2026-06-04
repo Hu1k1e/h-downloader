@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { api } from '../api'
 
 const STATUS_COLOR = {
@@ -50,7 +50,53 @@ function tabCount(movies, tab) {
     return movies.filter(m => matchesTab(m, tab)).length
 }
 
-function PosterCard({ movie, onTrigger, onDelete, onToggleMonitor }) {
+function MovieModal({ movie, onClose }) {
+    if (!movie) return null;
+    return (
+        <div className="modal-overlay" onClick={onClose} style={{position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
+            <div className="modal-content card" onClick={e => e.stopPropagation()} style={{width: 500, maxWidth: '90%', maxHeight: '90vh', overflowY: 'auto', padding: 24, position: 'relative', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12}}>
+                <button onClick={onClose} style={{position: 'absolute', top: 16, right: 16, background: 'none', border: 'none', fontSize: 24, cursor: 'pointer', color: 'var(--text-secondary)'}}>✕</button>
+                <h2 style={{marginTop: 0, marginBottom: 8}}>{movie.title} {movie.year && `(${movie.year})`}</h2>
+                <div style={{color: 'var(--text-secondary)', marginBottom: 24}}>{movie.language}</div>
+                
+                <div style={{marginBottom: 16}}>
+                    <strong>Status:</strong> {STATUS_LABEL[(movie.status || '').toLowerCase()] || movie.status}
+                </div>
+                {movie.status === 'downloading' && (
+                    <div style={{marginBottom: 16}}>
+                        <strong>Progress:</strong> {movie.progress_pct}%
+                        <div style={{height: 8, background: 'var(--bg-tertiary)', borderRadius: 4, marginTop: 4, overflow: 'hidden'}}>
+                            <div style={{height: '100%', width: `${movie.progress_pct}%`, background: '#3b82f6'}} />
+                        </div>
+                    </div>
+                )}
+                {movie.source_indexer && (
+                    <div style={{marginBottom: 16}}>
+                        <strong>Source:</strong> {movie.source_indexer === '1tamilmv' ? '1TamilMV' : movie.source_indexer === 'einthusan' ? 'Einthusan' : movie.source_indexer}
+                    </div>
+                )}
+                {movie.file_path && (
+                    <div style={{marginBottom: 16}}>
+                        <strong>Path:</strong> <span style={{fontFamily: 'monospace', fontSize: 13, wordBreak: 'break-all', display: 'block', marginTop: 4}}>{movie.file_path}</span>
+                    </div>
+                )}
+                {movie.error_msg && (
+                    <div style={{marginBottom: 16, color: 'var(--error)'}}>
+                        <strong>Error:</strong> {movie.error_msg}
+                    </div>
+                )}
+                <div style={{marginBottom: 16}}>
+                    <strong>Added:</strong> {new Date(movie.created_at).toLocaleString()}
+                </div>
+                <div style={{marginBottom: 16}}>
+                    <strong>Last Updated:</strong> {new Date(movie.updated_at).toLocaleString()}
+                </div>
+            </div>
+        </div>
+    )
+}
+
+function PosterCard({ movie, onTrigger, onDelete, onToggleMonitor, onSelect }) {
     const status = (movie.status || '').toLowerCase()
     const colour = STATUS_COLOR[status] || 'var(--text-muted)'
     const label = STATUS_LABEL[status] || status.toUpperCase()
@@ -60,7 +106,7 @@ function PosterCard({ movie, onTrigger, onDelete, onToggleMonitor }) {
         : null
 
     return (
-        <div className="poster-card">
+        <div className="poster-card" onClick={() => onSelect(movie)} style={{cursor: 'pointer'}}>
             <div className="poster-img-wrap">
                 {posterSrc ? (
                     <img
@@ -113,7 +159,7 @@ function PosterCard({ movie, onTrigger, onDelete, onToggleMonitor }) {
                 </div>
             </div>
 
-            <div className="poster-actions">
+            <div className="poster-actions" onClick={e => e.stopPropagation()}>
                 <button
                     className="btn btn-secondary btn-sm"
                     onClick={() => onToggleMonitor(movie.id, movie.monitored)}
@@ -126,7 +172,7 @@ function PosterCard({ movie, onTrigger, onDelete, onToggleMonitor }) {
                     className="btn btn-primary btn-sm"
                     onClick={() => onTrigger(movie.id, movie.tmdb_id, movie.language)}
                     disabled={status === 'downloading' || status === 'importing'}
-                    title="Force Einthusan search"
+                    title="Force search"
                     style={{ flex: 1 }}
                 >
                     ▶
@@ -151,6 +197,7 @@ export default function Movies() {
     const [isSyncing, setIsSyncing] = useState(false)
     const [search, setSearch] = useState('')
     const [activeTab, setActiveTab] = useState('all')
+    const [selectedMovie, setSelectedMovie] = useState(null)
 
     const fetchMovies = async () => {
         try {
@@ -247,6 +294,8 @@ export default function Movies() {
 
     return (
         <div className="main-content">
+            {selectedMovie && <MovieModal movie={movies.find(m => m.id === selectedMovie.id) || selectedMovie} onClose={() => setSelectedMovie(null)} />}
+            
             {/* Header */}
             <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
@@ -326,6 +375,7 @@ export default function Movies() {
                             onTrigger={triggerJob}
                             onDelete={deleteJob}
                             onToggleMonitor={toggleMonitor}
+                            onSelect={setSelectedMovie}
                         />
                     ))}
                 </div>

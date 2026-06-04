@@ -126,6 +126,34 @@ async def trigger_rescan(movie_id: int, settings: AppSettings) -> bool:
     return True
 
 
+async def get_quality_profile_resolution(profile_id: int, settings: AppSettings) -> Optional[str]:
+    """
+    Fetches the quality profile by ID and tries to extract a resolution keyword
+    like '1080p', '720p', '2160p', '4k' from its name.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(_url(settings, "/qualityprofile"), headers=_headers(settings))
+            resp.raise_for_status()
+            profiles = resp.json()
+            for p in profiles:
+                if p.get("id") == profile_id:
+                    name = p.get("name", "").lower()
+                    if "1080p" in name:
+                        return "1080p"
+                    if "720p" in name:
+                        return "720p"
+                    if "2160p" in name or "4k" in name:
+                        return "2160p"  # common fallback mapping for 4k is 2160p/4k, let's just return what we find
+                    if "4k" in name:
+                        return "4k"
+                    return name
+            return None
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Failed to fetch quality profiles: {e}")
+        return None
+
 async def test_connection(settings: AppSettings) -> Dict[str, Any]:
     """Returns Radarr system status or raises on failure."""
     async with httpx.AsyncClient(timeout=10) as client:

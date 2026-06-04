@@ -38,6 +38,9 @@ class DownloadJob(SQLModel, table=True):
     error_msg: Optional[str] = None
     monitored: bool = Field(default=True, index=True)
     poster_path: Optional[str] = None         # TMDB poster path e.g. /abc123.jpg
+    source_indexer: Optional[str] = None      # e.g., '1tamilmv', 'einthusan'
+    torrent_hash: Optional[str] = None        # qBittorrent info hash
+    blacklisted_urls: Optional[str] = None    # comma separated skipped/failed hashes/urls
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -59,6 +62,9 @@ class DownloadJobRead(SQLModel):
     error_msg: Optional[str]
     monitored: bool
     poster_path: Optional[str]
+    source_indexer: Optional[str]
+    torrent_hash: Optional[str]
+    blacklisted_urls: Optional[str]
     created_at: datetime
     updated_at: datetime
 

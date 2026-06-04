@@ -33,6 +33,14 @@ def init_db():
                 conn.execute(text("ALTER TABLE appsettings ADD COLUMN qbittorrent_password VARCHAR NOT NULL DEFAULT 'adminadmin'"))
                 conn.execute(text("ALTER TABLE appsettings ADD COLUMN qbittorrent_category_movies VARCHAR NOT NULL DEFAULT 'radarr'"))
                 conn.execute(text("ALTER TABLE appsettings ADD COLUMN qbittorrent_category_series VARCHAR NOT NULL DEFAULT 'sonarr'"))
+            
+            # Auto-migrate DownloadJob table
+            dj_result = conn.execute(text("PRAGMA table_info(downloadjob)")).fetchall()
+            dj_columns = [row[1] for row in dj_result]
+            if dj_result and "source_indexer" not in dj_columns:
+                conn.execute(text("ALTER TABLE downloadjob ADD COLUMN source_indexer VARCHAR"))
+                conn.execute(text("ALTER TABLE downloadjob ADD COLUMN torrent_hash VARCHAR"))
+                conn.execute(text("ALTER TABLE downloadjob ADD COLUMN blacklisted_urls VARCHAR"))
     except Exception as e:
         import logging
         logging.getLogger(__name__).warning(f"Auto-migration failed: {e}")

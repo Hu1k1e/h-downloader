@@ -170,6 +170,13 @@ async def _run_pipeline(
         except Exception as e:
             _update_job(session, job, status=JobStatus.FAILED, error_msg=f"Radarr add failed: {e}")
             return
+            
+        # ── Step 4.5: Fetch Radarr Quality Resolution ────────────────────────
+        radarr_resolution = None
+        try:
+            radarr_resolution = await radarr.get_quality_profile_resolution(settings.radarr_quality_profile_id, settings)
+        except Exception as e:
+            logger.warning(f"Could not get radarr resolution: {e}")
 
         # ── Step 5: Search and Download via Priority Sources ──────────────────
         _update_job(session, job, status=JobStatus.SEARCHING)
@@ -182,16 +189,17 @@ async def _run_pipeline(
         for source in sources:
             if source == "1tamilmv":
                 try:
+                    blacklisted = [b.strip() for b in job.blacklisted_urls.split(",")] if job.blacklisted_urls else []
                     domain = await tamilmv.get_current_domain()
-                    thread_url = await tamilmv.search_movie(title, year or 0, domain, langs_to_try)
+                    thread_url = await tamilmv.search_movie(title, year or 0, domain, langs_to_try, radarr_resolution, blacklisted)
                     if thread_url:
-                        magnet = await tamilmv.extract_magnet(thread_url)
+                        magnet = await tamilmv.extract_magnet(thread_url, blacklisted)
                         if magnet:
-                            added = await asyncio.to_thread(qbittorrent.add_magnet_to_qbittorrent, magnet, settings)
-                            if added:
+                            torrent_hash = await asyncio.to_thread(qbittorrent.add_magnet_to_qbittorrent, magnet, settings)
+                            if torrent_hash:
                                 success_source = "1tamilmv"
-                                _update_job(session, job, status=JobStatus.DOWNLOADING, error_msg=None)
-                                logger.info(f"Successfully added '{title}' magnet to qBittorrent via 1TamilMV.")
+                                _update_job(session, job, status=JobStatus.DOWNLOADING, error_msg=None, source_indexer="1tamilmv", torrent_hash=torrent_hash)
+                                logger.info(f"Successfully added '{title}' magnet to qBittorrent via 1TamilMV. Hash: {torrent_hash}")
                                 break
                 except Exception as e:
                     logger.error(f"1TamilMV search/add failed for {title}: {e}")
@@ -219,7 +227,7 @@ async def _run_pipeline(
                             folder_path = await radarr.get_movie_folder(tmdb_id, title, year or 0, settings)
                             file_path = get_movie_file_path(folder_path, title, year)
                             
-                            _update_job(session, job, file_path=file_path, status=JobStatus.DOWNLOADING)
+                            _update_job(session, job, file_path=file_path, status=JobStatus.DOWNLOADING, source_indexer="einthusan")
                             dl_success = await download_movie(job_id, direct_url, file_path, session)
                             if dl_success:
                                 success_source = "einthusan"
