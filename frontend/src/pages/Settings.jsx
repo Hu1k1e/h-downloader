@@ -19,6 +19,11 @@ export default function Settings() {
     const [importing, setImporting] = useState(false)
     const [importMsg, setImportMsg] = useState('')
 
+    const [qbtTesting, setQbtTesting] = useState(false)
+    const [qbtStatus, setQbtStatus] = useState(null)
+    const [qbtMsg, setQbtMsg] = useState('')
+    const [qbtCategories, setQbtCategories] = useState([])
+
     const loadSettings = () => {
         api.getSettings().then(data => {
             setSettings(data)
@@ -32,9 +37,17 @@ export default function Settings() {
                 einthusan_languages: data.einthusan_languages || [],
                 digital_release_fallback_days: data.digital_release_fallback_days,
                 sync_interval_seconds: data.sync_interval_seconds ?? 900,
+                download_sources_priority: data.download_sources_priority || ['einthusan', '1tamilmv'],
+                qbittorrent_url: data.qbittorrent_url || '',
+                qbittorrent_username: data.qbittorrent_username || '',
+                qbittorrent_password: '',
+                qbittorrent_category_movies: data.qbittorrent_category_movies || '',
+                qbittorrent_category_series: data.qbittorrent_category_series || '',
             })
+
         }).catch(() => { })
     }
+
 
     useEffect(() => {
         loadSettings()
@@ -55,6 +68,19 @@ export default function Settings() {
             }
         })
     }
+
+    const moveSource = (index, direction) => {
+        setFormData(prev => {
+            const newSources = [...(prev.download_sources_priority || [])];
+            if (direction === 'up' && index > 0) {
+                [newSources[index - 1], newSources[index]] = [newSources[index], newSources[index - 1]];
+            } else if (direction === 'down' && index < newSources.length - 1) {
+                [newSources[index + 1], newSources[index]] = [newSources[index], newSources[index + 1]];
+            }
+            return { ...prev, download_sources_priority: newSources };
+        });
+    }
+
 
     const handleSave = async () => {
         setSaving(true)
@@ -99,6 +125,28 @@ export default function Settings() {
             setImporting(false)
         }
     }
+
+    async function testQbittorrent() {
+        setQbtTesting(true)
+        setQbtStatus(null)
+        try {
+            const res = await api.testQbittorrent({
+                url: formData.qbittorrent_url,
+                username: formData.qbittorrent_username,
+                password: formData.qbittorrent_password || ''
+            })
+            setQbtStatus('ok')
+            setQbtCategories(res.categories || [])
+            setQbtMsg('Connected')
+        } catch (e) {
+            setQbtStatus('err')
+            setQbtMsg(e.message)
+            setQbtCategories([])
+        } finally {
+            setQbtTesting(false)
+        }
+    }
+
 
     async function testTmdb() {
         setTmdbTesting(true)
@@ -241,6 +289,76 @@ export default function Settings() {
                         {tmdbStatus === 'ok' && <span className="test-result ok">✓ Connected</span>}
                         {tmdbStatus === 'err' && <span className="test-result err">✗ Failed</span>}
                     </div>
+                </div>
+            </div>
+
+            {/* Download Sources */}
+            <div className="card settings-section" style={{ marginBottom: 16 }}>
+                <div className="settings-section-title">Download Sources</div>
+                <div className="form-row">
+                    <span className="form-label">Priority Order</span>
+                    <div>
+                        <div style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 8 }}>
+                            Sources will be searched in this order.
+                        </div>
+                        {(formData.download_sources_priority || []).map((source, idx) => (
+                            <div key={source} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px', background: 'var(--bg-tertiary)', marginBottom: 4, borderRadius: 6 }}>
+                                <span style={{ fontWeight: 'bold', minWidth: 20 }}>{idx + 1}.</span>
+                                <span style={{ flex: 1 }}>{source === '1tamilmv' ? '1TamilMV' : source === 'einthusan' ? 'Einthusan' : source}</span>
+                                <button className="btn btn-secondary btn-sm" onClick={() => moveSource(idx, 'up')} disabled={idx === 0}>↑</button>
+                                <button className="btn btn-secondary btn-sm" onClick={() => moveSource(idx, 'down')} disabled={idx === (formData.download_sources_priority || []).length - 1}>↓</button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+
+            {/* qBittorrent */}
+            <div className="card settings-section" style={{ marginBottom: 16 }}>
+                <div className="settings-section-title">qBittorrent Settings</div>
+                <div className="form-row">
+                    <span className="form-label">URL</span>
+                    <input className="form-input" name="qbittorrent_url" value={formData.qbittorrent_url || ''} onChange={handleChange} placeholder="http://localhost:8080" />
+                </div>
+                <div className="form-row">
+                    <span className="form-label">Username</span>
+                    <input className="form-input" name="qbittorrent_username" value={formData.qbittorrent_username || ''} onChange={handleChange} placeholder="admin" />
+                </div>
+                <div className="form-row">
+                    <span className="form-label">Password</span>
+                    <input className="form-input" type="password" name="qbittorrent_password" value={formData.qbittorrent_password || ''} onChange={handleChange} placeholder={settings.qbittorrent_password_set ? '●●●●●●●●● (Set - Type to change)' : 'Not set'} />
+                </div>
+                <div className="form-row">
+                    <span className="form-label">Connection</span>
+                    <div className="connection-test-row">
+                        <button className="btn btn-secondary btn-sm" onClick={testQbittorrent} disabled={qbtTesting}>
+                            {qbtTesting ? <><span className="spinner" /> Testing…</> : 'Test Connection'}
+                        </button>
+                        {qbtStatus === 'ok' && <span className="test-result ok">✓ {qbtMsg}</span>}
+                        {qbtStatus === 'err' && <span className="test-result err">✗ {qbtMsg}</span>}
+                    </div>
+                </div>
+                <div className="form-row">
+                    <span className="form-label">Movies Category</span>
+                    {qbtCategories.length > 0 ? (
+                        <select className="form-input" name="qbittorrent_category_movies" value={formData.qbittorrent_category_movies || ''} onChange={handleChange}>
+                            <option value="">(None)</option>
+                            {qbtCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                        </select>
+                    ) : (
+                        <input className="form-input" name="qbittorrent_category_movies" value={formData.qbittorrent_category_movies || ''} onChange={handleChange} placeholder="radarr" />
+                    )}
+                </div>
+                <div className="form-row">
+                    <span className="form-label">Series Category</span>
+                    {qbtCategories.length > 0 ? (
+                        <select className="form-input" name="qbittorrent_category_series" value={formData.qbittorrent_category_series || ''} onChange={handleChange}>
+                            <option value="">(None)</option>
+                            {qbtCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                        </select>
+                    ) : (
+                        <input className="form-input" name="qbittorrent_category_series" value={formData.qbittorrent_category_series || ''} onChange={handleChange} placeholder="sonarr" />
+                    )}
                 </div>
             </div>
 

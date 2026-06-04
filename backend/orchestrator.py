@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 from backend import config
 from backend.database import engine, get_settings
 from backend.models import DownloadJob, JobStatus, AppSettings
-from backend.services import einthusan, radarr, tmdb
+from backend.services import einthusan, radarr, tmdb, tamilmv, qbittorrent
 from backend.services.downloader import download_movie, get_movie_file_path
 
 
@@ -164,70 +164,75 @@ async def _run_pipeline(
                             error_msg=f"Language '{original_lang_code}' not in configured languages")
                 return
 
-        # ── Step 4: Search Einthusan ─────────────────────────────────────────
-        _update_job(session, job, status=JobStatus.SEARCHING)
-        watch_url: Optional[str] = None
-        found_lang: Optional[str] = None
-
-        for lang in langs_to_try:
-            try:
-                url = await einthusan.search(title, year, lang)
-                if url:
-                    watch_url = url
-                    found_lang = lang
-                    break
-            except Exception:
-                continue
-
-        if not watch_url:
-            _update_job(session, job, status=JobStatus.NOT_FOUND,
-                        error_msg=f"Not found on Einthusan (searched: {', '.join(langs_to_try)})")
-            return
-
-        _update_job(session, job, einthusan_url=watch_url, language=found_lang)
-
-        # ── Step 5: Extract direct MP4 URL ──────────────────────────────────
-        try:
-            direct_url = await einthusan.extract_mp4_url(watch_url)
-        except Exception as e:
-            _update_job(session, job, status=JobStatus.FAILED, error_msg=f"MP4 extraction failed: {e}")
-            return
-
-        if not direct_url:
-            _update_job(session, job, status=JobStatus.FAILED, error_msg="Could not extract MP4 URL from Einthusan")
-            return
-
-        _update_job(session, job, direct_url=direct_url)
-
-        # ── Step 6: Ensure movie exists in Radarr ────────────────────────────
+        # ── Step 4: Ensure movie exists in Radarr ────────────────────────────
         try:
             await radarr.ensure_movie_added(tmdb_id, title, year or 0, settings)
         except Exception as e:
             _update_job(session, job, status=JobStatus.FAILED, error_msg=f"Radarr add failed: {e}")
             return
 
-        # ── Step 7: Download ─────────────────────────────────────────────────
-        try:
-            folder_path = await radarr.get_movie_folder(tmdb_id, title, year or 0, settings)
-            file_path = get_movie_file_path(folder_path, title, year)
-        except Exception as e:
-            _update_job(session, job, status=JobStatus.FAILED, error_msg=f"Failed to get movie folder: {e}")
-            return
+        # ── Step 5: Search and Download via Priority Sources ──────────────────
+        _update_job(session, job, status=JobStatus.SEARCHING)
+        sources = [s.strip() for s in settings.download_sources_priority.split(",") if s.strip()]
+        if not sources:
+            sources = ["einthusan", "1tamilmv"]
+
+        success_source = None
+
+        for source in sources:
+            if source == "1tamilmv":
+                try:
+                    domain = await tamilmv.get_current_domain()
+                    thread_url = await tamilmv.search_movie(title, year or 0, domain)
+                    if thread_url:
+                        magnet = await tamilmv.extract_magnet(thread_url)
+                        if magnet:
+                            added = await asyncio.to_thread(qbittorrent.add_magnet_to_qbittorrent, magnet, settings)
+                            if added:
+                                success_source = "1tamilmv"
+                                _update_job(session, job, status=JobStatus.DOWNLOADING, error_msg=None)
+                                logger.info(f"Successfully added '{title}' magnet to qBittorrent via 1TamilMV.")
+                                break
+                except Exception as e:
+                    logger.error(f"1TamilMV search/add failed for {title}: {e}")
             
-        _update_job(session, job, file_path=file_path, status=JobStatus.DOWNLOADING)
+            elif source == "einthusan":
+                watch_url: Optional[str] = None
+                found_lang: Optional[str] = None
 
-        success = await download_movie(job_id, direct_url, file_path, session)
-        if not success:
-            return  # download_movie already updated the job status
+                for lang in langs_to_try:
+                    try:
+                        url = await einthusan.search(title, year, lang)
+                        if url:
+                            watch_url = url
+                            found_lang = lang
+                            break
+                    except Exception:
+                        continue
 
-        # ── Step 8: Trigger Radarr import ────────────────────────────────────
-        try:
-            movie_data = await radarr.is_movie_in_radarr(tmdb_id, settings)
-            if movie_data and "id" in movie_data:
-                await radarr.trigger_rescan(movie_data["id"], settings)
-        except Exception as e:
-            _update_job(session, job, status=JobStatus.FAILED, error_msg=f"Radarr rescan failed: {e}")
-            return
+                if watch_url:
+                    _update_job(session, job, einthusan_url=watch_url, language=found_lang)
+                    try:
+                        direct_url = await einthusan.extract_mp4_url(watch_url)
+                        if direct_url:
+                            _update_job(session, job, direct_url=direct_url)
+                            folder_path = await radarr.get_movie_folder(tmdb_id, title, year or 0, settings)
+                            file_path = get_movie_file_path(folder_path, title, year)
+                            
+                            _update_job(session, job, file_path=file_path, status=JobStatus.DOWNLOADING)
+                            dl_success = await download_movie(job_id, direct_url, file_path, session)
+                            if dl_success:
+                                success_source = "einthusan"
+                                # Trigger Radarr rescan
+                                movie_data = await radarr.is_movie_in_radarr(tmdb_id, settings)
+                                if movie_data and "id" in movie_data:
+                                    await radarr.trigger_rescan(movie_data["id"], settings)
+                                _update_job(session, job, status=JobStatus.DONE, progress_pct=100,
+                                            monitored=False, file_path=file_path, error_msg=None)
+                                break
+                    except Exception as e:
+                        logger.error(f"Einthusan download failed for {title}: {e}")
 
-        _update_job(session, job, status=JobStatus.DONE, progress_pct=100,
-                    monitored=False, file_path=file_path, error_msg=None)
+        if not success_source:
+            _update_job(session, job, status=JobStatus.NOT_FOUND,
+                        error_msg=f"Not found or failed on all configured sources ({', '.join(sources)})")

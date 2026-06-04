@@ -3,8 +3,9 @@ Settings API router — read/write app configuration.
 """
 from typing import List
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
+from pydantic import BaseModel
 
 from backend import config
 from backend.database import get_session, get_settings
@@ -27,7 +28,14 @@ def get_current_settings(session: Session = Depends(get_session)):
         sync_interval_seconds=settings.sync_interval_seconds,
         app_version=config.APP_VERSION,
         webhook_url_hint="/webhook/jellyseerr",
+        download_sources_priority=[s.strip() for s in settings.download_sources_priority.split(",") if s.strip()],
+        qbittorrent_url=settings.qbittorrent_url,
+        qbittorrent_username=settings.qbittorrent_username,
+        qbittorrent_category_movies=settings.qbittorrent_category_movies,
+        qbittorrent_category_series=settings.qbittorrent_category_series,
+        qbittorrent_password_set=bool(settings.qbittorrent_password),
     )
+
 
 @router.post("", response_model=AppSettingsRead)
 def update_settings(update_data: AppSettingsUpdate, session: Session = Depends(get_session)):
@@ -71,9 +79,46 @@ def update_settings(update_data: AppSettingsUpdate, session: Session = Depends(g
         except Exception as e:
             import logging
             logging.getLogger(__name__).warning(f"Could not reschedule sync job: {e}")
+            
+    if update_data.download_sources_priority is not None:
+        settings.download_sources_priority = ",".join(update_data.download_sources_priority)
+        
+    if update_data.qbittorrent_url is not None:
+        settings.qbittorrent_url = update_data.qbittorrent_url
+    if update_data.qbittorrent_username is not None:
+        settings.qbittorrent_username = update_data.qbittorrent_username
+    if update_data.qbittorrent_password is not None and update_data.qbittorrent_password != "":
+        settings.qbittorrent_password = update_data.qbittorrent_password
+    if update_data.qbittorrent_category_movies is not None:
+        settings.qbittorrent_category_movies = update_data.qbittorrent_category_movies
+    if update_data.qbittorrent_category_series is not None:
+        settings.qbittorrent_category_series = update_data.qbittorrent_category_series
         
     session.add(settings)
     session.commit()
     session.refresh(settings)
     
     return get_current_settings(session)
+
+class QbittorrentTestRequest(BaseModel):
+    url: str
+    username: str
+    password: str
+
+@router.post("/test-qbittorrent")
+def test_qbittorrent_connection(req: QbittorrentTestRequest):
+    try:
+        import qbittorrentapi
+        qbt_client = qbittorrentapi.Client(
+            host=req.url,
+            username=req.username,
+            password=req.password,
+        )
+        qbt_client.auth_log_in()
+        
+        # Fetch categories
+        categories = qbt_client.torrent_categories.categories()
+        cat_names = list(categories.keys())
+        return {"status": "ok", "categories": cat_names}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))

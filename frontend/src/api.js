@@ -39,4 +39,5 @@ export const api = {
     testRadarr: () => request('/api/test/radarr'),
     testTmdb: () => request('/api/test/tmdb'),
     importRadarr: () => request('/api/jobs/import-radarr', { method: 'POST' }),
+    testQbittorrent: (data) => request('/api/settings/test-qbittorrent', { method: 'POST', body: data }),
 }

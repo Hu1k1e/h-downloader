@@ -83,6 +83,14 @@ class AppSettings(SQLModel, table=True):
     
     digital_release_fallback_days: int = Field(default=90)
     sync_interval_seconds: int = Field(default=900)  # 15 minutes by default
+    
+    download_sources_priority: str = Field(default="einthusan,1tamilmv")
+    
+    qbittorrent_url: str = Field(default="http://localhost:8080")
+    qbittorrent_username: str = Field(default="admin")
+    qbittorrent_password: str = Field(default="adminadmin")
+    qbittorrent_category_movies: str = Field(default="radarr")
+    qbittorrent_category_series: str = Field(default="sonarr")
 
 
 class AppSettingsRead(SQLModel):
@@ -97,6 +105,13 @@ class AppSettingsRead(SQLModel):
     sync_interval_seconds: int
     app_version: str
     webhook_url_hint: str
+    download_sources_priority: List[str]
+    qbittorrent_url: str
+    qbittorrent_username: str
+    qbittorrent_category_movies: str
+    qbittorrent_category_series: str
+    qbittorrent_password_set: bool
+
 
 
 class AppSettingsUpdate(SQLModel):
@@ -112,3 +127,11 @@ class AppSettingsUpdate(SQLModel):
     einthusan_languages: Optional[List[str]] = None
     digital_release_fallback_days: Optional[int] = None
     sync_interval_seconds: Optional[int] = None  # min 30 s
+    download_sources_priority: Optional[List[str]] = None
+    
+    qbittorrent_url: Optional[str] = None
+    qbittorrent_username: Optional[str] = None
+    qbittorrent_password: Optional[str] = None
+    qbittorrent_category_movies: Optional[str] = None
+    qbittorrent_category_series: Optional[str] = None
+
