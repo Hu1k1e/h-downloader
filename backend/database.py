@@ -20,6 +20,23 @@ engine = create_engine(
 def init_db():
     SQLModel.metadata.create_all(engine)
     
+    # Auto-migrate AppSettings table (since SQLite doesn't add columns automatically)
+    try:
+        from sqlalchemy import text
+        with engine.begin() as conn:
+            result = conn.execute(text("PRAGMA table_info(appsettings)")).fetchall()
+            columns = [row[1] for row in result]
+            if result and "download_sources_priority" not in columns:
+                conn.execute(text("ALTER TABLE appsettings ADD COLUMN download_sources_priority VARCHAR NOT NULL DEFAULT 'einthusan,1tamilmv'"))
+                conn.execute(text("ALTER TABLE appsettings ADD COLUMN qbittorrent_url VARCHAR NOT NULL DEFAULT 'http://localhost:8080'"))
+                conn.execute(text("ALTER TABLE appsettings ADD COLUMN qbittorrent_username VARCHAR NOT NULL DEFAULT 'admin'"))
+                conn.execute(text("ALTER TABLE appsettings ADD COLUMN qbittorrent_password VARCHAR NOT NULL DEFAULT 'adminadmin'"))
+                conn.execute(text("ALTER TABLE appsettings ADD COLUMN qbittorrent_category_movies VARCHAR NOT NULL DEFAULT 'radarr'"))
+                conn.execute(text("ALTER TABLE appsettings ADD COLUMN qbittorrent_category_series VARCHAR NOT NULL DEFAULT 'sonarr'"))
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Auto-migration failed: {e}")
+        
     # Initialize settings if table exists but is empty
     with Session(engine) as session:
         settings = session.exec(select(AppSettings)).first()
