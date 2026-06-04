@@ -183,7 +183,7 @@ async def _run_pipeline(
             if source == "1tamilmv":
                 try:
                     domain = await tamilmv.get_current_domain()
-                    thread_url = await tamilmv.search_movie(title, year or 0, domain)
+                    thread_url = await tamilmv.search_movie(title, year or 0, domain, langs_to_try)
                     if thread_url:
                         magnet = await tamilmv.extract_magnet(thread_url)
                         if magnet:

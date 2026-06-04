@@ -19,7 +19,9 @@ async def get_current_domain() -> str:
         # Fallback to known domain if resolution fails
         return "https://www.1tamilmv.cards"
 
-async def search_movie(title: str, year: int, domain: str) -> str:
+BAD_KEYWORDS = ['predvd', 'cam', 'hdts', 'hd-ts', 'hdcam', 'hd-cam', 'pdvd', 'scr']
+
+async def search_movie(title: str, year: int, domain: str, langs: list[str] = None) -> str:
     """Searches for a movie and returns the best forum thread URL, or None."""
     try:
         search_url = f"{domain}/search/"
@@ -33,19 +35,31 @@ async def search_movie(title: str, year: int, domain: str) -> str:
             soup = BeautifulSoup(response.text, 'html.parser')
             links = soup.find_all('a', href=re.compile(r'/index\.php\?/forums/topic/'))
             
-            best_link = None
+            valid_links = []
             for link in links:
                 href = link.get('href')
                 link_text = link.text.strip().lower()
                 
-                if title.lower() in link_text and str(year) in link_text:
-                    best_link = href
-                    break
+                # Title and year check
+                if title.lower() not in link_text or str(year) not in link_text:
+                    continue
                     
-            if not best_link and links:
-                best_link = links[0].get('href')
+                # Exclude camprints
+                if any(bad in link_text for bad in BAD_KEYWORDS):
+                    continue
+                    
+                valid_links.append((href, link_text))
                 
-            return best_link
+            if not valid_links:
+                return None
+                
+            if langs:
+                for lang in langs:
+                    for href, text in valid_links:
+                        if lang.lower() in text:
+                            return href
+                            
+            return valid_links[0][0]
     except Exception as e:
         logger.error(f"Error searching 1TamilMV: {e}")
         return None
@@ -61,9 +75,10 @@ async def extract_magnet(thread_url: str) -> str:
             response = await client.get(thread_url, headers=headers)
             response.raise_for_status()
             
-            magnet_match = re.search(r'href="(magnet:\?xt=urn:btih:[^"]+)"', response.text)
+            # Broader regex to catch magnet links in text or href
+            magnet_match = re.search(r'(magnet:\?xt=urn:btih:[a-zA-Z0-9]+)', response.text, re.IGNORECASE)
             if magnet_match:
-                return magnet_match.group(1).replace('&amp;', '&')
+                return magnet_match.group(1)
                 
             return None
     except Exception as e:
