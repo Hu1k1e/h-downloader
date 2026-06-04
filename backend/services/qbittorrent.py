@@ -21,7 +21,7 @@ def extract_hash_from_magnet(magnet_link: str) -> Optional[str]:
             pass
     return hash_str.lower()
 
-def add_magnet_to_qbittorrent(magnet_link: str, settings: AppSettings) -> Optional[str]:
+def add_magnet_to_qbittorrent(magnet_link: str, settings: AppSettings, rename: Optional[str] = None) -> Optional[str]:
     """
     Adds a magnet link to qBittorrent with the configured category.
     Returns the torrent hash if successful, else None.
@@ -40,10 +40,14 @@ def add_magnet_to_qbittorrent(magnet_link: str, settings: AppSettings) -> Option
         qbt_client.auth_log_in()
         
         logger.info(f"Adding magnet to qBittorrent with category: {settings.qbittorrent_category_movies}")
-        qbt_client.torrents_add(
-            urls=magnet_link,
-            category=settings.qbittorrent_category_movies,
-        )
+        kwargs = {
+            "urls": magnet_link,
+            "category": settings.qbittorrent_category_movies,
+        }
+        if rename:
+            kwargs["rename"] = rename
+            
+        qbt_client.torrents_add(**kwargs)
         
         return extract_hash_from_magnet(magnet_link)
     except Exception as e:
