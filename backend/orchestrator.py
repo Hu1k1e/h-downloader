@@ -227,7 +227,7 @@ async def _run_pipeline(
                             folder_path = await radarr.get_movie_folder(tmdb_id, title, year or 0, settings)
                             file_path = get_movie_file_path(folder_path, title, year)
                             
-                            _update_job(session, job, file_path=file_path, status=JobStatus.DOWNLOADING, source_indexer="einthusan")
+                            _update_job(session, job, file_path=file_path, status=JobStatus.DOWNLOADING, source_indexer="einthusan", error_msg=None)
                             dl_success = await download_movie(job_id, direct_url, file_path, session)
                             if dl_success:
                                 success_source = "einthusan"

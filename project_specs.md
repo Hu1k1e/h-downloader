@@ -1105,3 +1105,17 @@ The app would either immediately query qBittorrent and execute searches, leading
 - **Delayed Search Execution:** Implemented a `delayed_search()` async function in `backend/sync.py`. When a new missing movie is synced from Radarr or Jellyseerr, it is delayed by 2 minutes. The system then queries Radarr directly—if Radarr is actively downloading it (e.g. from a different list sync), the fallback Einthusan/1TamilMV search is skipped entirely.
 - **Configurable Background Loop:** Added a separate `sync_missing_movies()` async loop specifically for retrying `MOVIE_MISSING` jobs. Configured a brand new `missing_search_interval_hours` and `missing_search_batch_size` parameter in `backend/models.py`. Exposed these to the user in the `Settings` UI page, parsing them accurately in the frontend.
 - **Generalize Torrent Checks:** Removed hardcoded `"1tamilmv"` string checks across the app where it attempted to monitor torrent hashes. The system now evaluates progress for ANY download source that populates `job.torrent_hash`, providing future-proof compatibility with apps like `cleanuparr`.
+
+---
+
+## [2026-06-04] Fix Radarr Queue Conflict & Status Desync
+
+**Problem:**
+The app showed conflicting statuses: it downloaded via Einthusan but simultaneously flagged the UI with a "Not found or failed" error, and it incorrectly searched for movies that Radarr was already actively downloading. This was caused by `webhook.py` triggering searches immediately (bypassing the 2m delay), the Radarr queue check reading only the *first* (often stalled) torrent out of multiple grabs, and the Einthusan step forgetting to clear stale error messages.
+
+**Changes made:**
+- **Webhook Delay Integration:** Modified `backend/routers/webhook.py` to stop firing `process_request` immediately. It now correctly creates the job as `MOVIE_MISSING` and triggers `delayed_search`, giving Radarr its full 2 minutes to grab torrents from its own RSS or lists.
+- **Queue Active Item Preference:** Updated `backend/services/radarr.py`'s `get_movie_queue_status` to scan all queue records for a movie instead of just returning the first one. If Radarr grabbed 6 torrents and the first one stalled, it will now correctly find the active one and realize Radarr is handling it.
+- **Stale Error Cleanup:** Updated `backend/orchestrator.py` to explicitly clear `error_msg=None` when transitioning a job to `JobStatus.DOWNLOADING` via Einthusan, resolving the contradictory UI state.
+
+

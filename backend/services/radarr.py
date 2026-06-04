@@ -69,11 +69,18 @@ async def get_movie_queue_status(movie_id: int, settings: AppSettings) -> Option
         # queue_data might be a list of records or an object with 'records' list
         records = queue_data.get("records", []) if isinstance(queue_data, dict) else queue_data
         
-        for record in records:
-            if record.get("movieId") == movie_id:
+        movie_records = [r for r in records if r.get("movieId") == movie_id]
+        if not movie_records:
+            return None
+            
+        # Try to find an active (downloading/queued) one without warnings/errors
+        for record in movie_records:
+            tracked = record.get("trackedDownloadStatus", "").lower()
+            if tracked not in ("warning", "error"):
                 return record
                 
-    return None
+        # Fallback to the first one if all are stalled
+        return movie_records[0]
 
 
 async def ensure_movie_added(tmdb_id: int, title: str, year: int, settings: AppSettings) -> Dict[str, Any]:

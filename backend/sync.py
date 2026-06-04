@@ -58,7 +58,7 @@ def _is_queue_item_active(queue_item: Optional[dict]) -> bool:
         return False
     return True
 
-async def delayed_search(tmdb_id: int, language: str):
+async def delayed_search(tmdb_id: int, language: Optional[str] = None):
     """Wait 2m, check if Radarr is actively downloading, if not, trigger process_request."""
     await asyncio.sleep(120)
     with Session(engine) as session:

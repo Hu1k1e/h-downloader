@@ -8,12 +8,13 @@ from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Request, Depends
 from pydantic import BaseModel
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from backend import config
 from backend.database import get_session, get_settings
-from backend.models import AppSettings
+from backend.models import AppSettings, DownloadJob, JobStatus
 from backend.orchestrator import process_request
+from backend.sync import delayed_search
 
 router = APIRouter(prefix="/webhook", tags=["webhook"])
 
@@ -69,7 +70,17 @@ async def jellyseerr_webhook(
 
     tmdb_id = int(payload.tmdbId)
 
-    # Fire and forget — don't block the webhook response
-    background_tasks.add_task(process_request, tmdb_id)
+    job = session.exec(select(DownloadJob).where(DownloadJob.tmdb_id == tmdb_id)).first()
+    if not job:
+        job = DownloadJob(
+            tmdb_id=tmdb_id,
+            title=payload.title or f"TMDB:{tmdb_id}",
+            status=JobStatus.MOVIE_MISSING
+        )
+        session.add(job)
+        session.commit()
+
+    # Fire and forget — trigger delayed search to allow Radarr to grab torrents first
+    background_tasks.add_task(delayed_search, tmdb_id, None)
 
     return {"status": "accepted", "tmdb_id": tmdb_id, "title": payload.title}
