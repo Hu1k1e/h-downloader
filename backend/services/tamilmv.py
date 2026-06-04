@@ -99,12 +99,12 @@ async def extract_magnet(thread_url: str, blacklisted_urls: list[str] = None) ->
             response = await client.get(thread_url, headers=headers)
             response.raise_for_status()
             
-            # Broader regex to catch magnet links in text or href
-            magnet_matches = re.finditer(r'(magnet:\?xt=urn:btih:[a-zA-Z0-9]+)', response.text, re.IGNORECASE)
+            # Broader regex to catch full magnet links including trackers
+            magnet_matches = re.finditer(r'(magnet:\?xt=urn:btih:[^\s"\'<>]+)', response.text, re.IGNORECASE)
             for match in magnet_matches:
                 magnet = match.group(1)
                 
-                # Check if this specific magnet or its hash is blacklisted
+                # Extract the hash to check against blacklists
                 match_hash = re.search(r'urn:btih:([a-zA-Z0-9]+)', magnet, re.IGNORECASE)
                 hash_val = match_hash.group(1).lower() if match_hash else ""
                 

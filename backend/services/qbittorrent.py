@@ -6,9 +6,20 @@ from backend.models import AppSettings
 
 logger = logging.getLogger(__name__)
 
+import base64
+import binascii
+
 def extract_hash_from_magnet(magnet_link: str) -> Optional[str]:
     match = re.search(r'urn:btih:([a-zA-Z0-9]+)', magnet_link, re.IGNORECASE)
-    return match.group(1).lower() if match else None
+    if not match:
+        return None
+    hash_str = match.group(1).upper()
+    if len(hash_str) == 32:
+        try:
+            return binascii.hexlify(base64.b32decode(hash_str)).decode('utf-8').lower()
+        except Exception:
+            pass
+    return hash_str.lower()
 
 def add_magnet_to_qbittorrent(magnet_link: str, settings: AppSettings) -> Optional[str]:
     """
