@@ -195,10 +195,7 @@ async def _run_pipeline(
                     if thread_url:
                         magnet = await tamilmv.extract_magnet(thread_url, blacklisted)
                         if magnet:
-                            rename_title = f"{title} ({tmdb_year})"
-                            if radarr_resolution:
-                                rename_title += f" {radarr_resolution}"
-                            torrent_hash = await asyncio.to_thread(qbittorrent.add_magnet_to_qbittorrent, magnet, settings, rename_title)
+                            torrent_hash = await asyncio.to_thread(qbittorrent.add_magnet_to_qbittorrent, magnet, settings)
                             if torrent_hash:
                                 success_source = "1tamilmv"
                                 _update_job(session, job, status=JobStatus.DOWNLOADING, error_msg=None, source_indexer="1tamilmv", torrent_hash=torrent_hash)
