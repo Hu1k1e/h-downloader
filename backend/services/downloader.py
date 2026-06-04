@@ -44,6 +44,11 @@ def get_movie_file_path(folder: str, title: str, year: Optional[int]) -> str:
     return os.path.join(folder, filename)
 
 
+ACTIVE_DIRECT_DOWNLOADS = set()
+
+def is_direct_download_active(job_id: int) -> bool:
+    return job_id in ACTIVE_DIRECT_DOWNLOADS
+
 def _update_job_progress(session: Session, job_id: int, downloaded: int, total: int, pct: int, status: JobStatus = JobStatus.DOWNLOADING, error: Optional[str] = None):
     job = session.get(DownloadJob, job_id)
     if not job:
@@ -65,6 +70,7 @@ async def download_movie(
     Returns True if successful, False otherwise.
     """
     logger.info(f"Starting download to {dest_path}")
+    ACTIVE_DIRECT_DOWNLOADS.add(job_id)
     try:
         # Ensure parent directory exists
         os.makedirs(os.path.dirname(dest_path), exist_ok=True)
@@ -100,3 +106,6 @@ async def download_movie(
         if os.path.exists(dest_path):
             os.remove(dest_path)
         return False
+    finally:
+        ACTIVE_DIRECT_DOWNLOADS.discard(job_id)
+

@@ -29,6 +29,8 @@ from backend.services.downloader import download_movie, get_movie_file_path
 from backend.db_logger import log_action
 
 
+_tmdb_locks = {}
+
 def _update_job(session: Session, job: DownloadJob, **kwargs):
     for k, v in kwargs.items():
         setattr(job, k, v)
@@ -43,8 +45,12 @@ async def process_request(tmdb_id: int, requested_language: Optional[str] = None
     Main entry point. Creates a DownloadJob and runs the full pipeline.
     Returns the job_id.
     """
-    with Session(engine) as session:
-        settings = get_settings(session)
+    if tmdb_id not in _tmdb_locks:
+        _tmdb_locks[tmdb_id] = asyncio.Lock()
+        
+    async with _tmdb_locks[tmdb_id]:
+        with Session(engine) as session:
+            settings = get_settings(session)
         
         # Get movie metadata from TMDB
         try:

@@ -36,6 +36,10 @@ def init_db():
             if result and "missing_search_interval_hours" not in columns:
                 conn.execute(text("ALTER TABLE appsettings ADD COLUMN missing_search_interval_hours INTEGER NOT NULL DEFAULT 24"))
                 conn.execute(text("ALTER TABLE appsettings ADD COLUMN missing_search_batch_size INTEGER NOT NULL DEFAULT 10"))
+            if result and "auto_delete_failed_torrents_hours" not in columns:
+                conn.execute(text("ALTER TABLE appsettings ADD COLUMN auto_delete_failed_torrents_hours INTEGER NOT NULL DEFAULT 24"))
+                conn.execute(text("ALTER TABLE appsettings ADD COLUMN min_file_size_mb INTEGER NOT NULL DEFAULT 800"))
+                conn.execute(text("ALTER TABLE appsettings ADD COLUMN max_file_size_mb INTEGER NOT NULL DEFAULT 15000"))
             
             # Auto-migrate DownloadJob table
             dj_result = conn.execute(text("PRAGMA table_info(downloadjob)")).fetchall()

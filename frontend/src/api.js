@@ -35,10 +35,11 @@ export const api = {
         const qs = new URLSearchParams(params).toString()
         return request(`/api/logs${qs ? '?' + qs : ''}`)
     },
-    deleteLogs: (olderThanDays) => {
+    deleteAllLogs: () => request('/api/logs/all', { method: 'DELETE' }),
+    deleteLogsOlderThan: (days) => {
         const query = new URLSearchParams()
-        if (olderThanDays) query.append('older_than_days', olderThanDays)
-        return request(`/api/logs?${query.toString()}`, { method: 'DELETE' })
+        query.append('days', days)
+        return request(`/api/logs/older-than?${query.toString()}`, { method: 'DELETE' })
     },
     getStats: () => request('/api/stats'),
     triggerDownload: (data) => request('/api/jobs/trigger', { method: 'POST', body: data }),

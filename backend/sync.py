@@ -350,8 +350,8 @@ async def sync_jellyseerr_requests():
                         
                         # Apply filtering once metadata is downloaded
                         if t_info.get("state") not in ["metaDL", "allocating", "checkingUP", "checkingDL"]:
-                            filtered = await asyncio.to_thread(qbittorrent.filter_torrent_files, job.torrent_hash, settings)
-                            if filtered:
+                            success, err_msg = await asyncio.to_thread(qbittorrent.filter_torrent_files, job.torrent_hash, settings)
+                            if success:
                                 log_action(
                                     action="torrent_filter",
                                     message=f"Filtered qBittorrent files for '{job.title}'. Selected main movie file only.",
@@ -359,6 +359,26 @@ async def sync_jellyseerr_requests():
                                     tmdb_id=job.tmdb_id,
                                     job_id=job.id
                                 )
+                            else:
+                                logger.warning(f"Torrent filter failed for '{job.title}': {err_msg}")
+                                log_action(
+                                    action="torrent_filter_failed",
+                                    message=f"Filter failed: {err_msg}. Blacklisting and retrying.",
+                                    level=LogLevel.WARNING,
+                                    tmdb_id=job.tmdb_id,
+                                    job_id=job.id
+                                )
+                                # Delete from qBittorrent
+                                await asyncio.to_thread(qbittorrent.delete_torrent, job.torrent_hash, settings)
+                                # Blacklist and retry
+                                current_bl = job.blacklisted_urls or ""
+                                job.blacklisted_urls = f"{current_bl},{job.torrent_hash}".strip(",")
+                                job.status = JobStatus.PENDING
+                                job.progress_pct = 0
+                                session.add(job)
+                                session.commit()
+                                asyncio.create_task(process_request(job.tmdb_id, job.language))
+                                continue
 
                         session.add(job)
                         session.commit()
@@ -368,8 +388,19 @@ async def sync_jellyseerr_requests():
                         continue
 
                 if job.status == JobStatus.DOWNLOADING:
-                    # If it's actively downloading (e.g. Einthusan), don't trigger fallback
-                    continue
+                    from backend.services.downloader import is_direct_download_active
+                    # If it's actively downloading via direct download, wait
+                    if is_direct_download_active(job.id):
+                        continue
+                    elif job.source_indexer == "einthusan":
+                        # Marked as downloading but not active in memory. Probably crashed/restarted.
+                        logger.warning(f"Job {job.id} marked as downloading from einthusan but not active in memory. Resetting to MOVIE_MISSING.")
+                        job.status = JobStatus.MOVIE_MISSING
+                        job.progress_pct = 0
+                        session.add(job)
+                        session.commit()
+                        asyncio.create_task(process_request(job.tmdb_id, job.language))
+                        continue
 
                 # No file. Is it actively downloading?
                 queue_item = queue_by_movie_id.get(radarr_movie.get("id"))

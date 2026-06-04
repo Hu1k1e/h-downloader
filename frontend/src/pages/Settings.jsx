@@ -45,6 +45,9 @@ export default function Settings() {
                 qbittorrent_password: '',
                 qbittorrent_category_movies: data.qbittorrent_category_movies || '',
                 qbittorrent_category_series: data.qbittorrent_category_series || '',
+                auto_delete_failed_torrents_hours: data.auto_delete_failed_torrents_hours ?? 24,
+                min_file_size_mb: data.min_file_size_mb ?? 800,
+                max_file_size_mb: data.max_file_size_mb ?? 15000,
             })
 
         }).catch(() => { })
@@ -396,6 +399,27 @@ export default function Settings() {
                     ) : (
                         <input className="form-input" name="qbittorrent_category_series" value={formData.qbittorrent_category_series || ''} onChange={handleChange} placeholder="sonarr" />
                     )}
+                </div>
+                <div className="form-row">
+                    <span className="form-label">Auto Delete Failed</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <input className="form-input" type="number" name="auto_delete_failed_torrents_hours" value={formData.auto_delete_failed_torrents_hours} onChange={handleChange} style={{ maxWidth: 80 }} />
+                        <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>hours</span>
+                    </div>
+                </div>
+                <div className="form-row">
+                    <span className="form-label">Min File Size</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <input className="form-input" type="number" name="min_file_size_mb" value={formData.min_file_size_mb} onChange={handleChange} style={{ maxWidth: 100 }} />
+                        <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>MB</span>
+                    </div>
+                </div>
+                <div className="form-row">
+                    <span className="form-label">Max File Size</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <input className="form-input" type="number" name="max_file_size_mb" value={formData.max_file_size_mb} onChange={handleChange} style={{ maxWidth: 100 }} />
+                        <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>MB</span>
+                    </div>
                 </div>
             </div>
 

@@ -84,11 +84,9 @@ def get_torrent_info(torrent_hash: str, settings: AppSettings) -> Optional[Dict[
         logger.error(f"Failed to get torrent info from qBittorrent: {e}")
         return None
 
-def filter_torrent_files(torrent_hash: str, settings: AppSettings) -> bool:
+def delete_torrent(torrent_hash: str, settings: AppSettings) -> bool:
     """
-    Looks at all files in the torrent. Identifies the largest video file and 
-    sets the priority of all other files to 0 (Do Not Download).
-    Returns True if filtering was applied/successful, False otherwise.
+    Deletes the torrent and its downloaded data from qBittorrent.
     """
     if not settings.qbittorrent_url or not torrent_hash:
         return False
@@ -101,13 +99,39 @@ def filter_torrent_files(torrent_hash: str, settings: AppSettings) -> bool:
         )
         qbt_client.auth_log_in()
         
+        qbt_client.torrents_delete(delete_files=True, torrent_hashes=torrent_hash)
+        logger.info(f"Deleted invalid/failed torrent {torrent_hash} from qBittorrent.")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to delete torrent {torrent_hash}: {e}")
+        return False
+
+def filter_torrent_files(torrent_hash: str, settings: AppSettings) -> tuple[bool, Optional[str]]:
+    """
+    Looks at all files in the torrent. Identifies the largest video file.
+    Validates that it is indeed a video file and within configured size limits.
+    If valid, sets the priority of all other files to 0 (Do Not Download).
+    Returns (True, None) if successful.
+    Returns (False, error_msg) if the torrent is invalid (no video, wrong size).
+    """
+    if not settings.qbittorrent_url or not torrent_hash:
+        return False, "qBittorrent URL or hash missing"
+        
+    try:
+        qbt_client = qbittorrentapi.Client(
+            host=settings.qbittorrent_url,
+            username=settings.qbittorrent_username,
+            password=settings.qbittorrent_password,
+        )
+        qbt_client.auth_log_in()
+        
         files = qbt_client.torrents_files(torrent_hash=torrent_hash)
         if not files:
-            return False
+            return False, "No files found in torrent metadata"
             
         video_exts = ('.mp4', '.mkv', '.avi', '.webm', '.ts')
         
-        # Find the largest video file
+        # Find the largest video file strictly matching extensions
         largest_video = None
         max_size = -1
         
@@ -119,15 +143,14 @@ def filter_torrent_files(torrent_hash: str, settings: AppSettings) -> bool:
                 largest_video = f
                 
         if not largest_video:
-            # Fallback: just use the absolute largest file if no video extension matches
-            for f in files:
-                size = f.get('size', 0)
-                if size > max_size:
-                    max_size = size
-                    largest_video = f
-                    
-        if not largest_video:
-            return False
+            return False, "No valid video file (.mp4, .mkv, etc.) found in torrent"
+            
+        # Size validation
+        size_mb = max_size / (1024 * 1024)
+        if size_mb < settings.min_file_size_mb:
+            return False, f"Main video file is too small ({size_mb:.1f} MB < {settings.min_file_size_mb} MB limit)"
+        if size_mb > settings.max_file_size_mb:
+            return False, f"Main video file is too large ({size_mb:.1f} MB > {settings.max_file_size_mb} MB limit)"
             
         # Set priority=0 for all other files
         unwanted_indices = []
@@ -144,9 +167,9 @@ def filter_torrent_files(torrent_hash: str, settings: AppSettings) -> bool:
                 priority=0
             )
             logger.info(f"Filtered torrent {torrent_hash}: downloading main file '{largest_video.get('name')}', ignoring {len(unwanted_indices)} other file(s).")
-            return True
             
-        return False
+        return True, None
     except Exception as e:
         logger.error(f"Failed to filter torrent files: {e}")
-        return False
+        return False, str(e)
+

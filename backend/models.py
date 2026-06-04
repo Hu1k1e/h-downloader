@@ -126,7 +126,10 @@ class AppSettings(SQLModel, table=True):
     qbittorrent_password: str = Field(default="adminadmin")
     qbittorrent_category_movies: str = Field(default="radarr")
     qbittorrent_category_series: str = Field(default="sonarr")
-
+    
+    auto_delete_failed_torrents_hours: int = Field(default=24)
+    min_file_size_mb: int = Field(default=800)
+    max_file_size_mb: int = Field(default=15000)
 
 class AppSettingsRead(SQLModel):
     radarr_url: str
@@ -148,7 +151,10 @@ class AppSettingsRead(SQLModel):
     qbittorrent_category_movies: str
     qbittorrent_category_series: str
     qbittorrent_password_set: bool
-
+    
+    auto_delete_failed_torrents_hours: int
+    min_file_size_mb: int
+    max_file_size_mb: int
 
 
 class AppSettingsUpdate(SQLModel):
@@ -173,4 +179,8 @@ class AppSettingsUpdate(SQLModel):
     qbittorrent_password: Optional[str] = None
     qbittorrent_category_movies: Optional[str] = None
     qbittorrent_category_series: Optional[str] = None
+    
+    auto_delete_failed_torrents_hours: Optional[int] = None
+    min_file_size_mb: Optional[int] = None
+    max_file_size_mb: Optional[int] = None
 

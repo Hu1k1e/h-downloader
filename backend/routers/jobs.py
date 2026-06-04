@@ -48,20 +48,29 @@ def get_active_jobs(session: Session = Depends(get_session)):
     """
     Returns jobs that are actively downloading or searching right now.
     For qBittorrent jobs, validates they are actually in an active state.
+    For Einthusan jobs, validates they are actively streaming.
     """
     settings = get_settings(session)
     jobs = session.exec(select(DownloadJob).where(DownloadJob.status.in_([JobStatus.DOWNLOADING, JobStatus.SEARCHING, JobStatus.CHECKING_RADARR, JobStatus.IMPORTING]))).all()
     
     active_jobs = []
+    from backend.services.downloader import is_direct_download_active
+    
     for job in jobs:
-        if job.status == JobStatus.DOWNLOADING and job.torrent_hash:
-            t_info = qbittorrent.get_torrent_info(job.torrent_hash, settings)
-            if not t_info:
-                continue # Not in qbittorrent anymore
-            state = t_info.get("state", "").lower()
-            if "pause" in state or "error" in state or "up" in state or state == "uploading":
-                continue # paused, errored, or seeding
-            active_jobs.append(job)
+        if job.status == JobStatus.DOWNLOADING:
+            if job.torrent_hash:
+                t_info = qbittorrent.get_torrent_info(job.torrent_hash, settings)
+                if not t_info:
+                    continue # Not in qbittorrent anymore
+                state = t_info.get("state", "").lower()
+                if "pause" in state or "error" in state or "up" in state or state == "uploading":
+                    continue # paused, errored, or seeding
+                active_jobs.append(job)
+            elif job.source_indexer == "einthusan":
+                if is_direct_download_active(job.id):
+                    active_jobs.append(job)
+            else:
+                active_jobs.append(job)
         else:
             # direct downloads or searching
             active_jobs.append(job)

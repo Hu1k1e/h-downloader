@@ -1131,3 +1131,22 @@ The app lacked detailed logs for searches and background tasks, making it diffic
 - **System Logs:** Created a `LogEntry` database model and a dedicated `Logs` UI page. Actions such as auto-searches, manual searches, filtering, and import events are now explicitly logged and viewable in the UI, complete with filtering and bulk-deletion options.
 - **Active Downloads Fix:** Replaced generic DB status checks with a new `GET /api/jobs/active` endpoint. This endpoint actively queries qBittorrent's real-time state, stripping out jobs that are paused or errored, ensuring the UI list strictly reflects live active downloads regardless of their age.
 - **Torrent File Filtering:** Added `filter_torrent_files` to `backend/services/qbittorrent.py`. When a torrent fetches metadata, the system now automatically scans the files, identifies the largest video file (`.mp4`, `.mkv`, etc.), and disables downloading (sets priority to 0) for all other junk files.
+
+
+---
+
+## 2026-06-04 — Backend Refactoring, System Logs & Frontend Redesign
+
+**Backend:**
+- Implemented robust ilter_torrent_files to explicitly check for video extensions and enforce size limits (min_file_size_mb, max_file_size_mb).
+- Added uto_delete_failed_torrents_hours configuration.
+- Improved Active Job tracking (/api/jobs/active) by querying qBittorrent for live download status and tracking active direct HTTP streams in memory.
+- Added syncio.Lock() per TMDB ID to prevent concurrent duplicate processing.
+- Created /api/logs router for fetching and managing system logs.
+
+**Frontend:**
+- Created Logs.jsx for viewing, searching, and deleting system logs.
+- Redesigned index.css to use a premium dark mode with glassmorphism effects (ackdrop-filter: blur(16px)).
+- Updated Settings.jsx to configure the new size limits and auto-delete settings.
+- Fixed a JSX syntax error in Logs.jsx to resolve Docker uildx issues.
+
