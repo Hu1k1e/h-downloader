@@ -224,29 +224,6 @@ async def retry_job(job_id: int, background_tasks: BackgroundTasks, session: Ses
     background_tasks.add_task(process_request, job.tmdb_id, job.language)
     return {"status": "retrying", "tmdb_id": job.tmdb_id}
 
-@router.post("/jobs/sync")
-async def sync_jellyseerr(background_tasks: BackgroundTasks):
-    """Manually trigger a sync with Jellyseerr requests."""
-    from backend.sync import sync_jellyseerr_requests
-    background_tasks.add_task(sync_jellyseerr_requests)
-    return {"status": "sync_started"}
-
-
-@router.post("/jobs/sync-radarr")
-async def sync_radarr(session: Session = Depends(get_session)):
-    "Synchronously refresh all job statuses from Radarr."
-    import logging as _log
-    from backend.sync import sync_radarr_status
-    settings = get_settings(session)
-    if not settings.radarr_api_key:
-        raise HTTPException(status_code=400, detail="Radarr API key is not configured.")
-    try:
-        result = await sync_radarr_status(session, settings)
-    except Exception as e:
-        _log.getLogger(__name__).error(f"sync-radarr failed: {e}")
-        raise HTTPException(status_code=502, detail=f"Radarr sync failed: {e}")
-    return {"status": "ok", **result}
-
 
 @router.post("/jobs/import-radarr")
 async def trigger_import_radarr(background_tasks: BackgroundTasks, session: Session = Depends(get_session)):

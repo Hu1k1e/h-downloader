@@ -248,24 +248,7 @@ export default function Movies() {
         finally { setIsTriggering(false) }
     }
 
-    const syncJellyseerr = async () => {
-        setIsSyncing(true)
-        setError(null)
-        try {
-            // Radarr status sync runs INLINE on the server.
-            // DB is committed before the response returns,
-            // so fetchMovies() immediately after sees correct statuses.
-            await api.syncRadarrStatus()
-            // Also kick off background Jellyseerr sync for new approved requests
-            api.syncJellyseerr().catch(e => console.warn("Jellyseerr bg sync:", e))
-            await fetchMovies()
-        } catch (err) {
-            console.error("Sync failed:", err)
-            setError(err.message)
-        } finally {
-            setIsSyncing(false)
-        }
-    }
+
 
     const deleteJob = async (id) => {
         if (!confirm('Delete this job?')) return
@@ -303,9 +286,6 @@ export default function Movies() {
                     <p className="page-subtitle">{movies.length} tracked · {movies.filter(m => m.monitored).length} monitored</p>
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
-                    <button className="btn btn-secondary" onClick={syncJellyseerr} disabled={isSyncing}>
-                        {isSyncing ? 'Syncing...' : 'Sync Requests'}
-                    </button>
                     <button className="btn btn-primary" onClick={triggerMissing} disabled={isTriggering || movies.length === 0}>
                         {isTriggering ? 'Triggering...' : 'Trigger Missing'}
                     </button>

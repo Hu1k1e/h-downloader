@@ -105,7 +105,6 @@ async def active_job_tracker_loop():
                             # It's actually done but stalled/paused at 100%
                             pass
 
-            with Session(engine) as session:
                 session.commit()
                 
         except Exception as e:
