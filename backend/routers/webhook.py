@@ -15,6 +15,7 @@ from backend.database import get_session, get_settings
 from backend.models import AppSettings, DownloadJob, JobStatus
 from backend.orchestrator import process_request
 from backend.sync import delayed_search
+from backend.db_logger import log_action
 
 router = APIRouter(prefix="/webhook", tags=["webhook"])
 
@@ -89,6 +90,7 @@ async def jellyseerr_webhook(
         session.commit()
 
     # Fire and forget — trigger delayed search to allow Radarr to grab torrents first
+    log_action("Webhook", f"Jellyseerr request approved for '{payload.title}'", tmdb_id=tmdb_id)
     background_tasks.add_task(delayed_search, tmdb_id, None)
 
     return {"status": "accepted", "tmdb_id": tmdb_id, "title": payload.title}
@@ -121,11 +123,13 @@ async def radarr_webhook(
             session.refresh(job)
         
         # If auto search is enabled, start the delay timer to search for it
+        log_action("Webhook", f"Movie '{title}' added to Radarr", tmdb_id=tmdb_id, job_id=job.id if job else None)
         if settings.enable_radarr_auto_search and job.status == JobStatus.MOVIE_MISSING:
             background_tasks.add_task(delayed_search, tmdb_id, None)
             
     elif event_type == "MovieDeleted":
         if job:
+            log_action("Webhook", f"Movie '{title}' deleted from Radarr", tmdb_id=tmdb_id, job_id=job.id)
             session.delete(job)
             session.commit()
             
@@ -138,6 +142,7 @@ async def radarr_webhook(
         job.monitored = False
         job.progress_pct = 100
         job.error_msg = None
+        log_action("Webhook", f"Radarr finished downloading '{title}'", tmdb_id=tmdb_id, job_id=job.id)
         session.commit()
         
     elif event_type == "MovieFileDeleted":
@@ -146,6 +151,7 @@ async def radarr_webhook(
             session.add(job)
         job.status = JobStatus.MOVIE_MISSING
         job.monitored = True
+        log_action("Webhook", f"Movie file deleted for '{title}' in Radarr", tmdb_id=tmdb_id, job_id=job.id)
         session.commit()
         if settings.enable_radarr_auto_search:
             background_tasks.add_task(delayed_search, tmdb_id, None)
