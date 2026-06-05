@@ -32,7 +32,8 @@ export const api = {
     // Synchronous Radarr status sync — reflects updated state immediately in response
     syncRadarrStatus: () => request('/api/jobs/sync-radarr', { method: 'POST' }),
     getLogs: (params) => {
-        const qs = new URLSearchParams(params).toString()
+        const filteredParams = Object.fromEntries(Object.entries(params).filter(([_, v]) => v != null && v !== ''))
+        const qs = new URLSearchParams(filteredParams).toString()
         return request(`/api/logs${qs ? '?' + qs : ''}`)
     },
     deleteAllLogs: () => request('/api/logs/all', { method: 'DELETE' }),
