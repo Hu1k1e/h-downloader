@@ -1164,3 +1164,13 @@ The app lacked detailed logs for searches and background tasks, making it diffic
 **Frontend:**
 - Added a new 'Automation' section to Settings.jsx with checkboxes to enable/disable Jellyseerr and Radarr automatic background processes.
 
+
+
+## 2026-06-04 - Fix Auto Search, Title Regex, and Remove Blacklist
+
+**Backend:**
+- Gate background sync searches behind enable_radarr_auto_search.
+- Remove blacklist logic entirely from orchestrator and sync.
+- Set JobStatus.SEARCHING immediately to fix UI latency on manual trigger.
+- Use exact regex word matching for movie titles in 1TamilMV.
+
