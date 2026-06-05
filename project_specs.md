@@ -1174,3 +1174,7 @@ The app lacked detailed logs for searches and background tasks, making it diffic
 - Set JobStatus.SEARCHING immediately to fix UI latency on manual trigger.
 - Use exact regex word matching for movie titles in 1TamilMV.
 
+
+- Fixed qBittorrent 409 Conflict error failing searches by correctly tracking already-added torrents.
+- Fixed UI displaying 'Downloading on Radarr' for movies that were just 'Pending' in the local queue.
+
