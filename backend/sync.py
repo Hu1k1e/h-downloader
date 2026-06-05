@@ -184,51 +184,51 @@ async def sync_jellyseerr_requests():
         if settings.enable_jellyseerr_auto_request:
             requests = await fetch_approved_requests(settings)
             for req in requests:
-            if req.get("type") != "movie":
-                continue
-            media = req.get("media", {})
-            tmdb_id = media.get("tmdbId")
-            if not tmdb_id:
-                continue
+                if req.get("type") != "movie":
+                    continue
+                media = req.get("media", {})
+                tmdb_id = media.get("tmdbId")
+                if not tmdb_id:
+                    continue
 
-            existing = session.exec(
-                select(DownloadJob).where(DownloadJob.tmdb_id == tmdb_id)
-            ).first()
-            if existing:
-                continue
+                existing = session.exec(
+                    select(DownloadJob).where(DownloadJob.tmdb_id == tmdb_id)
+                ).first()
+                if existing:
+                    continue
 
-            try:
-                movie_info = await tmdb.get_movie_details(tmdb_id, settings)
-            except Exception as e:
-                logger.warning(f"TMDB lookup failed for {tmdb_id}: {e}. Skipping.")
-                continue
+                try:
+                    movie_info = await tmdb.get_movie_details(tmdb_id, settings)
+                except Exception as e:
+                    logger.warning(f"TMDB lookup failed for {tmdb_id}: {e}. Skipping.")
+                    continue
 
-            title = movie_info["title"]
-            year = movie_info.get("year")
-            original_lang_code = movie_info.get("original_language", "")
-            poster_path = movie_info.get("poster_path")
+                title = movie_info["title"]
+                year = movie_info.get("year")
+                original_lang_code = movie_info.get("original_language", "")
+                poster_path = movie_info.get("poster_path")
 
-            if not _is_supported_language(original_lang_code, einthusan_languages):
-                logger.info(
-                    f"Skipping '{title}' (TMDB {tmdb_id}) — language '{original_lang_code}' "
-                    f"not in configured languages: {einthusan_languages}"
+                if not _is_supported_language(original_lang_code, einthusan_languages):
+                    logger.info(
+                        f"Skipping '{title}' (TMDB {tmdb_id}) — language '{original_lang_code}' "
+                        f"not in configured languages: {einthusan_languages}"
+                    )
+                    continue
+
+                log_action(
+                    action="auto_search",
+                    message=f"Added new approved movie: '{title}' ({year})",
+                    tmdb_id=tmdb_id
                 )
-                continue
-
-            log_action(
-                action="auto_search",
-                message=f"Added new approved movie: '{title}' ({year})",
-                tmdb_id=tmdb_id
-            )
-            job = DownloadJob(
-                tmdb_id=tmdb_id,
-                title=title,
-                year=year,
-                language=config.TMDB_LANG_TO_EINTHUSAN.get(original_lang_code),
-                status=JobStatus.PENDING,
-                monitored=True,
-                poster_path=poster_path,
-            )
+                job = DownloadJob(
+                    tmdb_id=tmdb_id,
+                    title=title,
+                    year=year,
+                    language=config.TMDB_LANG_TO_EINTHUSAN.get(original_lang_code),
+                    status=JobStatus.PENDING,
+                    monitored=True,
+                    poster_path=poster_path,
+                )
                 session.add(job)
                 session.commit()
 
