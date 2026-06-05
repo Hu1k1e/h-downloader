@@ -1178,3 +1178,7 @@ The app lacked detailed logs for searches and background tasks, making it diffic
 - Fixed qBittorrent 409 Conflict error failing searches by correctly tracking already-added torrents.
 - Fixed UI displaying 'Downloading on Radarr' for movies that were just 'Pending' in the local queue.
 
+
+- Replaced periodic background sync with a real-time event-driven architecture using Radarr Webhooks.
+- Replaced global sync interval settings with a configurable search_delay_seconds setting for fallback searches.
+
