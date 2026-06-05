@@ -25,9 +25,7 @@ def get_current_settings(session: Session = Depends(get_session)):
         tmdb_api_key_set=bool(settings.tmdb_api_key),
         einthusan_languages=[lang.strip().lower() for lang in settings.einthusan_languages_str.split(",") if lang.strip().lower() in config.LANGUAGE_SLUG_MAP],
         digital_release_fallback_days=settings.digital_release_fallback_days,
-        sync_interval_seconds=settings.sync_interval_seconds,
-        missing_search_interval_hours=settings.missing_search_interval_hours,
-        missing_search_batch_size=settings.missing_search_batch_size,
+        search_delay_seconds=settings.search_delay_seconds,
         app_version=config.APP_VERSION,
         webhook_url_hint="/webhook/jellyseerr",
         download_sources_priority=[s.strip() for s in settings.download_sources_priority.split(",") if s.strip()],
@@ -63,12 +61,8 @@ def update_settings(update_data: AppSettingsUpdate, session: Session = Depends(g
     if update_data.tmdb_api_key is not None and update_data.tmdb_api_key != "":
         settings.tmdb_api_key = update_data.tmdb_api_key
         
-    if update_data.sync_interval_seconds is not None:
-        settings.sync_interval_seconds = max(30, update_data.sync_interval_seconds)
-    if update_data.missing_search_interval_hours is not None:
-        settings.missing_search_interval_hours = max(1, update_data.missing_search_interval_hours)
-    if update_data.missing_search_batch_size is not None:
-        settings.missing_search_batch_size = max(1, update_data.missing_search_batch_size)
+    if update_data.search_delay_seconds is not None:
+        settings.search_delay_seconds = max(0, update_data.search_delay_seconds)
         
     if update_data.download_sources_priority is not None:
         settings.download_sources_priority = ",".join(update_data.download_sources_priority)
@@ -79,24 +73,7 @@ def update_settings(update_data: AppSettingsUpdate, session: Session = Depends(g
     if update_data.digital_release_fallback_days is not None:
         settings.digital_release_fallback_days = update_data.digital_release_fallback_days
         
-    if update_data.sync_interval_seconds is not None:
-        # Enforce minimum of 30 seconds
-        new_interval = max(30, update_data.sync_interval_seconds)
-        settings.sync_interval_seconds = new_interval
-        # Reschedule the running APScheduler job immediately so the new interval
-        # takes effect without requiring a server restart
-        try:
-            from backend.main import scheduler
-            from backend.sync import sync_jellyseerr_requests
-            scheduler.reschedule_job(
-                "sync_job",
-                trigger="interval",
-                seconds=new_interval,
-            )
-        except Exception as e:
-            import logging
-            logging.getLogger(__name__).warning(f"Could not reschedule sync job: {e}")
-            
+
     if update_data.download_sources_priority is not None:
         settings.download_sources_priority = ",".join(update_data.download_sources_priority)
         
