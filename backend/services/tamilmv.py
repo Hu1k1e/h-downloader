@@ -21,7 +21,7 @@ async def get_current_domain() -> str:
 
 BAD_KEYWORDS = ['predvd', 'cam', 'hdts', 'hd-ts', 'hdcam', 'hd-cam', 'pdvd', 'scr']
 
-async def search_movie(title: str, year: int, domain: str, langs: list[str] = None, radarr_resolution: str = None, blacklisted_urls: list[str] = None) -> str:
+async def search_movie(title: str, year: int, domain: str, langs: list[str] = None, radarr_resolution: str = None) -> str:
     """Searches for a movie and returns the best forum thread URL, or None."""
     try:
         search_url = f"{domain}/search/api/search.php"
@@ -50,17 +50,13 @@ async def search_movie(title: str, year: int, domain: str, langs: list[str] = No
                 href = f"{domain}/index.php?/forums/topic/{tid}-{slug}/"
                 
                 # Title and year check
-                if title.lower() not in link_text:
+                if not re.search(r'\b' + re.escape(title.lower()) + r'\b', link_text):
                     continue
                 if not (str(year) in link_text or str(year - 1) in link_text or str(year + 1) in link_text):
                     continue
                     
                 # Exclude camprints
                 if any(bad in link_text for bad in BAD_KEYWORDS):
-                    continue
-                    
-                # Exclude blacklisted threads
-                if blacklisted_urls and any(href == b or href.endswith(b) for b in blacklisted_urls):
                     continue
                     
                 valid_links.append((href, link_text))
@@ -88,8 +84,8 @@ async def search_movie(title: str, year: int, domain: str, langs: list[str] = No
         logger.error(f"Error searching 1TamilMV: {e}")
         return None
 
-async def extract_magnet(thread_url: str, blacklisted_urls: list[str] = None) -> str:
-    """Fetches the thread and extracts the first non-blacklisted magnet link."""
+async def extract_magnet(thread_url: str) -> str:
+    """Fetches the thread and extracts the first magnet link."""
     if not thread_url:
         return None
         
@@ -102,21 +98,7 @@ async def extract_magnet(thread_url: str, blacklisted_urls: list[str] = None) ->
             # Broader regex to catch full magnet links including trackers
             magnet_matches = re.finditer(r'(magnet:\?xt=urn:btih:[^\s"\'<>]+)', response.text, re.IGNORECASE)
             for match in magnet_matches:
-                magnet = match.group(1)
-                
-                # Extract the hash to check against blacklists
-                match_hash = re.search(r'urn:btih:([a-zA-Z0-9]+)', magnet, re.IGNORECASE)
-                hash_val = match_hash.group(1).lower() if match_hash else ""
-                
-                is_blacklisted = False
-                if blacklisted_urls:
-                    for b in blacklisted_urls:
-                        if b.lower() in magnet.lower() or b.lower() == hash_val:
-                            is_blacklisted = True
-                            break
-                            
-                if not is_blacklisted:
-                    return magnet
+                return match.group(1)
                 
             return None
     except Exception as e:

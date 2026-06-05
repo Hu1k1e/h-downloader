@@ -337,14 +337,12 @@ async def sync_jellyseerr_requests():
                 if job.status == JobStatus.DOWNLOADING and job.torrent_hash:
                     t_info = await asyncio.to_thread(qbittorrent.get_torrent_info, job.torrent_hash, settings)
                     if not t_info:
-                        logger.warning(f"Torrent {job.torrent_hash} missing from qBittorrent. Blacklisting and retrying...")
-                        current_bl = job.blacklisted_urls or ""
-                        job.blacklisted_urls = f"{current_bl},{job.torrent_hash}".strip(",")
-                        job.status = JobStatus.PENDING
+                        logger.warning(f"Torrent {job.torrent_hash} missing from qBittorrent. Marking as failed.")
+                        job.status = JobStatus.FAILED
+                        job.error_msg = "Torrent missing from qBittorrent"
                         job.progress_pct = 0
                         session.add(job)
                         session.commit()
-                        asyncio.create_task(process_request(job.tmdb_id, job.language))
                         continue
                     else:
                         job.progress_pct = int(t_info.get("progress", 0) * 100)
@@ -364,21 +362,18 @@ async def sync_jellyseerr_requests():
                                 logger.warning(f"Torrent filter failed for '{job.title}': {err_msg}")
                                 log_action(
                                     action="torrent_filter_failed",
-                                    message=f"Filter failed: {err_msg}. Blacklisting and retrying.",
+                                    message=f"Filter failed: {err_msg}. Marking as failed.",
                                     level=LogLevel.WARNING,
                                     tmdb_id=job.tmdb_id,
                                     job_id=job.id
                                 )
                                 # Delete from qBittorrent
                                 await asyncio.to_thread(qbittorrent.delete_torrent, job.torrent_hash, settings)
-                                # Blacklist and retry
-                                current_bl = job.blacklisted_urls or ""
-                                job.blacklisted_urls = f"{current_bl},{job.torrent_hash}".strip(",")
-                                job.status = JobStatus.PENDING
+                                job.status = JobStatus.FAILED
+                                job.error_msg = err_msg
                                 job.progress_pct = 0
                                 session.add(job)
                                 session.commit()
-                                asyncio.create_task(process_request(job.tmdb_id, job.language))
                                 continue
 
                         session.add(job)
@@ -413,17 +408,23 @@ async def sync_jellyseerr_requests():
                 if queue_item:
                     tracked = queue_item.get("trackedDownloadStatus", "").lower()
                     if tracked in ("warning", "error"):
-                        logger.info(
-                            f"Radarr queue for '{job.title}' stalled (tracked={tracked}). "
-                            "Triggering Einthusan."
-                        )
-                        asyncio.create_task(process_request(job.tmdb_id, job.language))
+                        if settings.enable_radarr_auto_search:
+                            logger.info(
+                                f"Radarr queue for '{job.title}' stalled (tracked={tracked}). "
+                                "Triggering fallback."
+                            )
+                            asyncio.create_task(process_request(job.tmdb_id, job.language))
+                        else:
+                            logger.info(f"Radarr queue for '{job.title}' stalled, but auto-search disabled.")
                     else:
                         logger.info(f"Radarr queue for '{job.title}' exists but inactive. Waiting.")
                 else:
-                    # Nothing in queue — trigger Einthusan fallback
-                    logger.info(f"'{job.title}' in Radarr but no file/queue. Triggering Einthusan.")
-                    asyncio.create_task(process_request(job.tmdb_id, job.language))
+                    # Nothing in queue — trigger fallback
+                    if settings.enable_radarr_auto_search:
+                        logger.info(f"'{job.title}' in Radarr but no file/queue. Triggering fallback.")
+                        asyncio.create_task(process_request(job.tmdb_id, job.language))
+                    else:
+                        logger.info(f"'{job.title}' in Radarr but no file/queue. Auto-search disabled, waiting.")
 
             except Exception as e:
                 logger.error(f"Error monitoring '{job.title}' (TMDB {job.tmdb_id}): {e}")
@@ -465,14 +466,12 @@ async def sync_jellyseerr_requests():
                 if job.status == JobStatus.DOWNLOADING and job.torrent_hash:
                     t_info = await asyncio.to_thread(qbittorrent.get_torrent_info, job.torrent_hash, settings)
                     if not t_info:
-                        logger.warning(f"Unmonitored torrent {job.torrent_hash} missing from qBittorrent. Blacklisting...")
-                        current_bl = job.blacklisted_urls or ""
-                        job.blacklisted_urls = f"{current_bl},{job.torrent_hash}".strip(",")
-                        job.status = JobStatus.PENDING
+                        logger.warning(f"Unmonitored torrent {job.torrent_hash} missing from qBittorrent. Marking as failed.")
+                        job.status = JobStatus.FAILED
+                        job.error_msg = "Torrent missing from qBittorrent"
                         job.progress_pct = 0
                         session.add(job)
                         session.commit()
-                        asyncio.create_task(process_request(job.tmdb_id, job.language))
                         continue
                     else:
                         job.progress_pct = int(t_info.get("progress", 0) * 100)

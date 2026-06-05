@@ -96,6 +96,12 @@ async def process_request(tmdb_id: int, requested_language: Optional[str] = None
             session.commit()
             session.refresh(job)
             
+        if job.status not in (JobStatus.DOWNLOADING, JobStatus.DONE, JobStatus.IMPORTING):
+            job.status = JobStatus.SEARCHING
+            session.add(job)
+            session.commit()
+            session.refresh(job)
+            
         job_id = job.id
 
     # Run the async pipeline in a background task
@@ -196,11 +202,10 @@ async def _run_pipeline(
         for source in sources:
             if source == "1tamilmv":
                 try:
-                    blacklisted = [b.strip() for b in job.blacklisted_urls.split(",")] if job.blacklisted_urls else []
                     domain = await tamilmv.get_current_domain()
-                    thread_url = await tamilmv.search_movie(title, year or 0, domain, langs_to_try, radarr_resolution, blacklisted)
+                    thread_url = await tamilmv.search_movie(title, year or 0, domain, langs_to_try, radarr_resolution)
                     if thread_url:
-                        magnet = await tamilmv.extract_magnet(thread_url, blacklisted)
+                        magnet = await tamilmv.extract_magnet(thread_url)
                         if magnet:
                             torrent_hash = await asyncio.to_thread(qbittorrent.add_magnet_to_qbittorrent, magnet, settings)
                             if torrent_hash:
