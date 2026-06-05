@@ -15,34 +15,21 @@ from backend.routers import webhook, jobs, settings, logs
 from backend import config
 
 
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from backend.sync import sync_jellyseerr_requests, sync_missing_movies
+import asyncio
+from backend.sync import active_job_tracker_loop
 from backend.database import get_settings
 from sqlmodel import Session
 from backend.database import engine
 
-scheduler = AsyncIOScheduler()
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup: create DB tables and start background scheduler."""
+    """Startup: create DB tables and start background loops."""
     init_db()
     
-    # Read the sync interval from stored settings
-    with Session(engine) as session:
-        settings = get_settings(session)
-        interval_seconds = max(30, settings.sync_interval_seconds)
-        missing_interval_hours = max(1, settings.missing_search_interval_hours)
-    
-    # Start background job to poll Jellyseerr
-    scheduler.add_job(sync_jellyseerr_requests, "interval", seconds=interval_seconds, id="sync_job")
-    # Start background job to search missing movies
-    scheduler.add_job(sync_missing_movies, "interval", hours=missing_interval_hours, id="sync_missing_job")
-    scheduler.start()
+    # Start background job to rapidly track active downloads
+    asyncio.create_task(active_job_tracker_loop())
     
     yield
-    
-    scheduler.shutdown()
 
 
 app = FastAPI(

@@ -25,6 +25,14 @@ class JellyseerrPayload(BaseModel):
     tmdbId: Optional[str] = None
     title: Optional[str] = None
 
+class RadarrMoviePayload(BaseModel):
+    tmdbId: Optional[int] = None
+    title: Optional[str] = None
+
+class RadarrPayload(BaseModel):
+    eventType: Optional[str] = None
+    movie: Optional[RadarrMoviePayload] = None
+
 
 @router.post("/jellyseerr")
 async def jellyseerr_webhook(
@@ -84,3 +92,62 @@ async def jellyseerr_webhook(
     background_tasks.add_task(delayed_search, tmdb_id, None)
 
     return {"status": "accepted", "tmdb_id": tmdb_id, "title": payload.title}
+
+@router.post("/radarr")
+async def radarr_webhook(
+    payload: RadarrPayload,
+    background_tasks: BackgroundTasks,
+    session: Session = Depends(get_session),
+):
+    """
+    Receives Radarr webhook events (MovieAdded, MovieDeleted, Download, MovieFileDeleted)
+    and manages the local jobs in real-time.
+    """
+    settings = get_settings(session)
+    event_type = payload.eventType
+    if not event_type or not payload.movie or not payload.movie.tmdbId:
+        return {"status": "skipped", "reason": "missing required fields"}
+
+    tmdb_id = payload.movie.tmdbId
+    title = payload.movie.title or f"TMDB:{tmdb_id}"
+    
+    job = session.exec(select(DownloadJob).where(DownloadJob.tmdb_id == tmdb_id)).first()
+
+    if event_type == "MovieAdded":
+        if not job:
+            job = DownloadJob(tmdb_id=tmdb_id, title=title, status=JobStatus.MOVIE_MISSING)
+            session.add(job)
+            session.commit()
+            session.refresh(job)
+        
+        # If auto search is enabled, start the delay timer to search for it
+        if settings.enable_radarr_auto_search and job.status == JobStatus.MOVIE_MISSING:
+            background_tasks.add_task(delayed_search, tmdb_id, None)
+            
+    elif event_type == "MovieDeleted":
+        if job:
+            session.delete(job)
+            session.commit()
+            
+    elif event_type == "Download":
+        # Radarr successfully downloaded a file
+        if not job:
+            job = DownloadJob(tmdb_id=tmdb_id, title=title)
+            session.add(job)
+        job.status = JobStatus.DONE
+        job.monitored = False
+        job.progress_pct = 100
+        job.error_msg = None
+        session.commit()
+        
+    elif event_type == "MovieFileDeleted":
+        if not job:
+            job = DownloadJob(tmdb_id=tmdb_id, title=title)
+            session.add(job)
+        job.status = JobStatus.MOVIE_MISSING
+        job.monitored = True
+        session.commit()
+        if settings.enable_radarr_auto_search:
+            background_tasks.add_task(delayed_search, tmdb_id, None)
+
+    return {"status": "accepted", "event": event_type, "tmdb_id": tmdb_id}

@@ -33,13 +33,12 @@ def init_db():
                 conn.execute(text("ALTER TABLE appsettings ADD COLUMN qbittorrent_password VARCHAR NOT NULL DEFAULT 'adminadmin'"))
                 conn.execute(text("ALTER TABLE appsettings ADD COLUMN qbittorrent_category_movies VARCHAR NOT NULL DEFAULT 'radarr'"))
                 conn.execute(text("ALTER TABLE appsettings ADD COLUMN qbittorrent_category_series VARCHAR NOT NULL DEFAULT 'sonarr'"))
-            if result and "missing_search_interval_hours" not in columns:
-                conn.execute(text("ALTER TABLE appsettings ADD COLUMN missing_search_interval_hours INTEGER NOT NULL DEFAULT 24"))
-                conn.execute(text("ALTER TABLE appsettings ADD COLUMN missing_search_batch_size INTEGER NOT NULL DEFAULT 10"))
             if result and "auto_delete_failed_torrents_hours" not in columns:
                 conn.execute(text("ALTER TABLE appsettings ADD COLUMN auto_delete_failed_torrents_hours INTEGER NOT NULL DEFAULT 24"))
                 conn.execute(text("ALTER TABLE appsettings ADD COLUMN min_file_size_mb INTEGER NOT NULL DEFAULT 800"))
                 conn.execute(text("ALTER TABLE appsettings ADD COLUMN max_file_size_mb INTEGER NOT NULL DEFAULT 15000"))
+            if result and "search_delay_seconds" not in columns:
+                conn.execute(text("ALTER TABLE appsettings ADD COLUMN search_delay_seconds INTEGER NOT NULL DEFAULT 120"))
             if result and "enable_jellyseerr_auto_request" not in columns:
                 conn.execute(text("ALTER TABLE appsettings ADD COLUMN enable_jellyseerr_auto_request BOOLEAN NOT NULL DEFAULT 1"))
                 conn.execute(text("ALTER TABLE appsettings ADD COLUMN enable_radarr_auto_search BOOLEAN NOT NULL DEFAULT 1"))

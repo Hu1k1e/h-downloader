@@ -427,46 +427,20 @@ export default function Settings() {
 
             {/* Scheduler */}
             <div className="card settings-section" style={{ marginBottom: 16 }}>
-                <div className="settings-section-title">Scheduler</div>
+                <div className="settings-section-title">Automations</div>
                 <div className="form-row">
-                    <span className="form-label">Sync Interval</span>
+                    <span className="form-label">Search Delay</span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <input
                             className="form-input"
                             type="number"
-                            name="sync_interval_seconds"
-                            value={formData.sync_interval_seconds}
+                            name="search_delay_seconds"
+                            value={formData.search_delay_seconds}
                             onChange={handleChange}
-                            min={30}
+                            min={0}
                             style={{ maxWidth: 100 }}
                         />
-                        <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>seconds (min 30) — how often to poll Jellyseerr and sync with Radarr</span>
-                    </div>
-                </div>
-                <div className="form-row">
-                    <span className="form-label">Missing Movies Search</span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>Every</span>
-                        <input
-                            className="form-input"
-                            type="number"
-                            name="missing_search_interval_hours"
-                            value={formData.missing_search_interval_hours}
-                            onChange={handleChange}
-                            min={1}
-                            style={{ maxWidth: 80 }}
-                        />
-                        <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>hours, search up to</span>
-                        <input
-                            className="form-input"
-                            type="number"
-                            name="missing_search_batch_size"
-                            value={formData.missing_search_batch_size}
-                            onChange={handleChange}
-                            min={1}
-                            style={{ maxWidth: 80 }}
-                        />
-                        <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>movies</span>
+                        <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>seconds — how long to wait after a movie is added to Radarr before triggering fallback search</span>
                     </div>
                 </div>
             </div>
