@@ -48,6 +48,8 @@ export default function Settings() {
                 auto_delete_failed_torrents_hours: data.auto_delete_failed_torrents_hours ?? 24,
                 min_file_size_mb: data.min_file_size_mb ?? 800,
                 max_file_size_mb: data.max_file_size_mb ?? 15000,
+                enable_jellyseerr_auto_request: data.enable_jellyseerr_auto_request ?? true,
+                enable_radarr_auto_search: data.enable_radarr_auto_search ?? true,
             })
 
         }).catch(() => { })
@@ -466,6 +468,25 @@ export default function Settings() {
                         />
                         <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>movies</span>
                     </div>
+                </div>
+            </div>
+
+            {/* Automation */}
+            <div className="card settings-section" style={{ marginBottom: 16 }}>
+                <div className="settings-section-title">Automation</div>
+                <div className="form-row">
+                    <span className="form-label">Jellyseerr</span>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', color: 'var(--text-primary)' }}>
+                        <input type="checkbox" name="enable_jellyseerr_auto_request" checked={formData.enable_jellyseerr_auto_request} onChange={e => setFormData(p => ({...p, enable_jellyseerr_auto_request: e.target.checked}))} />
+                        Automatically import approved movies from Jellyseerr
+                    </label>
+                </div>
+                <div className="form-row">
+                    <span className="form-label">Radarr</span>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', color: 'var(--text-primary)' }}>
+                        <input type="checkbox" name="enable_radarr_auto_search" checked={formData.enable_radarr_auto_search} onChange={e => setFormData(p => ({...p, enable_radarr_auto_search: e.target.checked}))} />
+                        Automatically search Radarr missing movies
+                    </label>
                 </div>
             </div>
 

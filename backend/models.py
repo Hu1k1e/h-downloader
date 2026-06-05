@@ -130,6 +130,9 @@ class AppSettings(SQLModel, table=True):
     auto_delete_failed_torrents_hours: int = Field(default=24)
     min_file_size_mb: int = Field(default=800)
     max_file_size_mb: int = Field(default=15000)
+    
+    enable_jellyseerr_auto_request: bool = Field(default=True)
+    enable_radarr_auto_search: bool = Field(default=True)
 
 class AppSettingsRead(SQLModel):
     radarr_url: str
@@ -155,6 +158,9 @@ class AppSettingsRead(SQLModel):
     auto_delete_failed_torrents_hours: int
     min_file_size_mb: int
     max_file_size_mb: int
+    
+    enable_jellyseerr_auto_request: bool
+    enable_radarr_auto_search: bool
 
 
 class AppSettingsUpdate(SQLModel):
@@ -183,4 +189,7 @@ class AppSettingsUpdate(SQLModel):
     auto_delete_failed_torrents_hours: Optional[int] = None
     min_file_size_mb: Optional[int] = None
     max_file_size_mb: Optional[int] = None
+    
+    enable_jellyseerr_auto_request: Optional[bool] = None
+    enable_radarr_auto_search: Optional[bool] = None
 

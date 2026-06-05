@@ -1150,3 +1150,17 @@ The app lacked detailed logs for searches and background tasks, making it diffic
 - Updated Settings.jsx to configure the new size limits and auto-delete settings.
 - Fixed a JSX syntax error in Logs.jsx to resolve Docker uildx issues.
 
+
+
+---
+
+## 2026-06-04 — Settings API Fix & Automation Toggles
+
+**Backend:**
+- Fixed a bug in outers/settings.py where new fields were missing from the AppSettingsRead schema, causing the /api/settings endpoint to crash (500 error) during validation.
+- Added enable_jellyseerr_auto_request and enable_radarr_auto_search boolean columns to the SQLite ppsettings table via auto-migration in database.py.
+- Updated ackend/sync.py to respect the new automation toggles before fetching from Jellyseerr or importing from Radarr.
+
+**Frontend:**
+- Added a new 'Automation' section to Settings.jsx with checkboxes to enable/disable Jellyseerr and Radarr automatic background processes.
+

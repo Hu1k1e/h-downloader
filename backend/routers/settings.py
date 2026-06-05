@@ -36,6 +36,11 @@ def get_current_settings(session: Session = Depends(get_session)):
         qbittorrent_category_movies=settings.qbittorrent_category_movies,
         qbittorrent_category_series=settings.qbittorrent_category_series,
         qbittorrent_password_set=bool(settings.qbittorrent_password),
+        auto_delete_failed_torrents_hours=settings.auto_delete_failed_torrents_hours,
+        min_file_size_mb=settings.min_file_size_mb,
+        max_file_size_mb=settings.max_file_size_mb,
+        enable_jellyseerr_auto_request=settings.enable_jellyseerr_auto_request,
+        enable_radarr_auto_search=settings.enable_radarr_auto_search,
     )
 
 
@@ -105,6 +110,18 @@ def update_settings(update_data: AppSettingsUpdate, session: Session = Depends(g
         settings.qbittorrent_category_movies = update_data.qbittorrent_category_movies
     if update_data.qbittorrent_category_series is not None:
         settings.qbittorrent_category_series = update_data.qbittorrent_category_series
+        
+    if update_data.auto_delete_failed_torrents_hours is not None:
+        settings.auto_delete_failed_torrents_hours = update_data.auto_delete_failed_torrents_hours
+    if update_data.min_file_size_mb is not None:
+        settings.min_file_size_mb = update_data.min_file_size_mb
+    if update_data.max_file_size_mb is not None:
+        settings.max_file_size_mb = update_data.max_file_size_mb
+        
+    if update_data.enable_jellyseerr_auto_request is not None:
+        settings.enable_jellyseerr_auto_request = update_data.enable_jellyseerr_auto_request
+    if update_data.enable_radarr_auto_search is not None:
+        settings.enable_radarr_auto_search = update_data.enable_radarr_auto_search
         
     session.add(settings)
     session.commit()

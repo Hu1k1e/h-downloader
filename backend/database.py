@@ -40,6 +40,9 @@ def init_db():
                 conn.execute(text("ALTER TABLE appsettings ADD COLUMN auto_delete_failed_torrents_hours INTEGER NOT NULL DEFAULT 24"))
                 conn.execute(text("ALTER TABLE appsettings ADD COLUMN min_file_size_mb INTEGER NOT NULL DEFAULT 800"))
                 conn.execute(text("ALTER TABLE appsettings ADD COLUMN max_file_size_mb INTEGER NOT NULL DEFAULT 15000"))
+            if result and "enable_jellyseerr_auto_request" not in columns:
+                conn.execute(text("ALTER TABLE appsettings ADD COLUMN enable_jellyseerr_auto_request BOOLEAN NOT NULL DEFAULT 1"))
+                conn.execute(text("ALTER TABLE appsettings ADD COLUMN enable_radarr_auto_search BOOLEAN NOT NULL DEFAULT 1"))
             
             # Auto-migrate DownloadJob table
             dj_result = conn.execute(text("PRAGMA table_info(downloadjob)")).fetchall()

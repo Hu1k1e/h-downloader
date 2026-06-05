@@ -181,8 +181,9 @@ async def sync_jellyseerr_requests():
                 session.commit()
 
         # ── Step 1: New approved requests ────────────────────────────────────
-        requests = await fetch_approved_requests(settings)
-        for req in requests:
+        if settings.enable_jellyseerr_auto_request:
+            requests = await fetch_approved_requests(settings)
+            for req in requests:
             if req.get("type") != "movie":
                 continue
             media = req.get("media", {})
@@ -228,11 +229,11 @@ async def sync_jellyseerr_requests():
                 monitored=True,
                 poster_path=poster_path,
             )
-            session.add(job)
-            session.commit()
+                session.add(job)
+                session.commit()
 
         # ── Step 1.5: Import regional movies from Radarr ──────────────────────
-        if einthusan_languages:
+        if settings.enable_radarr_auto_search and einthusan_languages:
             for movie in radarr_movies:
                 lang_obj = movie.get("originalLanguage")
                 if not lang_obj:
@@ -521,6 +522,10 @@ async def sync_missing_movies():
     logger.info("Starting Periodic Missing Movies Search...")
     with Session(engine) as session:
         settings = get_settings(session)
+        if not settings.enable_radarr_auto_search:
+            logger.info("Radarr auto search is disabled in settings. Skipping missing movies search.")
+            return
+            
         batch_size = max(1, settings.missing_search_batch_size)
         
         missing_jobs = session.exec(
