@@ -47,6 +47,9 @@ def add_magnet_to_qbittorrent(magnet_link: str, settings: AppSettings) -> Option
         
         return extract_hash_from_magnet(magnet_link)
     except Exception as e:
+        if "Conflict" in str(e):
+            logger.info("Magnet already exists in qBittorrent. Returning hash anyway.")
+            return extract_hash_from_magnet(magnet_link)
         logger.error(f"Failed to add magnet to qBittorrent: {e}")
         return None
 

@@ -20,8 +20,8 @@ const STATUS_LABEL = {
     searching: 'Searching',
     failed: 'Failed',
     not_found: 'Not Found',
-    pending: 'Downloading on Radarr',
-    checking_radarr: 'Downloading on Radarr',
+    pending: 'Pending',
+    checking_radarr: 'Checking Radarr',
     importing: 'Importing',
     skipped: 'Skipped',
     movie_missing: 'File Missing',
@@ -31,7 +31,7 @@ const STATUS_LABEL = {
 const TABS = [
     { key: 'all', label: 'All' },
     { key: 'available', label: 'Available' },
-    { key: 'radarr', label: 'Downloading on Radarr' },
+    { key: 'radarr', label: 'Pending / Checking' },
     { key: 'movie_missing', label: 'File Missing' },
     { key: 'unmonitored', label: 'Unmonitored' },
 ]
