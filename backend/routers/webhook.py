@@ -121,11 +121,12 @@ async def radarr_webhook(
             if settings.tmdb_api_key:
                 try:
                     details = await get_movie_details(tmdb_id, settings)
-                    lang = details.get("original_language", "").lower()
+                    tmdb_lang_code = details.get("original_language", "").lower()
+                    mapped_lang = config.TMDB_LANG_TO_EINTHUSAN.get(tmdb_lang_code, tmdb_lang_code)
                     allowed_langs = [l.strip().lower() for l in settings.einthusan_languages_str.split(",") if l.strip()]
-                    if lang not in allowed_langs:
-                        log_action("Webhook", f"Skipped movie '{title}' (Language '{lang}' not in configured languages)", tmdb_id=tmdb_id)
-                        return {"status": "skipped", "reason": "language_not_allowed", "language": lang}
+                    if mapped_lang not in allowed_langs:
+                        log_action("Webhook", f"Skipped movie '{title}' (Language '{mapped_lang}' not in configured languages)", tmdb_id=tmdb_id)
+                        return {"status": "skipped", "reason": "language_not_allowed", "language": mapped_lang}
                 except Exception as e:
                     import logging
                     logging.getLogger(__name__).warning(f"Failed to fetch TMDB details for {tmdb_id}: {e}")
