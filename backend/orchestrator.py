@@ -288,7 +288,7 @@ async def _run_pipeline(
                         logger.error(f"Einthusan download failed for {title}: {e}")
 
         if not success_source:
-            msg = f"Not found or failed on all configured sources ({', '.join(sources)})"
+            msg = f"'{title}' not found or failed on all configured sources ({', '.join(sources)})"
             _update_job(session, job, status=JobStatus.NOT_FOUND,
                         error_msg=msg)
             log_action(

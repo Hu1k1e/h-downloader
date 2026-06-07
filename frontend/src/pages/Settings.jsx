@@ -39,6 +39,7 @@ export default function Settings() {
                 sync_interval_seconds: data.sync_interval_seconds ?? 900,
                 missing_search_interval_hours: data.missing_search_interval_hours ?? 24,
                 missing_search_batch_size: data.missing_search_batch_size ?? 10,
+                search_delay_seconds: data.search_delay_seconds ?? 120,
                 download_sources_priority: data.download_sources_priority || ['einthusan', '1tamilmv'],
                 qbittorrent_url: data.qbittorrent_url || '',
                 qbittorrent_username: data.qbittorrent_username || '',

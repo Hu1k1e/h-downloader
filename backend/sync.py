@@ -173,6 +173,10 @@ async def active_job_tracker_loop():
                 try:
                     queue = await radarr.get_full_queue(settings)
                     if queue:
+                        # Map radarr internal IDs to tmdb IDs
+                        all_radarr_movies = await radarr.get_all_movies(settings)
+                        movie_id_to_tmdb = {m.get("id"): m.get("tmdbId") for m in all_radarr_movies if m.get("id")}
+                        
                         # Grab all jobs not already downloading/importing/searching
                         inactive_jobs = session.exec(
                             select(DownloadJob).where(
@@ -183,8 +187,8 @@ async def active_job_tracker_loop():
                         job_by_tmdb = {j.tmdb_id: j for j in inactive_jobs if j.tmdb_id}
                         
                         for q in queue:
-                            movie_dict = q.get("movie", {})
-                            tmdb_id = movie_dict.get("tmdbId")
+                            radarr_movie_id = q.get("movieId")
+                            tmdb_id = movie_id_to_tmdb.get(radarr_movie_id)
                             if tmdb_id and tmdb_id in job_by_tmdb:
                                 j = job_by_tmdb[tmdb_id]
                                 status = q.get("status", "").lower()
@@ -198,6 +202,8 @@ async def active_job_tracker_loop():
                                     size = q.get("size", 1)
                                     j.progress_pct = int(max(0, 100 * (1 - sizeleft/size))) if size > 0 else 0
                                     
+                                    from backend.db_logger import log_action
+                                    log_action("System", f"Re-synced stalled Radarr native download into Active Jobs: '{j.title}'", tmdb_id=j.tmdb_id, job_id=j.id)
                                     session.add(j)
                         session.commit()
                 except Exception as e:
