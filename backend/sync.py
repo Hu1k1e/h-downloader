@@ -100,16 +100,12 @@ async def active_job_tracker_loop():
                                     if radarr_movie.get("hasFile"):
                                         job.file_path = radarr_movie.get("movieFile", {}).get("path")
                                     session.add(job)
-                                elif tracked in ("warning", "error"):
-                                    logger.error(f"Radarr native download failed for '{job.title}': {tracked}. Triggering fallback.")
-                                    job.status = JobStatus.MOVIE_MISSING
-                                    session.add(job)
-                                    session.commit()
-                                    asyncio.create_task(process_request(job.tmdb_id, job.language, auto_download=True))
                                 else:
                                     sizeleft = queue_item.get("sizeleft", 0)
                                     size = queue_item.get("size", 1)
                                     pct = int(max(0, 100 * (1 - sizeleft/size))) if size > 0 else 0
+                                    
+                                    # If it's stalled, pct stays whatever it is, and it stays DOWNLOADING
                                     if pct != job.progress_pct:
                                         job.progress_pct = pct
                                         session.add(job)
@@ -172,6 +168,40 @@ async def active_job_tracker_loop():
                             pass
 
                 session.commit()
+                
+                # 3. NATIVE QUEUE SYNC: Check Radarr queue for un-tracked native downloads
+                try:
+                    queue = await radarr.get_full_queue(settings)
+                    if queue:
+                        # Grab all jobs not already downloading/done
+                        inactive_jobs = session.exec(
+                            select(DownloadJob).where(
+                                DownloadJob.status.notin_([JobStatus.DOWNLOADING, JobStatus.DONE, JobStatus.IMPORTING])
+                            )
+                        ).all()
+                        
+                        job_by_tmdb = {j.tmdb_id: j for j in inactive_jobs if j.tmdb_id}
+                        
+                        for q in queue:
+                            movie_dict = q.get("movie", {})
+                            tmdb_id = movie_dict.get("tmdbId")
+                            if tmdb_id and tmdb_id in job_by_tmdb:
+                                j = job_by_tmdb[tmdb_id]
+                                status = q.get("status", "").lower()
+                                
+                                if status != "completed":
+                                    logger.info(f"Discovered un-tracked Radarr native download for '{j.title}'. Bringing into Active Downloads.")
+                                    j.status = JobStatus.DOWNLOADING
+                                    j.source_indexer = "radarr"
+                                    
+                                    sizeleft = q.get("sizeleft", 0)
+                                    size = q.get("size", 1)
+                                    j.progress_pct = int(max(0, 100 * (1 - sizeleft/size))) if size > 0 else 0
+                                    
+                                    session.add(j)
+                        session.commit()
+                except Exception as e:
+                    logger.error(f"Error checking full Radarr queue: {e}")
                 
         except Exception as e:
             logger.error(f"Error in active_job_tracker_loop: {e}")
