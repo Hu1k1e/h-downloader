@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { api } from '../api'
+import { formatETA } from '../components/ui'
 
 const STATUS_COLOR = {
     done: 'var(--success)',
@@ -73,6 +74,11 @@ function MovieModal({ movie, onClose }) {
                         <div style={{height: 8, background: 'var(--bg-tertiary)', borderRadius: 4, marginTop: 4, overflow: 'hidden'}}>
                             <div style={{height: '100%', width: `${movie.progress_pct}%`, background: '#3b82f6'}} />
                         </div>
+                        {movie.eta_seconds > 0 && (
+                            <div style={{marginTop: 8, fontSize: 12, color: 'var(--text-secondary)'}}>
+                                ETA: {formatETA(movie.eta_seconds)}
+                            </div>
+                        )}
                     </div>
                 )}
                 {movie.source_indexer && (

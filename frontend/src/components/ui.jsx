@@ -47,3 +47,19 @@ export function timeAgo(dateStr) {
     if (hours < 24) return `${hours}h ago`
     return `${Math.floor(hours / 24)}d ago`
 }
+
+export function formatETA(seconds) {
+    if (seconds == null || isNaN(seconds)) return null;
+    if (seconds === 8640000) return '∞';
+    
+    if (seconds < 60) return `${Math.floor(seconds)}s left`;
+    const mins = Math.floor(seconds / 60);
+    if (mins < 60) return `${mins}m left`;
+    const hours = Math.floor(mins / 60);
+    const remMins = mins % 60;
+    if (hours < 24) return `${hours}h ${remMins}m left`;
+    
+    const days = Math.floor(hours / 24);
+    const remHours = hours % 24;
+    return `${days}d ${remHours}h left`;
+}

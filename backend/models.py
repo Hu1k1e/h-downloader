@@ -68,6 +68,7 @@ class DownloadJob(SQLModel, table=True):
     progress_pct: int = 0                   # 0-100
     downloaded_bytes: int = 0
     total_bytes: int = 0
+    eta_seconds: Optional[int] = None
     error_msg: Optional[str] = None
     monitored: bool = Field(default=True, index=True)
     poster_path: Optional[str] = None         # TMDB poster path e.g. /abc123.jpg
@@ -92,6 +93,7 @@ class DownloadJobRead(SQLModel):
     progress_pct: int
     downloaded_bytes: int
     total_bytes: int
+    eta_seconds: Optional[int]
     error_msg: Optional[str]
     monitored: bool
     poster_path: Optional[str]

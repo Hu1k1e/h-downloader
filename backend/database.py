@@ -59,6 +59,8 @@ def init_db():
                 conn.execute(text("ALTER TABLE downloadjob ADD COLUMN discovered_source VARCHAR"))
                 conn.execute(text("ALTER TABLE downloadjob ADD COLUMN discovered_url VARCHAR"))
                 conn.execute(text("ALTER TABLE downloadjob ADD COLUMN discovered_magnet VARCHAR"))
+            if dj_result and "eta_seconds" not in dj_columns:
+                conn.execute(text("ALTER TABLE downloadjob ADD COLUMN eta_seconds INTEGER"))
     except Exception as e:
         import logging
         logging.getLogger(__name__).warning(f"Auto-migration failed: {e}")

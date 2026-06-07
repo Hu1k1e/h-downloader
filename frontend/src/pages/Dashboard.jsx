@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
-import { StatusBadge, ProgressBar, formatBytes, timeAgo } from '../components/ui'
+import { StatusBadge, ProgressBar, formatBytes, timeAgo, formatETA } from '../components/ui'
 import TriggerModal from '../components/TriggerModal'
 
 export default function Dashboard() {
@@ -112,7 +112,11 @@ export default function Dashboard() {
                                 {job.total_bytes > 0 && (
                                     <span>{formatBytes(job.downloaded_bytes)} / {formatBytes(job.total_bytes)}</span>
                                 )}
-                                <span style={{ marginLeft: 'auto' }}>{timeAgo(job.updated_at)}</span>
+                                <span style={{ marginLeft: 'auto' }}>
+                                    {job.status === 'downloading' && job.eta_seconds > 0 
+                                        ? formatETA(job.eta_seconds) 
+                                        : timeAgo(job.updated_at)}
+                                </span>
                             </div>
                         </div>
                     ))

@@ -108,8 +108,27 @@ async def active_job_tracker_loop():
                                     job.downloaded_bytes = max(0, size - sizeleft)
                                     job.total_bytes = size
                                     
+                                    timeleft_str = queue_item.get("timeleft", "")
+                                    eta_secs = 0
+                                    if timeleft_str:
+                                        try:
+                                            parts = timeleft_str.split(':')
+                                            if len(parts) == 3:
+                                                h_str, m_str, s_str = parts
+                                                days = 0
+                                                if '.' in h_str:
+                                                    d_h = h_str.split('.')
+                                                    days = int(d_h[0])
+                                                    h_str = d_h[1]
+                                                eta_secs = int(days * 86400 + int(h_str) * 3600 + int(m_str) * 60 + float(s_str))
+                                        except Exception:
+                                            pass
+                                            
+                                    if eta_secs > 0:
+                                        job.eta_seconds = eta_secs
+                                    
                                     # If it's stalled, pct stays whatever it is, and it stays DOWNLOADING
-                                    if pct != job.progress_pct or job.total_bytes != size:
+                                    if pct != job.progress_pct or job.total_bytes != size or job.eta_seconds != eta_secs:
                                         job.progress_pct = pct
                                         session.add(job)
                             else:
@@ -143,7 +162,17 @@ async def active_job_tracker_loop():
                         progress = t_info.get("progress", 0.0)
                         pct = int(progress * 100)
                         
-                        if pct != job.progress_pct:
+                        eta_secs = t_info.get("eta", 0)
+                        if eta_secs > 0 and eta_secs < 8640000:
+                            job.eta_seconds = eta_secs
+                        else:
+                            job.eta_seconds = None
+                            
+                        # Also update bytes
+                        job.total_bytes = t_info.get("size", 0)
+                        job.downloaded_bytes = t_info.get("downloaded", 0)
+                        
+                        if pct != job.progress_pct or job.eta_seconds != eta_secs:
                             job.progress_pct = pct
                             session.add(job)
 
@@ -206,6 +235,25 @@ async def active_job_tracker_loop():
                                     j.progress_pct = int(max(0, 100 * (1 - sizeleft/size))) if size > 0 else 0
                                     j.total_bytes = size
                                     j.downloaded_bytes = max(0, size - sizeleft)
+                                    
+                                    timeleft_str = q.get("timeleft", "")
+                                    eta_secs = 0
+                                    if timeleft_str:
+                                        try:
+                                            parts = timeleft_str.split(':')
+                                            if len(parts) == 3:
+                                                h_str, m_str, s_str = parts
+                                                days = 0
+                                                if '.' in h_str:
+                                                    d_h = h_str.split('.')
+                                                    days = int(d_h[0])
+                                                    h_str = d_h[1]
+                                                eta_secs = int(days * 86400 + int(h_str) * 3600 + int(m_str) * 60 + float(s_str))
+                                        except Exception:
+                                            pass
+                                            
+                                    if eta_secs > 0:
+                                        j.eta_seconds = eta_secs
                                     
                                     from backend.db_logger import log_action
                                     log_action("System", f"Re-synced stalled Radarr native download into Active Jobs: '{j.title}'", tmdb_id=j.tmdb_id, job_id=j.id)
