@@ -10,46 +10,59 @@ from backend.orchestrator import process_request
 logger = logging.getLogger(__name__)
 
 async def delayed_search(tmdb_id: int, language: Optional[str] = None, override_delay: Optional[int] = None):
-    """Wait for configured delay, check if Radarr is actively downloading, if not, trigger process_request."""
+    """Wait for configured delay, looping every 10s to check if Radarr grabbed it natively."""
     with Session(engine) as session:
         settings = get_settings(session)
         delay = settings.search_delay_seconds if override_delay is None else override_delay
         
-    if delay > 0:
-        logger.info(f"delayed_search: waiting {delay} seconds before checking Radarr for tmdb_id={tmdb_id}")
-        await asyncio.sleep(delay)
-        
-    with Session(engine) as session:
-        settings = get_settings(session)
-        job = session.exec(select(DownloadJob).where(DownloadJob.tmdb_id == tmdb_id)).first()
-        if not job or job.status != JobStatus.MOVIE_MISSING:
-            return  # Already processing or deleted
-        
-        try:
-            radarr_movie = await radarr.is_movie_in_radarr(tmdb_id, settings)
-            if radarr_movie and "id" in radarr_movie:
-                queue_item = await radarr.get_movie_queue_status(radarr_movie["id"], settings)
-                
-                # Check if it's healthy and downloading
-                active = False
-                if queue_item:
-                    tracked = queue_item.get("trackedDownloadStatus", "").lower()
-                    status = queue_item.get("status", "").lower()
-                    if tracked not in ("warning", "error") and status != "completed":
-                        active = True
-
-                if active:
-                    logger.info(f"Delayed search check: Radarr actively downloading '{job.title}', skipping search.")
-                    return
-        except Exception as e:
-            logger.warning(f"Error checking Radarr queue in delayed search: {e}")
+    waited = 0
+    poll_interval = 10
+    
+    while waited <= delay:
+        with Session(engine) as session:
+            settings = get_settings(session)
+            job = session.exec(select(DownloadJob).where(DownloadJob.tmdb_id == tmdb_id)).first()
+            if not job or job.status != JobStatus.MOVIE_MISSING:
+                return  # Already processing or deleted
             
-        logger.info(f"Delayed search check: No active Radarr download for '{job.title}'. Triggering fallback.")
-        asyncio.create_task(process_request(tmdb_id, language))
+            try:
+                radarr_movie = await radarr.is_movie_in_radarr(tmdb_id, settings)
+                if radarr_movie and "id" in radarr_movie:
+                    queue_item = await radarr.get_movie_queue_status(radarr_movie["id"], settings)
+                    
+                    active = False
+                    if queue_item:
+                        tracked = queue_item.get("trackedDownloadStatus", "").lower()
+                        status = queue_item.get("status", "").lower()
+                        if tracked not in ("warning", "error") and status != "completed":
+                            active = True
+                            
+                    if active:
+                        logger.info(f"Delayed search check: Radarr actively downloading '{job.title}' natively.")
+                        job.status = JobStatus.DOWNLOADING
+                        job.source_indexer = "radarr"
+                        sizeleft = queue_item.get("sizeleft", 0)
+                        size = queue_item.get("size", 1)
+                        if size > 0:
+                            job.progress_pct = int(max(0, 100 * (1 - sizeleft/size)))
+                        session.add(job)
+                        session.commit()
+                        return
+            except Exception as e:
+                logger.warning(f"Error checking Radarr queue in delayed search: {e}")
+                
+        if waited >= delay:
+            break
+            
+        await asyncio.sleep(min(poll_interval, delay - waited + 1))
+        waited += poll_interval
+        
+    logger.info(f"Delayed search check: No active Radarr download for tmdb_id={tmdb_id} after {delay}s. Triggering Auto-Download.")
+    asyncio.create_task(process_request(tmdb_id, language, auto_download=True))
 
 async def active_job_tracker_loop():
     """
-    Rapidly tracks active downloads in qBittorrent and updates progress.
+    Rapidly tracks active downloads in qBittorrent AND Radarr native queue, updating progress.
     """
     logger.info("Starting active job tracker loop...")
     while True:
@@ -63,7 +76,61 @@ async def active_job_tracker_loop():
                 ).all()
 
                 for job in active_jobs:
-                    if job.status == JobStatus.DOWNLOADING and job.torrent_hash:
+                    # 1. Handle Radarr native downloads
+                    if job.status == JobStatus.DOWNLOADING and job.source_indexer == "radarr":
+                        try:
+                            radarr_movie = await radarr.is_movie_in_radarr(job.tmdb_id, settings)
+                            if not radarr_movie or "id" not in radarr_movie:
+                                logger.warning(f"Radarr native download '{job.title}' missing from Radarr library. Triggering fallback.")
+                                job.status = JobStatus.MOVIE_MISSING
+                                session.add(job)
+                                session.commit()
+                                asyncio.create_task(process_request(job.tmdb_id, job.language, auto_download=True))
+                                continue
+                                
+                            queue_item = await radarr.get_movie_queue_status(radarr_movie["id"], settings)
+                            if queue_item:
+                                status = queue_item.get("status", "").lower()
+                                tracked = queue_item.get("trackedDownloadStatus", "").lower()
+                                
+                                if status == "completed":
+                                    job.status = JobStatus.DONE
+                                    job.progress_pct = 100
+                                    # Try getting path
+                                    if radarr_movie.get("hasFile"):
+                                        job.file_path = radarr_movie.get("movieFile", {}).get("path")
+                                    session.add(job)
+                                elif tracked in ("warning", "error"):
+                                    logger.error(f"Radarr native download failed for '{job.title}': {tracked}. Triggering fallback.")
+                                    job.status = JobStatus.MOVIE_MISSING
+                                    session.add(job)
+                                    session.commit()
+                                    asyncio.create_task(process_request(job.tmdb_id, job.language, auto_download=True))
+                                else:
+                                    sizeleft = queue_item.get("sizeleft", 0)
+                                    size = queue_item.get("size", 1)
+                                    pct = int(max(0, 100 * (1 - sizeleft/size))) if size > 0 else 0
+                                    if pct != job.progress_pct:
+                                        job.progress_pct = pct
+                                        session.add(job)
+                            else:
+                                # Not in queue. Did it finish successfully or fail/get removed?
+                                if radarr_movie.get("hasFile"):
+                                    job.status = JobStatus.DONE
+                                    job.progress_pct = 100
+                                    job.file_path = radarr_movie.get("movieFile", {}).get("path")
+                                    session.add(job)
+                                else:
+                                    logger.warning(f"Radarr native download removed without file for '{job.title}'. Triggering fallback.")
+                                    job.status = JobStatus.MOVIE_MISSING
+                                    session.add(job)
+                                    session.commit()
+                                    asyncio.create_task(process_request(job.tmdb_id, job.language, auto_download=True))
+                        except Exception as e:
+                            logger.error(f"Error checking Radarr native queue for {job.title}: {e}")
+                            
+                    # 2. Handle qBittorrent downloads
+                    elif job.status == JobStatus.DOWNLOADING and job.torrent_hash:
                         t_info = await asyncio.to_thread(qbittorrent.get_torrent_info, job.torrent_hash, settings)
                         if not t_info:
                             logger.warning(f"Torrent {job.torrent_hash} missing from qBittorrent. Marking as failed.")
@@ -77,7 +144,6 @@ async def active_job_tracker_loop():
                         progress = t_info.get("progress", 0.0)
                         pct = int(progress * 100)
                         
-                        # Just update UI progress
                         if pct != job.progress_pct:
                             job.progress_pct = pct
                             session.add(job)
@@ -112,20 +178,19 @@ async def active_job_tracker_loop():
             
         await asyncio.sleep(5)
 
-async def missing_movie_tracker_loop():
+async def discovery_tracker_loop():
     """
-    Periodically retries searching for MOVIE_MISSING jobs if enable_radarr_auto_search is on.
+    Periodically retries searching for MOVIE_MISSING jobs and puts them in DISCOVERED.
     """
-    logger.info("Starting missing movie tracker loop...")
+    logger.info("Starting discovery tracker loop...")
     while True:
         try:
             with Session(engine) as session:
                 settings = get_settings(session)
                 interval = settings.missing_search_interval_hours
                 batch_size = settings.missing_search_batch_size
-                enabled = settings.enable_radarr_auto_search
 
-            if enabled and interval > 0:
+            if interval > 0:
                 with Session(engine) as session:
                     jobs = session.exec(
                         select(DownloadJob)
@@ -135,15 +200,62 @@ async def missing_movie_tracker_loop():
                     
                     if jobs:
                         from backend.db_logger import log_action
-                        log_action("Auto-Search", f"Triggering missing search for {len(jobs)} movies")
+                        log_action("Discovery", f"Triggering discovery search for {len(jobs)} movies")
                         for job in jobs:
-                            if job.status not in (JobStatus.DOWNLOADING, JobStatus.SEARCHING, JobStatus.IMPORTING):
-                                asyncio.create_task(process_request(job.tmdb_id, job.language))
+                            if job.status == JobStatus.MOVIE_MISSING:
+                                # Auto_download=False means it goes to DISCOVERED state if found
+                                asyncio.create_task(process_request(job.tmdb_id, job.language, auto_download=False))
 
-            # Sleep for the configured interval (or default 24h if missing)
             sleep_time = (interval * 3600) if interval > 0 else 86400
             await asyncio.sleep(sleep_time)
             
         except Exception as e:
-            logger.error(f"Error in missing_movie_tracker_loop: {e}")
-            await asyncio.sleep(3600)  # Retry in an hour on critical failure
+            logger.error(f"Error in discovery_tracker_loop: {e}")
+            await asyncio.sleep(3600)
+
+async def radarr_state_sync_loop():
+    """
+    Periodically syncs full state with Radarr. Removes unmonitored/deleted, 
+    updates paths and done states.
+    """
+    logger.info("Starting full radarr state sync loop...")
+    while True:
+        try:
+            await asyncio.sleep(900) # 15 mins
+            
+            with Session(engine) as session:
+                settings = get_settings(session)
+                all_radarr_movies = await radarr.get_all_movies(settings)
+                radarr_map = {m["tmdbId"]: m for m in all_radarr_movies if "tmdbId" in m}
+                
+                all_jobs = session.exec(select(DownloadJob)).all()
+                deleted_count = 0
+                completed_count = 0
+                
+                for job in all_jobs:
+                    if job.status in (JobStatus.SEARCHING, JobStatus.IMPORTING) or (job.status == JobStatus.DOWNLOADING and job.source_indexer != "radarr"):
+                        continue
+                        
+                    radarr_movie = radarr_map.get(job.tmdb_id)
+                    
+                    if not radarr_movie or not radarr_movie.get("monitored", False):
+                        session.delete(job)
+                        deleted_count += 1
+                        continue
+                        
+                    if radarr_movie.get("hasFile"):
+                        path = radarr_movie.get("movieFile", {}).get("path")
+                        if job.status != JobStatus.DONE or job.file_path != path:
+                            job.status = JobStatus.DONE
+                            job.progress_pct = 100
+                            job.file_path = path
+                            session.add(job)
+                            completed_count += 1
+                        
+                session.commit()
+                if deleted_count > 0 or completed_count > 0:
+                    logger.info(f"Radarr state sync: Deleted {deleted_count} unmonitored/removed, marked {completed_count} as DONE/Updated.")
+                    
+        except Exception as e:
+            logger.error(f"Error in radarr_state_sync_loop: {e}")
+            await asyncio.sleep(900)

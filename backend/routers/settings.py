@@ -40,7 +40,6 @@ def get_current_settings(session: Session = Depends(get_session)):
         min_file_size_mb=settings.min_file_size_mb,
         max_file_size_mb=settings.max_file_size_mb,
         enable_jellyseerr_auto_request=settings.enable_jellyseerr_auto_request,
-        enable_radarr_auto_search=settings.enable_radarr_auto_search,
     )
 
 
@@ -104,8 +103,6 @@ def update_settings(update_data: AppSettingsUpdate, session: Session = Depends(g
         
     if update_data.enable_jellyseerr_auto_request is not None:
         settings.enable_jellyseerr_auto_request = update_data.enable_jellyseerr_auto_request
-    if update_data.enable_radarr_auto_search is not None:
-        settings.enable_radarr_auto_search = update_data.enable_radarr_auto_search
         
     session.add(settings)
     session.commit()

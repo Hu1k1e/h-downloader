@@ -12,6 +12,7 @@ const STATUS_COLOR = {
     importing: 'var(--warning)',
     skipped: 'var(--text-muted)',
     movie_missing: '#ef4444',
+    discovered: 'var(--success)',
 }
 
 const STATUS_LABEL = {
@@ -25,6 +26,7 @@ const STATUS_LABEL = {
     importing: 'Importing',
     skipped: 'Skipped',
     movie_missing: 'File Missing',
+    discovered: 'Discovered',
 }
 
 // Filter tabs definition
@@ -33,6 +35,7 @@ const TABS = [
     { key: 'available', label: 'Available' },
     { key: 'radarr', label: 'Pending / Checking' },
     { key: 'movie_missing', label: 'File Missing' },
+    { key: 'discovered', label: 'Discovered' },
     { key: 'unmonitored', label: 'Unmonitored' },
 ]
 
@@ -42,6 +45,7 @@ function matchesTab(movie, tab) {
     if (tab === 'available') return s === 'done'
     if (tab === 'radarr') return s === 'pending' || s === 'checking_radarr'
     if (tab === 'movie_missing') return s === 'movie_missing'
+    if (tab === 'discovered') return s === 'discovered'
     if (tab === 'unmonitored') return !movie.monitored
     return true
 }
@@ -164,18 +168,18 @@ function PosterCard({ movie, onTrigger, onDelete, onToggleMonitor, onSelect }) {
                     className="btn btn-secondary btn-sm"
                     onClick={() => onToggleMonitor(movie.id, movie.monitored)}
                     title={movie.monitored ? 'Unmonitor' : 'Re-monitor'}
-                    style={{ flex: 1 }}
+                    style={{ flex: 1, display: status === 'discovered' ? 'none' : 'block' }}
                 >
                     {movie.monitored ? 'Unmonitor' : 'Monitor'}
                 </button>
                 <button
                     className="btn btn-primary btn-sm"
-                    onClick={() => onTrigger(movie.id, movie.tmdb_id, movie.language)}
+                    onClick={() => onTrigger(movie)}
                     disabled={status === 'downloading' || status === 'importing'}
-                    title="Force search"
+                    title={status === 'discovered' ? 'Download Discovered Content' : 'Force search'}
                     style={{ flex: 1 }}
                 >
-                    ▶
+                    {status === 'discovered' ? 'Download' : '▶'}
                 </button>
                 <button
                     className="btn btn-danger btn-sm"
@@ -258,12 +262,20 @@ export default function Movies() {
         } catch (err) { console.error(err) }
     }
 
-    const triggerJob = async (id, tmdbId, lang) => {
+    const triggerJob = async (movie) => {
+        if ((movie.status || '').toLowerCase() === 'discovered') {
+            try {
+                await fetch(`/api/jobs/${movie.id}/download`, { method: 'POST' })
+                fetchMovies()
+            } catch (err) { console.error(err) }
+            return
+        }
+        
         try {
             await fetch('/api/jobs/trigger', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ tmdb_id: tmdbId, language: lang })
+                body: JSON.stringify({ tmdb_id: movie.tmdb_id, language: movie.language })
             })
             fetchMovies()
         } catch (err) { console.error(err) }

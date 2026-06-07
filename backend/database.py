@@ -53,6 +53,10 @@ def init_db():
                 conn.execute(text("ALTER TABLE downloadjob ADD COLUMN source_indexer VARCHAR"))
                 conn.execute(text("ALTER TABLE downloadjob ADD COLUMN torrent_hash VARCHAR"))
                 conn.execute(text("ALTER TABLE downloadjob ADD COLUMN blacklisted_urls VARCHAR"))
+            if dj_result and "discovered_source" not in dj_columns:
+                conn.execute(text("ALTER TABLE downloadjob ADD COLUMN discovered_source VARCHAR"))
+                conn.execute(text("ALTER TABLE downloadjob ADD COLUMN discovered_url VARCHAR"))
+                conn.execute(text("ALTER TABLE downloadjob ADD COLUMN discovered_magnet VARCHAR"))
     except Exception as e:
         import logging
         logging.getLogger(__name__).warning(f"Auto-migration failed: {e}")

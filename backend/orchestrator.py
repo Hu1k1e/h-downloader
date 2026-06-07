@@ -40,7 +40,7 @@ def _update_job(session: Session, job: DownloadJob, **kwargs):
     session.refresh(job)
 
 
-async def process_request(tmdb_id: int, requested_language: Optional[str] = None) -> int:
+async def process_request(tmdb_id: int, requested_language: Optional[str] = None, auto_download: bool = True) -> int:
     """
     Main entry point. Creates a DownloadJob and runs the full pipeline.
     Returns the job_id.
@@ -106,7 +106,7 @@ async def process_request(tmdb_id: int, requested_language: Optional[str] = None
 
     # Run the async pipeline in a background task
     asyncio.create_task(
-        _run_pipeline(job_id, tmdb_id, title, year, original_lang_code, requested_language)
+        _run_pipeline(job_id, tmdb_id, title, year, original_lang_code, requested_language, auto_download)
     )
     return job_id
 
@@ -118,6 +118,7 @@ async def _run_pipeline(
     year: Optional[int],
     original_lang_code: str,
     requested_language: Optional[str],
+    auto_download: bool = True,
 ):
     with Session(engine) as session:
         job = session.get(DownloadJob, job_id)
@@ -207,16 +208,21 @@ async def _run_pipeline(
                     if thread_url:
                         magnet = await tamilmv.extract_magnet(thread_url)
                         if magnet:
-                            torrent_hash = await asyncio.to_thread(qbittorrent.add_magnet_to_qbittorrent, magnet, settings)
-                            if torrent_hash:
+                            if auto_download:
+                                torrent_hash = await asyncio.to_thread(qbittorrent.add_magnet_to_qbittorrent, magnet, settings)
+                                if torrent_hash:
+                                    success_source = "1tamilmv"
+                                    _update_job(session, job, status=JobStatus.DOWNLOADING, error_msg=None, source_indexer="1tamilmv", torrent_hash=torrent_hash)
+                                    log_action(
+                                        action="search_success",
+                                        message=f"Successfully added '{title}' magnet to qBittorrent via 1TamilMV. Hash: {torrent_hash}",
+                                        tmdb_id=tmdb_id,
+                                        job_id=job.id
+                                    )
+                                    break
+                            else:
                                 success_source = "1tamilmv"
-                                _update_job(session, job, status=JobStatus.DOWNLOADING, error_msg=None, source_indexer="1tamilmv", torrent_hash=torrent_hash)
-                                log_action(
-                                    action="search_success",
-                                    message=f"Successfully added '{title}' magnet to qBittorrent via 1TamilMV. Hash: {torrent_hash}",
-                                    tmdb_id=tmdb_id,
-                                    job_id=job.id
-                                )
+                                _update_job(session, job, status=JobStatus.DISCOVERED, error_msg=None, discovered_source="1tamilmv", discovered_url=thread_url, discovered_magnet=magnet)
                                 break
                 except Exception as e:
                     logger.error(f"1TamilMV search/add failed for {title}: {e}")
@@ -240,26 +246,31 @@ async def _run_pipeline(
                     try:
                         direct_url = await einthusan.extract_mp4_url(watch_url)
                         if direct_url:
-                            _update_job(session, job, direct_url=direct_url)
-                            folder_path = await radarr.get_movie_folder(tmdb_id, title, year or 0, settings)
-                            file_path = get_movie_file_path(folder_path, title, year)
-                            
-                            _update_job(session, job, file_path=file_path, status=JobStatus.DOWNLOADING, source_indexer="einthusan", error_msg=None)
-                            dl_success = await download_movie(job_id, direct_url, file_path, session)
-                            if dl_success:
+                            if auto_download:
+                                _update_job(session, job, direct_url=direct_url)
+                                folder_path = await radarr.get_movie_folder(tmdb_id, title, year or 0, settings)
+                                file_path = get_movie_file_path(folder_path, title, year)
+                                
+                                _update_job(session, job, file_path=file_path, status=JobStatus.DOWNLOADING, source_indexer="einthusan", error_msg=None)
+                                dl_success = await download_movie(job_id, direct_url, file_path, session)
+                                if dl_success:
+                                    success_source = "einthusan"
+                                    # Trigger Radarr rescan
+                                    movie_data = await radarr.is_movie_in_radarr(tmdb_id, settings)
+                                    if movie_data and "id" in movie_data:
+                                        await radarr.trigger_rescan(movie_data["id"], settings)
+                                    _update_job(session, job, status=JobStatus.DONE, progress_pct=100,
+                                                monitored=False, file_path=file_path, error_msg=None)
+                                    log_action(
+                                        action="search_success",
+                                        message=f"Successfully downloaded '{title}' via Einthusan.",
+                                        tmdb_id=tmdb_id,
+                                        job_id=job.id
+                                    )
+                                    break
+                            else:
                                 success_source = "einthusan"
-                                # Trigger Radarr rescan
-                                movie_data = await radarr.is_movie_in_radarr(tmdb_id, settings)
-                                if movie_data and "id" in movie_data:
-                                    await radarr.trigger_rescan(movie_data["id"], settings)
-                                _update_job(session, job, status=JobStatus.DONE, progress_pct=100,
-                                            monitored=False, file_path=file_path, error_msg=None)
-                                log_action(
-                                    action="search_success",
-                                    message=f"Successfully downloaded '{title}' via Einthusan.",
-                                    tmdb_id=tmdb_id,
-                                    job_id=job.id
-                                )
+                                _update_job(session, job, status=JobStatus.DISCOVERED, error_msg=None, discovered_source="einthusan", discovered_url=watch_url, direct_url=direct_url)
                                 break
                     except Exception as e:
                         logger.error(f"Einthusan download failed for {title}: {e}")

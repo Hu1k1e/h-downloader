@@ -49,7 +49,6 @@ export default function Settings() {
                 min_file_size_mb: data.min_file_size_mb ?? 800,
                 max_file_size_mb: data.max_file_size_mb ?? 15000,
                 enable_jellyseerr_auto_request: data.enable_jellyseerr_auto_request ?? true,
-                enable_radarr_auto_search: data.enable_radarr_auto_search ?? true,
             })
 
         }).catch(() => { })
@@ -456,46 +455,35 @@ export default function Settings() {
                     </label>
                 </div>
                 <div className="form-row">
-                    <span className="form-label">Radarr</span>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', color: 'var(--text-primary)' }}>
-                        <input type="checkbox" name="enable_radarr_auto_search" checked={formData.enable_radarr_auto_search} onChange={e => setFormData(p => ({...p, enable_radarr_auto_search: e.target.checked}))} />
-                        Automatically search Radarr missing movies
-                    </label>
+                    <span className="form-label">Discovery Interval</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <input
+                            className="form-input"
+                            type="number"
+                            name="missing_search_interval_hours"
+                            value={formData.missing_search_interval_hours}
+                            onChange={handleChange}
+                            min={1}
+                            style={{ maxWidth: 80 }}
+                        />
+                        <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>hours</span>
+                    </div>
                 </div>
-                {formData.enable_radarr_auto_search && (
-                    <>
-                        <div className="form-row">
-                            <span className="form-label">Missing Search Interval</span>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <input
-                                    className="form-input"
-                                    type="number"
-                                    name="missing_search_interval_hours"
-                                    value={formData.missing_search_interval_hours}
-                                    onChange={handleChange}
-                                    min={1}
-                                    style={{ maxWidth: 80 }}
-                                />
-                                <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>hours</span>
-                            </div>
-                        </div>
-                        <div className="form-row">
-                            <span className="form-label">Missing Search Batch Size</span>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <input
-                                    className="form-input"
-                                    type="number"
-                                    name="missing_search_batch_size"
-                                    value={formData.missing_search_batch_size}
-                                    onChange={handleChange}
-                                    min={1}
-                                    style={{ maxWidth: 80 }}
-                                />
-                                <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>movies</span>
-                            </div>
-                        </div>
-                    </>
-                )}
+                <div className="form-row">
+                    <span className="form-label">Discovery Batch Size</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <input
+                            className="form-input"
+                            type="number"
+                            name="missing_search_batch_size"
+                            value={formData.missing_search_batch_size}
+                            onChange={handleChange}
+                            min={1}
+                            style={{ maxWidth: 80 }}
+                        />
+                        <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>movies to check per interval</span>
+                    </div>
+                </div>
             </div>
 
             {/* Einthusan Languages */}

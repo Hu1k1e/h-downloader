@@ -47,6 +47,7 @@ class JobStatus(str, Enum):
     NOT_FOUND = "not_found"
     FAILED = "failed"
     SKIPPED = "skipped"
+    DISCOVERED = "discovered"
 
 
 class DownloadJob(SQLModel, table=True):
@@ -56,8 +57,13 @@ class DownloadJob(SQLModel, table=True):
     year: Optional[int] = None
     language: Optional[str] = None          # e.g. "malayalam"
     status: JobStatus = JobStatus.PENDING
-    einthusan_url: Optional[str] = None     # watch page URL
-    direct_url: Optional[str] = None        # CDN MP4 URL
+    einthusan_url: Optional[str] = Field(default=None)
+    direct_url: Optional[str] = Field(default=None)
+    
+    # Discovery fields
+    discovered_source: Optional[str] = Field(default=None)
+    discovered_url: Optional[str] = Field(default=None)
+    discovered_magnet: Optional[str] = Field(default=None)
     file_path: Optional[str] = None         # final saved path
     progress_pct: int = 0                   # 0-100
     downloaded_bytes: int = 0
@@ -114,7 +120,10 @@ class AppSettings(SQLModel, table=True):
     # Store languages as a comma-separated string in DB
     einthusan_languages_str: str = Field(default="malayalam,tamil,telugu")
     
+    # Digital release window settings
     digital_release_fallback_days: int = Field(default=90)
+    
+    # Automation intervals
     search_delay_seconds: int = Field(default=120)
     missing_search_interval_hours: int = Field(default=24)
     missing_search_batch_size: int = Field(default=50)
@@ -132,7 +141,6 @@ class AppSettings(SQLModel, table=True):
     max_file_size_mb: int = Field(default=15000)
     
     enable_jellyseerr_auto_request: bool = Field(default=True)
-    enable_radarr_auto_search: bool = Field(default=True)
 
 class AppSettingsRead(SQLModel):
     radarr_url: str
@@ -160,7 +168,6 @@ class AppSettingsRead(SQLModel):
     max_file_size_mb: int
     
     enable_jellyseerr_auto_request: bool
-    enable_radarr_auto_search: bool
 
 
 class AppSettingsUpdate(SQLModel):
@@ -191,5 +198,4 @@ class AppSettingsUpdate(SQLModel):
     max_file_size_mb: Optional[int] = None
     
     enable_jellyseerr_auto_request: Optional[bool] = None
-    enable_radarr_auto_search: Optional[bool] = None
 

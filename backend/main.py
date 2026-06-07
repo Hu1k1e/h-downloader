@@ -16,7 +16,7 @@ from backend import config
 
 
 import asyncio
-from backend.sync import active_job_tracker_loop, missing_movie_tracker_loop
+from backend.sync import active_job_tracker_loop, discovery_tracker_loop, radarr_state_sync_loop
 from backend.database import get_settings
 from sqlmodel import Session
 from backend.database import engine
@@ -28,7 +28,8 @@ async def lifespan(app: FastAPI):
     
     # Start background job to rapidly track active downloads
     asyncio.create_task(active_job_tracker_loop())
-    asyncio.create_task(missing_movie_tracker_loop())
+    asyncio.create_task(discovery_tracker_loop())
+    asyncio.create_task(radarr_state_sync_loop())
     
     yield
 

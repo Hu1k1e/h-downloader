@@ -126,6 +126,75 @@ async def update_monitor_status(job_id: int, update: MonitorUpdate, session: Ses
     session.refresh(job)
     return {"status": "updated", "monitored": job.monitored}
 
+@router.post("/jobs/{job_id}/download")
+async def trigger_discovered_download(job_id: int, session: Session = Depends(get_session)):
+    job = session.get(DownloadJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.status != JobStatus.DISCOVERED:
+        raise HTTPException(status_code=400, detail=f"Job is in state {job.status}, not DISCOVERED")
+        
+    settings = get_settings(session)
+    job.status = JobStatus.DOWNLOADING
+    job.error_msg = None
+    
+    # Check if it was discovered via magnet (1tamilmv) or direct URL (einthusan)
+    if job.discovered_magnet:
+        import asyncio
+        torrent_hash = await asyncio.to_thread(qbittorrent.add_magnet_to_qbittorrent, job.discovered_magnet, settings)
+        if torrent_hash:
+            job.source_indexer = job.discovered_source
+            job.torrent_hash = torrent_hash
+            session.add(job)
+            session.commit()
+            
+            from backend.db_logger import log_action
+            log_action("search_success", f"Successfully started discovered magnet via {job.source_indexer}", tmdb_id=job.tmdb_id, job_id=job.id)
+            return {"status": "started", "hash": torrent_hash}
+        else:
+            job.status = JobStatus.FAILED
+            job.error_msg = "Failed to add magnet to qBittorrent"
+            session.add(job)
+            session.commit()
+            raise HTTPException(status_code=500, detail="Failed to add to qBittorrent")
+            
+    elif job.direct_url:
+        # Einthusan direct download
+        job.source_indexer = job.discovered_source
+        
+        # We need the file_path
+        from backend.services.downloader import get_movie_file_path, download_movie
+        import asyncio
+        from backend.services import radarr
+        
+        folder_path = await radarr.get_movie_folder(job.tmdb_id, job.title, job.year or 0, settings)
+        file_path = get_movie_file_path(folder_path, job.title, job.year)
+        job.file_path = file_path
+        session.add(job)
+        session.commit()
+        
+        # Fire async task
+        async def run_einthusan_dl(jid, direct_url, fp):
+            with Session(engine) as sess:
+                dl_success = await download_movie(jid, direct_url, fp, sess)
+                if dl_success:
+                    sess_job = sess.get(DownloadJob, jid)
+                    if sess_job:
+                        movie_data = await radarr.is_movie_in_radarr(sess_job.tmdb_id, settings)
+                        if movie_data and "id" in movie_data:
+                            await radarr.trigger_rescan(movie_data["id"], settings)
+                        sess_job.status = JobStatus.DONE
+                        sess_job.progress_pct = 100
+                        sess_job.monitored = False
+                        sess.add(sess_job)
+                        sess.commit()
+                        
+        asyncio.create_task(run_einthusan_dl(job.id, job.direct_url, file_path))
+        return {"status": "started", "type": "einthusan"}
+        
+    else:
+        raise HTTPException(status_code=400, detail="Discovered job missing both magnet and direct_url")
+
 # ── Stats ────────────────────────────────────────────────────────────────────
 
 @router.get("/stats")
