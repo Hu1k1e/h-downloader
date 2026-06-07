@@ -75,7 +75,7 @@ class DownloadJob(SQLModel, table=True):
     torrent_hash: Optional[str] = None        # qBittorrent info hash
     blacklisted_urls: Optional[str] = None    # comma separated skipped/failed hashes/urls
     created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow, sa_column_kwargs={"onupdate": datetime.utcnow})
 
 
 class DownloadJobRead(SQLModel):
