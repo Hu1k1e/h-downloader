@@ -31,22 +31,20 @@ const STATUS_LABEL = {
 
 // Filter tabs definition
 const TABS = [
-    { key: 'all', label: 'All' },
-    { key: 'available', label: 'Available' },
-    { key: 'radarr', label: 'Pending / Checking' },
-    { key: 'movie_missing', label: 'File Missing' },
+    { key: 'all', label: 'All Jobs' },
+    { key: 'active', label: 'Active' },
+    { key: 'missing', label: 'Missing' },
     { key: 'discovered', label: 'Discovered' },
-    { key: 'unmonitored', label: 'Unmonitored' },
+    { key: 'done', label: 'Done' }
 ]
 
 function matchesTab(movie, tab) {
-    const s = movie.status
+    const s = (movie.status || '').toLowerCase()
     if (tab === 'all') return true
-    if (tab === 'available') return s === 'done'
-    if (tab === 'radarr') return s === 'pending' || s === 'checking_radarr'
-    if (tab === 'movie_missing') return s === 'movie_missing'
+    if (tab === 'active') return ['downloading', 'searching', 'pending', 'checking_radarr', 'importing'].includes(s)
+    if (tab === 'missing') return s === 'movie_missing' || s === 'not_found'
     if (tab === 'discovered') return s === 'discovered'
-    if (tab === 'unmonitored') return !movie.monitored
+    if (tab === 'done') return s === 'done'
     return true
 }
 
@@ -100,7 +98,7 @@ function MovieModal({ movie, onClose }) {
     )
 }
 
-function PosterCard({ movie, onTrigger, onDelete, onToggleMonitor, onSelect }) {
+function PosterCard({ movie, onTrigger, onDelete, onSelect }) {
     const status = (movie.status || '').toLowerCase()
     const colour = STATUS_COLOR[status] || 'var(--text-muted)'
     const label = STATUS_LABEL[status] || status.toUpperCase()
@@ -165,12 +163,12 @@ function PosterCard({ movie, onTrigger, onDelete, onToggleMonitor, onSelect }) {
 
             <div className="poster-actions" onClick={e => e.stopPropagation()}>
                 <button
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => onToggleMonitor(movie.id, movie.monitored)}
-                    title={movie.monitored ? 'Unmonitor' : 'Re-monitor'}
-                    style={{ flex: 1, display: status === 'discovered' ? 'none' : 'block' }}
+                    className="btn btn-danger btn-sm"
+                    onClick={() => onDelete(movie.id)}
+                    title="Delete Job"
+                    style={{ flex: 1 }}
                 >
-                    {movie.monitored ? 'Unmonitor' : 'Monitor'}
+                    Delete
                 </button>
                 <button
                     className="btn btn-primary btn-sm"
@@ -181,13 +179,6 @@ function PosterCard({ movie, onTrigger, onDelete, onToggleMonitor, onSelect }) {
                 >
                     {status === 'discovered' ? 'Download' : '▶'}
                 </button>
-                <button
-                    className="btn btn-danger btn-sm"
-                    onClick={() => onDelete(movie.id)}
-                    title="Delete"
-                >
-                    ✕
-                </button>
             </div>
         </div>
     )
@@ -197,8 +188,6 @@ export default function Movies() {
     const [movies, setMovies] = useState([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState(null)
-    const [isTriggering, setIsTriggering] = useState(false)
-    const [isSyncing, setIsSyncing] = useState(false)
     const [search, setSearch] = useState('')
     const [activeTab, setActiveTab] = useState('all')
     const [selectedMovie, setSelectedMovie] = useState(null)
@@ -222,37 +211,6 @@ export default function Movies() {
         const interval = setInterval(fetchMovies, 5000)
         return () => clearInterval(interval)
     }, [])
-
-    const toggleMonitor = async (id, currentStatus) => {
-        try {
-            await fetch(`/api/jobs/${id}/monitor`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ monitored: !currentStatus })
-            })
-            fetchMovies()
-        } catch (err) { console.error(err) }
-    }
-
-    const triggerMonitored = async () => {
-        setIsTriggering(true)
-        try {
-            await api.triggerMonitored()
-            fetchMovies()
-        } catch (err) { console.error(err) }
-        finally { setIsTriggering(false) }
-    }
-
-    const triggerMissing = async () => {
-        setIsTriggering(true)
-        try {
-            await api.triggerMissing()
-            fetchMovies()
-        } catch (err) { console.error(err) }
-        finally { setIsTriggering(false) }
-    }
-
-
 
     const deleteJob = async (id) => {
         if (!confirm('Delete this job?')) return
@@ -294,15 +252,15 @@ export default function Movies() {
             {/* Header */}
             <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
-                    <h1 className="page-title">Movies</h1>
-                    <p className="page-subtitle">{movies.length} tracked · {movies.filter(m => m.monitored).length} monitored</p>
+                    <h1 className="page-title">Jobs Library</h1>
+                    <p className="page-subtitle">{movies.length} tracked jobs</p>
                 </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                    <button className="btn btn-primary" onClick={triggerMissing} disabled={isTriggering || movies.length === 0}>
-                        {isTriggering ? 'Triggering...' : 'Trigger Missing'}
+                <div style={{ display: 'flex', gap: '10px' }}>
+                    <button className="btn btn-secondary" onClick={() => setShowBatchModal(true)}>
+                        Import List
                     </button>
-                    <button className="btn btn-primary" onClick={triggerMonitored} disabled={isTriggering || movies.length === 0}>
-                        {isTriggering ? 'Triggering...' : 'Trigger Monitored'}
+                    <button className="btn btn-primary" onClick={() => setShowTriggerModal(true)}>
+                        ＋ Trigger Download
                     </button>
                 </div>
             </div>
@@ -315,7 +273,6 @@ export default function Movies() {
 
             {/* Filter tabs + search */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 20 }}>
-                {/* Tab row */}
                 <div className="filter-tabs">
                     {TABS.map(tab => {
                         const count = tabCount(movies, tab.key)
@@ -333,10 +290,9 @@ export default function Movies() {
                         )
                     })}
                 </div>
-                {/* Search */}
                 <input
                     className="filter-search"
-                    placeholder="Search movies..."
+                    placeholder="Search jobs..."
                     value={search}
                     onChange={e => setSearch(e.target.value)}
                 />
@@ -346,17 +302,12 @@ export default function Movies() {
             {loading && movies.length === 0 ? (
                 <div className="empty-state">
                     <div className="spinner" style={{ width: 28, height: 28, margin: '0 auto 16px' }} />
-                    <div className="empty-state-text">Loading movies...</div>
+                    <div className="empty-state-text">Loading jobs...</div>
                 </div>
             ) : filtered.length === 0 ? (
                 <div className="empty-state">
                     <div className="empty-state-icon" style={{ fontSize: 40 }}>🎬</div>
-                    <div className="empty-state-text">No movies found</div>
-                    <div className="empty-state-sub">
-                        {activeTab !== 'all'
-                            ? 'No movies in this category.'
-                            : 'Approve a request in Jellyseerr to get started.'}
-                    </div>
+                    <div className="empty-state-text">No jobs found</div>
                 </div>
             ) : (
                 <div className="poster-grid">
@@ -366,8 +317,7 @@ export default function Movies() {
                             movie={movie}
                             onTrigger={triggerJob}
                             onDelete={deleteJob}
-                            onToggleMonitor={toggleMonitor}
-                            onSelect={setSelectedMovie}
+                            onSelect={() => setSelectedMovie(movie)}
                         />
                     ))}
                 </div>
