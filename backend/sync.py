@@ -102,11 +102,14 @@ async def active_job_tracker_loop():
                                     session.add(job)
                                 else:
                                     sizeleft = queue_item.get("sizeleft", 0)
-                                    size = queue_item.get("size", 1)
+                                    size = queue_item.get("size", 0)
                                     pct = int(max(0, 100 * (1 - sizeleft/size))) if size > 0 else 0
                                     
+                                    job.downloaded_bytes = max(0, size - sizeleft)
+                                    job.total_bytes = size
+                                    
                                     # If it's stalled, pct stays whatever it is, and it stays DOWNLOADING
-                                    if pct != job.progress_pct:
+                                    if pct != job.progress_pct or job.total_bytes != size:
                                         job.progress_pct = pct
                                         session.add(job)
                             else:
@@ -199,8 +202,10 @@ async def active_job_tracker_loop():
                                     j.source_indexer = "radarr"
                                     
                                     sizeleft = q.get("sizeleft", 0)
-                                    size = q.get("size", 1)
+                                    size = q.get("size", 0)
                                     j.progress_pct = int(max(0, 100 * (1 - sizeleft/size))) if size > 0 else 0
+                                    j.total_bytes = size
+                                    j.downloaded_bytes = max(0, size - sizeleft)
                                     
                                     from backend.db_logger import log_action
                                     log_action("System", f"Re-synced stalled Radarr native download into Active Jobs: '{j.title}'", tmdb_id=j.tmdb_id, job_id=j.id)

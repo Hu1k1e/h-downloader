@@ -74,7 +74,7 @@ function MovieModal({ movie, onClose }) {
                 )}
                 {movie.source_indexer && (
                     <div style={{marginBottom: 16}}>
-                        <strong>Source:</strong> {movie.source_indexer === '1tamilmv' ? '1TamilMV' : movie.source_indexer === 'einthusan' ? 'Einthusan' : movie.source_indexer}
+                        <strong>Source:</strong> {movie.source_indexer === '1tamilmv' ? '1TamilMV' : movie.source_indexer === 'einthusan' ? 'Einthusan' : movie.source_indexer === 'radarr' ? 'Radarr' : movie.source_indexer}
                     </div>
                 )}
                 {movie.file_path && (

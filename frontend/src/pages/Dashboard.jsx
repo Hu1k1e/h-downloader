@@ -91,9 +91,13 @@ export default function Dashboard() {
                                                 {job.language.charAt(0).toUpperCase() + job.language.slice(1)}
                                             </span>
                                         )}
-                                        {job.einthusan_url && (
+                                        {job.source_indexer ? (
+                                            <span style={{ color: 'var(--text-muted)' }}>
+                                                · via {job.source_indexer === 'radarr' ? 'Radarr' : job.source_indexer === 'einthusan' ? 'Einthusan' : job.source_indexer === '1tamilmv' ? '1TamilMV' : job.source_indexer}
+                                            </span>
+                                        ) : job.einthusan_url ? (
                                             <span style={{ color: 'var(--text-muted)' }}>· via Einthusan</span>
-                                        )}
+                                        ) : null}
                                     </div>
                                 </div>
                                 <div className="download-card-right">
