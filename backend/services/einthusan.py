@@ -112,8 +112,11 @@ async def search(title: str, year: Optional[int], lang: str) -> Optional[str]:
             fuzz.token_sort_ratio(title_lower, card_lower),
         )
 
-        # Exact match override
-        if title_lower == card_lower:
+        # Exact match override (including stripping all punctuation/spaces for edge cases like "NH10" vs "NH 10")
+        title_alphanum = re.sub(r'[^a-z0-9]', '', title_lower)
+        card_alphanum = re.sub(r'[^a-z0-9]', '', card_lower)
+
+        if title_lower == card_lower or (title_alphanum and title_alphanum == card_alphanum):
             score = 100
         else:
             # Penalize if there is a mismatch in standalone numbers (e.g., sequels like '2')
