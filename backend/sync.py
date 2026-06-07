@@ -173,10 +173,10 @@ async def active_job_tracker_loop():
                 try:
                     queue = await radarr.get_full_queue(settings)
                     if queue:
-                        # Grab all jobs not already downloading/done
+                        # Grab all jobs not already downloading/importing/searching
                         inactive_jobs = session.exec(
                             select(DownloadJob).where(
-                                DownloadJob.status.notin_([JobStatus.DOWNLOADING, JobStatus.DONE, JobStatus.IMPORTING])
+                                DownloadJob.status.notin_([JobStatus.DOWNLOADING, JobStatus.IMPORTING, JobStatus.SEARCHING])
                             )
                         ).all()
                         
