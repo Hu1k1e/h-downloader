@@ -223,6 +223,12 @@ async def _run_pipeline(
                             else:
                                 success_source = "1tamilmv"
                                 _update_job(session, job, status=JobStatus.DISCOVERED, error_msg=None, discovered_source="1tamilmv", discovered_url=thread_url, discovered_magnet=magnet)
+                                log_action(
+                                    action="discovery_success",
+                                    message=f"Discovered '{title}' on 1TamilMV. Awaiting manual download approval.",
+                                    tmdb_id=tmdb_id,
+                                    job_id=job.id
+                                )
                                 break
                 except Exception as e:
                     logger.error(f"1TamilMV search/add failed for {title}: {e}")
@@ -271,6 +277,12 @@ async def _run_pipeline(
                             else:
                                 success_source = "einthusan"
                                 _update_job(session, job, status=JobStatus.DISCOVERED, error_msg=None, discovered_source="einthusan", discovered_url=watch_url, direct_url=direct_url)
+                                log_action(
+                                    action="discovery_success",
+                                    message=f"Discovered '{title}' on Einthusan. Awaiting manual download approval.",
+                                    tmdb_id=tmdb_id,
+                                    job_id=job.id
+                                )
                                 break
                     except Exception as e:
                         logger.error(f"Einthusan download failed for {title}: {e}")

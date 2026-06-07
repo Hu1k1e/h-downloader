@@ -9,6 +9,9 @@ from datetime import datetime, timedelta
 
 from backend.database import get_session
 from backend.models import LogEntry, LogEntryRead, LogLevel
+from fastapi.responses import Response
+import csv
+import io
 
 router = APIRouter(prefix="/api/logs", tags=["logs"])
 
@@ -30,6 +33,43 @@ def list_logs(
     query = query.offset(offset).limit(limit)
     return session.exec(query).all()
 
+
+@router.get("/csv")
+def download_logs_csv(
+    level: Optional[LogLevel] = None,
+    search: Optional[str] = None,
+    session: Session = Depends(get_session)
+):
+    query = select(LogEntry).order_by(LogEntry.timestamp.desc())
+    
+    if level:
+        query = query.where(LogEntry.level == level)
+    if search:
+        query = query.where(LogEntry.message.contains(search) | LogEntry.action.contains(search))
+        
+    logs = session.exec(query).all()
+    
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Timestamp", "Level", "Action", "Message", "TMDB ID", "Job ID", "Error"])
+    
+    for log in logs:
+        writer.writerow([
+            log.timestamp.isoformat(),
+            log.level.value if log.level else "",
+            log.action,
+            log.message,
+            log.tmdb_id or "",
+            log.job_id or "",
+            log.error_detail or ""
+        ])
+        
+    csv_str = output.getvalue()
+    return Response(
+        content=csv_str,
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=h-downloader-logs-{datetime.utcnow().strftime('%Y%m%d%H%M')}.csv"}
+    )
 
 @router.delete("/all")
 def delete_all_logs(session: Session = Depends(get_session)):

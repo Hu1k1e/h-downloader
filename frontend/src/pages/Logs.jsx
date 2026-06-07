@@ -79,6 +79,7 @@ export default function Logs() {
                     <p className="page-subtitle">View background task logs and orchestrator actions</p>
                 </div>
                 <div style={{ display: 'flex', gap: '10px' }}>
+                    <a href="/api/logs/csv" className="btn btn-secondary btn-sm" download>Download CSV</a>
                     <button className="btn btn-secondary btn-sm" onClick={() => handleDeleteOlderThan(7)}>Delete &gt; 7 Days</button>
                     <button className="btn btn-danger btn-sm" onClick={handleDeleteAll}>Delete All</button>
                 </div>
