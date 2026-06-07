@@ -283,6 +283,9 @@ async def trigger_import_radarr(background_tasks: BackgroundTasks, session: Sess
                 if not existing_job.poster_path and poster_path:
                     existing_job.poster_path = poster_path
                     updated = True
+                if not existing_job.language or existing_job.language != lang_name:
+                    existing_job.language = lang_name
+                    updated = True
                 if existing_job.status == JobStatus.PENDING and not movie.get("hasFile"):
                     existing_job.status = JobStatus.MOVIE_MISSING
                     updated = True
@@ -306,6 +309,8 @@ async def trigger_import_radarr(background_tasks: BackgroundTasks, session: Sess
 
     if imported_count > 0 or deleted_count > 0:
         session.commit()
+        from backend.db_logger import log_action
+        log_action("Import", f"Manual Radarr import completed. Imported {imported_count}, Deleted {deleted_count}.")
         
     return {"status": "success", "imported": imported_count, "deleted": deleted_count}
 

@@ -131,7 +131,7 @@ async def radarr_webhook(
                     import logging
                     logging.getLogger(__name__).warning(f"Failed to fetch TMDB details for {tmdb_id}: {e}")
 
-            job = DownloadJob(tmdb_id=tmdb_id, title=title, status=JobStatus.MOVIE_MISSING)
+            job = DownloadJob(tmdb_id=tmdb_id, title=title, status=JobStatus.MOVIE_MISSING, language=mapped_lang)
             session.add(job)
             session.commit()
             session.refresh(job)
