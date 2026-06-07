@@ -135,7 +135,7 @@ export default function Dashboard() {
                         {recent.map(job => {
                             const dotClass =
                                 job.status === 'done' ? 'green' :
-                                    (job.status === 'failed' || job.status === 'movie_missing') ? 'red' :
+                                    (['failed', 'skipped', 'movie_missing'].includes(job.status)) ? 'red' :
                                         (job.status === 'searching' || job.status === 'downloading') ? 'amber' : ''
                             return (
                                 <div className="activity-item" key={job.id}>

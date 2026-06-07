@@ -40,7 +40,7 @@ def _update_job(session: Session, job: DownloadJob, **kwargs):
     session.refresh(job)
 
 
-async def process_request(tmdb_id: int, requested_language: Optional[str] = None, auto_download: bool = True) -> int:
+async def process_request(tmdb_id: int, requested_language: Optional[str] = None, auto_download: bool = True, indexer: Optional[str] = None) -> int:
     """
     Main entry point. Creates a DownloadJob and runs the full pipeline.
     Returns the job_id.
@@ -106,7 +106,7 @@ async def process_request(tmdb_id: int, requested_language: Optional[str] = None
 
     # Run the async pipeline in a background task
     asyncio.create_task(
-        _run_pipeline(job_id, tmdb_id, title, year, original_lang_code, requested_language, auto_download)
+        _run_pipeline(job_id, tmdb_id, title, year, original_lang_code, requested_language, auto_download, indexer)
     )
     return job_id
 
@@ -119,6 +119,7 @@ async def _run_pipeline(
     original_lang_code: str,
     requested_language: Optional[str],
     auto_download: bool = True,
+    indexer: Optional[str] = None,
 ):
     with Session(engine) as session:
         job = session.get(DownloadJob, job_id)
@@ -136,7 +137,7 @@ async def _run_pipeline(
             _update_job(session, job, status=JobStatus.FAILED, error_msg=f"Radarr check failed: {e}")
             return
 
-        if available:
+        if available and not indexer:
             logger.info(f"Radarr already has '{title}' — marking DONE, unmonitoring.")
             _update_job(session, job, status=JobStatus.DONE, monitored=False, progress_pct=100, error_msg=None)
             return
@@ -148,7 +149,7 @@ async def _run_pipeline(
             _update_job(session, job, status=JobStatus.FAILED, error_msg=f"TMDB date check failed: {e}")
             return
 
-        if not passed and release_date is not None:
+        if not passed and release_date is not None and not indexer:
             msg = f"Digital release date not yet passed (estimated: {release_date})"
             _update_job(session, job, status=JobStatus.SKIPPED, error_msg=msg)
             return
@@ -197,6 +198,9 @@ async def _run_pipeline(
         sources = [s.strip() for s in settings.download_sources_priority.split(",") if s.strip()]
         if not sources:
             sources = ["einthusan", "1tamilmv"]
+            
+        if indexer:
+            sources = [indexer]
 
         success_source = None
 

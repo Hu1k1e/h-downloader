@@ -217,6 +217,7 @@ class TriggerRequest(BaseModel):
     tmdb_id: Optional[int] = None
     title: Optional[str] = None
     language: Optional[str] = None
+    indexer: Optional[str] = None
 
 
 @router.post("/jobs/trigger")
@@ -250,7 +251,7 @@ async def trigger_download(req: TriggerRequest, background_tasks: BackgroundTask
             raise HTTPException(status_code=404, detail=f"No TMDB results for '{req.title}'")
         tmdb_id = results[0]["id"]
 
-    background_tasks.add_task(process_request, tmdb_id, req.language)
+    background_tasks.add_task(process_request, tmdb_id, req.language, auto_download=True, indexer=req.indexer)
     return {"status": "accepted", "tmdb_id": tmdb_id}
 
 @router.post("/jobs/trigger-monitored")

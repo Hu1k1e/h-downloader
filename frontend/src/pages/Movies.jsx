@@ -102,6 +102,15 @@ function MovieModal({ movie, onClose }) {
                 <div style={{marginBottom: 16}}>
                     <strong>Last Updated:</strong> {new Date(movie.updated_at).toLocaleString()}
                 </div>
+                
+                <div style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid var(--border-color)', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <button className="btn btn-secondary btn-sm" onClick={() => onTrigger(movie, 'einthusan')}>
+                        Force Search Einthusan
+                    </button>
+                    <button className="btn btn-secondary btn-sm" onClick={() => onTrigger(movie, '1tamilmv')}>
+                        Force Search 1TamilMV
+                    </button>
+                </div>
             </div>
         </div>
     )
@@ -245,8 +254,8 @@ export default function Movies() {
         } catch (err) { console.error(err) }
     }
 
-    const triggerJob = async (movie) => {
-        if ((movie.status || '').toLowerCase() === 'discovered') {
+    const triggerJob = async (movie, indexer = null) => {
+        if ((movie.status || '').toLowerCase() === 'discovered' && !indexer) {
             try {
                 await fetch(`/api/jobs/${movie.id}/download`, { method: 'POST' })
                 fetchMovies()
@@ -258,10 +267,14 @@ export default function Movies() {
             await fetch('/api/jobs/trigger', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ tmdb_id: movie.tmdb_id, language: movie.language })
+                body: JSON.stringify({ tmdb_id: movie.tmdb_id, language: movie.language, indexer })
             })
             fetchMovies()
         } catch (err) { console.error(err) }
+        
+        if (indexer) {
+            setSelectedMovie(null) // close modal after manual trigger
+        }
     }
 
     const filtered = movies.filter(m => {
