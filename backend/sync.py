@@ -301,7 +301,7 @@ async def active_job_tracker_loop():
 
 async def discovery_tracker_loop():
     """
-    Periodically retries searching for MOVIE_MISSING jobs and puts them in DISCOVERED.
+    Periodically retries searching for MOVIE_MISSING and SKIPPED jobs.
     """
     logger.info("Starting discovery tracker loop...")
     while True:
@@ -315,7 +315,7 @@ async def discovery_tracker_loop():
                 with Session(engine) as session:
                     jobs = session.exec(
                         select(DownloadJob)
-                        .where(DownloadJob.status == JobStatus.MOVIE_MISSING)
+                        .where(DownloadJob.status.in_([JobStatus.MOVIE_MISSING, JobStatus.SKIPPED]))
                         .limit(batch_size)
                     ).all()
                     
@@ -323,7 +323,7 @@ async def discovery_tracker_loop():
                         from backend.db_logger import log_action
                         log_action("Discovery", f"Triggering discovery search for {len(jobs)} movies")
                         for job in jobs:
-                            if job.status == JobStatus.MOVIE_MISSING:
+                            if job.status in [JobStatus.MOVIE_MISSING, JobStatus.SKIPPED]:
                                 # Auto_download=False means it goes to DISCOVERED state if found
                                 asyncio.create_task(process_request(job.tmdb_id, job.language, auto_download=False))
 

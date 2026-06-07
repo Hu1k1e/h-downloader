@@ -122,17 +122,20 @@ async def get_digital_release_date(tmdb_id: int, settings: AppSettings) -> Optio
         return digital_date
     if physical_date:
         return physical_date
-    if theatrical_date:
-        return theatrical_date + timedelta(days=settings.digital_release_fallback_days)
     return None
 
 
-async def has_digital_release_passed(tmdb_id: int, settings: AppSettings) -> Tuple[bool, Optional[date]]:
-    """Return (True, release_date) if the estimated digital date has passed."""
+async def has_digital_release_passed(tmdb_id: int, settings: AppSettings) -> Tuple[bool, Optional[str]]:
+    """Return (passed, status_message) based strictly on TMDB digital/physical dates."""
     release_date = await get_digital_release_date(tmdb_id, settings)
     if release_date is None:
-        return False, None
-    return date.today() >= release_date, release_date
+        return False, "Waiting for official digital release date on TMDB"
+    
+    passed = date.today() >= release_date
+    if passed:
+        return True, f"Released on {release_date}"
+    else:
+        return False, f"Digital release not yet passed (official: {release_date})"
 
 
 async def test_connection(settings: AppSettings) -> Dict[str, Any]:

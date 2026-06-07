@@ -145,14 +145,13 @@ async def _run_pipeline(
 
         # ── Step 2: Check digital release date ──────────────────────────────
         try:
-            passed, release_date = await tmdb.has_digital_release_passed(tmdb_id, settings)
+            passed, release_msg = await tmdb.has_digital_release_passed(tmdb_id, settings)
         except Exception as e:
             _update_job(session, job, status=JobStatus.FAILED, error_msg=f"TMDB date check failed: {e}")
             return
 
-        if not passed and release_date is not None and not indexer:
-            msg = f"Digital release date not yet passed (estimated: {release_date})"
-            _update_job(session, job, status=JobStatus.SKIPPED, error_msg=msg)
+        if not passed and not indexer:
+            _update_job(session, job, status=JobStatus.SKIPPED, error_msg=release_msg)
             return
 
         # ── Step 3: Determine which languages to search ──────────────────────
