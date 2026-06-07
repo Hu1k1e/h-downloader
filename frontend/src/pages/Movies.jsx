@@ -188,6 +188,7 @@ export default function Movies() {
     const [movies, setMovies] = useState([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState(null)
+    const [isTriggering, setIsTriggering] = useState(false)
     const [search, setSearch] = useState('')
     const [activeTab, setActiveTab] = useState('all')
     const [selectedMovie, setSelectedMovie] = useState(null)
@@ -211,6 +212,15 @@ export default function Movies() {
         const interval = setInterval(fetchMovies, 5000)
         return () => clearInterval(interval)
     }, [])
+
+    const triggerMonitored = async () => {
+        setIsTriggering(true)
+        try {
+            await api.triggerMonitored()
+            fetchMovies()
+        } catch (err) { console.error(err) }
+        finally { setIsTriggering(false) }
+    }
 
     const deleteJob = async (id) => {
         if (!confirm('Delete this job?')) return
@@ -258,6 +268,9 @@ export default function Movies() {
                 <div style={{ display: 'flex', gap: '10px' }}>
                     <button className="btn btn-secondary" onClick={() => setShowBatchModal(true)}>
                         Import List
+                    </button>
+                    <button className="btn btn-primary" onClick={triggerMonitored} disabled={isTriggering || movies.length === 0}>
+                        {isTriggering ? 'Triggering...' : 'Trigger Monitored'}
                     </button>
                     <button className="btn btn-primary" onClick={() => setShowTriggerModal(true)}>
                         ＋ Trigger Download
