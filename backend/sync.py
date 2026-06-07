@@ -324,8 +324,8 @@ async def discovery_tracker_loop():
                         log_action("Discovery", f"Triggering discovery search for {len(jobs)} movies")
                         for job in jobs:
                             if job.status in [JobStatus.MOVIE_MISSING, JobStatus.SKIPPED]:
-                                # Auto_download=False means it goes to DISCOVERED state if found
-                                asyncio.create_task(process_request(job.tmdb_id, job.language, auto_download=False))
+                                # Fully automate the discovery background loop
+                                asyncio.create_task(process_request(job.tmdb_id, job.language, auto_download=True))
 
             sleep_time = (interval * 3600) if interval > 0 else 86400
             await asyncio.sleep(sleep_time)
