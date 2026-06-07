@@ -14,6 +14,7 @@ from backend.services import radarr as radarr_svc
 from backend.services import tmdb as tmdb_svc
 from backend import config
 from backend.services import qbittorrent
+from backend.sync import delayed_search
 
 router = APIRouter(prefix="/api", tags=["jobs"])
 
@@ -244,6 +245,7 @@ async def trigger_import_radarr(background_tasks: BackgroundTasks, session: Sess
 
     imported_count = 0
     deleted_count = 0
+    to_trigger = []
     
     # First, remove non-relevant imports that are already in the DB
     existing_jobs = session.exec(select(DownloadJob)).all()
@@ -292,6 +294,8 @@ async def trigger_import_radarr(background_tasks: BackgroundTasks, session: Sess
                 if updated:
                     session.add(existing_job)
                     imported_count += 1
+                    if existing_job.status == JobStatus.MOVIE_MISSING:
+                        to_trigger.append(tmdb_id)
                 continue
 
             new_job = DownloadJob(
@@ -306,11 +310,16 @@ async def trigger_import_radarr(background_tasks: BackgroundTasks, session: Sess
 
             session.add(new_job)
             imported_count += 1
+            if new_job.status == JobStatus.MOVIE_MISSING:
+                to_trigger.append(tmdb_id)
 
     if imported_count > 0 or deleted_count > 0:
         session.commit()
         from backend.db_logger import log_action
         log_action("Import", f"Manual Radarr import completed. Imported {imported_count}, Deleted {deleted_count}.")
+        
+    for tid in to_trigger:
+        background_tasks.add_task(delayed_search, tid, None, 0)
         
     return {"status": "success", "imported": imported_count, "deleted": deleted_count}
 

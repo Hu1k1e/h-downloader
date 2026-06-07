@@ -9,11 +9,11 @@ from backend.orchestrator import process_request
 
 logger = logging.getLogger(__name__)
 
-async def delayed_search(tmdb_id: int, language: Optional[str] = None):
+async def delayed_search(tmdb_id: int, language: Optional[str] = None, override_delay: Optional[int] = None):
     """Wait for configured delay, check if Radarr is actively downloading, if not, trigger process_request."""
     with Session(engine) as session:
         settings = get_settings(session)
-        delay = settings.search_delay_seconds
+        delay = settings.search_delay_seconds if override_delay is None else override_delay
         
     if delay > 0:
         logger.info(f"delayed_search: waiting {delay} seconds before checking Radarr for tmdb_id={tmdb_id}")
