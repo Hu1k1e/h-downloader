@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { StatusBadge, ProgressBar, formatBytes, timeAgo } from '../components/ui'
 import TriggerModal from '../components/TriggerModal'
@@ -8,6 +9,7 @@ export default function Dashboard() {
     const [jobs, setJobs] = useState([])
     const [activeJobs, setActiveJobs] = useState([])
     const [showModal, setShowModal] = useState(false)
+    const navigate = useNavigate()
 
     const load = useCallback(async () => {
         try {
@@ -44,11 +46,11 @@ export default function Dashboard() {
 
             {/* Stats */}
             <div className="stats-grid">
-                <div className="stat-card">
+                <div className="stat-card stat-card-clickable" onClick={() => navigate('/movies?tab=all')}>
                     <div className="stat-label">Total Jobs</div>
                     <div className="stat-value">{stats?.total ?? '—'}</div>
                 </div>
-                <div className="stat-card">
+                <div className="stat-card stat-card-clickable" onClick={() => navigate('/movies?tab=active')}>
                     <div className="stat-label">Active Downloads</div>
                     <div className="stat-value" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <span style={stats?.active > 0 ? { color: 'var(--accent)' } : {}}>
@@ -57,13 +59,13 @@ export default function Dashboard() {
                         {stats?.active > 0 && <span className="stat-dot" />}
                     </div>
                 </div>
-                <div className="stat-card">
+                <div className="stat-card stat-card-clickable" onClick={() => navigate('/movies?tab=done')}>
                     <div className="stat-label">Completed</div>
                     <div className={`stat-value${stats?.completed > 0 ? ' green' : ''}`}>
                         {stats?.completed ?? '—'}
                     </div>
                 </div>
-                <div className="stat-card">
+                <div className="stat-card stat-card-clickable" onClick={() => navigate('/movies?tab=failed')}>
                     <div className="stat-label">Failed</div>
                     <div className={`stat-value${stats?.failed > 0 ? ' red' : ''}`}>
                         {stats?.failed ?? '—'}

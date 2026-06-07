@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 
 const STATUS_COLOR = {
@@ -35,7 +36,8 @@ const TABS = [
     { key: 'active', label: 'Active' },
     { key: 'missing', label: 'Missing' },
     { key: 'discovered', label: 'Discovered' },
-    { key: 'done', label: 'Done' }
+    { key: 'done', label: 'Done' },
+    { key: 'failed', label: 'Failed' }
 ]
 
 function matchesTab(movie, tab) {
@@ -45,6 +47,7 @@ function matchesTab(movie, tab) {
     if (tab === 'missing') return s === 'movie_missing' || s === 'not_found'
     if (tab === 'discovered') return s === 'discovered'
     if (tab === 'done') return s === 'done'
+    if (tab === 'failed') return s === 'failed'
     return true
 }
 
@@ -190,7 +193,13 @@ export default function Movies() {
     const [error, setError] = useState(null)
     const [isTriggering, setIsTriggering] = useState(false)
     const [search, setSearch] = useState('')
-    const [activeTab, setActiveTab] = useState('all')
+    const [searchParams, setSearchParams] = useSearchParams()
+    const activeTab = searchParams.get('tab') || 'all'
+    const setActiveTab = (tab) => {
+        const p = new URLSearchParams(searchParams)
+        p.set('tab', tab)
+        setSearchParams(p)
+    }
     const [selectedMovie, setSelectedMovie] = useState(null)
 
     const fetchMovies = async () => {
