@@ -40,7 +40,7 @@ def _update_job(session: Session, job: DownloadJob, **kwargs):
     session.refresh(job)
 
 
-async def process_request(tmdb_id: int, requested_language: Optional[str] = None, auto_download: bool = True, indexer: Optional[str] = None) -> int:
+async def process_request(tmdb_id: int, requested_language: Optional[str] = None, auto_download: bool = True, indexer: Optional[str] = None, fallback_from: Optional[str] = None) -> int:
     """
     Main entry point. Creates a DownloadJob and runs the full pipeline.
     Returns the job_id.
@@ -106,7 +106,7 @@ async def process_request(tmdb_id: int, requested_language: Optional[str] = None
 
     # Run the async pipeline in a background task
     asyncio.create_task(
-        _run_pipeline(job_id, tmdb_id, title, year, original_lang_code, requested_language, auto_download, indexer)
+        _run_pipeline(job_id, tmdb_id, title, year, original_lang_code, requested_language, auto_download, indexer, fallback_from)
     )
     return job_id
 
@@ -120,6 +120,7 @@ async def _run_pipeline(
     requested_language: Optional[str],
     auto_download: bool = True,
     indexer: Optional[str] = None,
+    fallback_from: Optional[str] = None,
 ):
     with Session(engine) as session:
         job = session.get(DownloadJob, job_id)
@@ -201,6 +202,17 @@ async def _run_pipeline(
             
         if indexer:
             sources = [indexer]
+        elif fallback_from:
+            try:
+                idx = sources.index(fallback_from)
+                sources = sources[idx+1:]
+            except ValueError:
+                pass
+                
+        if not sources:
+            logger.info(f"No more fallback sources left for '{title}'. Marking as NOT FOUND.")
+            _update_job(session, job, status=JobStatus.NOT_FOUND, error_msg="Exhausted all download sources.")
+            return
 
         success_source = None
 

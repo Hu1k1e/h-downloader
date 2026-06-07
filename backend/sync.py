@@ -151,11 +151,43 @@ async def active_job_tracker_loop():
                     elif job.status == JobStatus.DOWNLOADING and job.torrent_hash:
                         t_info = await asyncio.to_thread(qbittorrent.get_torrent_info, job.torrent_hash, settings)
                         if not t_info:
-                            logger.warning(f"Torrent {job.torrent_hash} missing from qBittorrent. Marking as failed.")
+                            logger.warning(f"Torrent {job.torrent_hash} missing from qBittorrent. Checking for native alternatives...")
+                            
+                            try:
+                                queue = await radarr.get_full_queue(settings)
+                                all_radarr_movies = await radarr.get_all_movies(settings)
+                                movie_id_to_tmdb = {m.get("id"): m.get("tmdbId") for m in all_radarr_movies if m.get("id")}
+                                
+                                has_native = False
+                                for q in (queue or []):
+                                    rad_tmdb_id = movie_id_to_tmdb.get(q.get("movieId"))
+                                    if rad_tmdb_id == job.tmdb_id:
+                                        has_native = True
+                                        break
+                                        
+                                if has_native:
+                                    logger.info(f"Found native Radarr alternative for '{job.title}'. Native sync will catch it.")
+                                    job.status = JobStatus.PENDING
+                                    job.source_indexer = None
+                                    job.torrent_hash = None
+                                    job.progress_pct = 0
+                                    session.add(job)
+                                    session.commit()
+                                    continue
+                            except Exception as e:
+                                logger.error(f"Failed to check Radarr queue for alternatives: {e}")
+                                
+                            logger.info(f"No native alternative. Falling back from '{job.source_indexer}' for '{job.title}'.")
+                            fallback_source = job.source_indexer
                             job.status = JobStatus.FAILED
-                            job.error_msg = "Torrent removed from qBittorrent unexpectedly"
+                            job.error_msg = f"Torrent removed unexpectedly. Falling back from {fallback_source}"
+                            job.torrent_hash = None
                             job.progress_pct = 0
                             session.add(job)
+                            session.commit()
+                            
+                            from backend.orchestrator import process_request
+                            asyncio.create_task(process_request(job.tmdb_id, job.language, auto_download=True, fallback_from=fallback_source))
                             continue
                         
                         state = t_info.get("state", "").lower()
