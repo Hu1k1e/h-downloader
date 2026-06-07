@@ -116,6 +116,8 @@ class AppSettings(SQLModel, table=True):
     
     digital_release_fallback_days: int = Field(default=90)
     search_delay_seconds: int = Field(default=120)
+    missing_search_interval_hours: int = Field(default=24)
+    missing_search_batch_size: int = Field(default=50)
     
     download_sources_priority: str = Field(default="einthusan,1tamilmv")
     
@@ -142,6 +144,8 @@ class AppSettingsRead(SQLModel):
     einthusan_languages: List[str]
     digital_release_fallback_days: int
     search_delay_seconds: int
+    missing_search_interval_hours: int
+    missing_search_batch_size: int
     app_version: str
     webhook_url_hint: str
     download_sources_priority: List[str]
@@ -172,6 +176,8 @@ class AppSettingsUpdate(SQLModel):
     einthusan_languages: Optional[List[str]] = None
     digital_release_fallback_days: Optional[int] = None
     search_delay_seconds: Optional[int] = None
+    missing_search_interval_hours: Optional[int] = None
+    missing_search_batch_size: Optional[int] = None
     download_sources_priority: Optional[List[str]] = None
     
     qbittorrent_url: Optional[str] = None

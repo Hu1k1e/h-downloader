@@ -26,6 +26,8 @@ def get_current_settings(session: Session = Depends(get_session)):
         einthusan_languages=[lang.strip().lower() for lang in settings.einthusan_languages_str.split(",") if lang.strip().lower() in config.LANGUAGE_SLUG_MAP],
         digital_release_fallback_days=settings.digital_release_fallback_days,
         search_delay_seconds=settings.search_delay_seconds,
+        missing_search_interval_hours=settings.missing_search_interval_hours,
+        missing_search_batch_size=settings.missing_search_batch_size,
         app_version=config.APP_VERSION,
         webhook_url_hint="/webhook/jellyseerr",
         download_sources_priority=[s.strip() for s in settings.download_sources_priority.split(",") if s.strip()],
@@ -73,6 +75,11 @@ def update_settings(update_data: AppSettingsUpdate, session: Session = Depends(g
     if update_data.digital_release_fallback_days is not None:
         settings.digital_release_fallback_days = update_data.digital_release_fallback_days
         
+    if update_data.missing_search_interval_hours is not None:
+        settings.missing_search_interval_hours = max(1, update_data.missing_search_interval_hours)
+        
+    if update_data.missing_search_batch_size is not None:
+        settings.missing_search_batch_size = max(1, update_data.missing_search_batch_size)
 
     if update_data.download_sources_priority is not None:
         settings.download_sources_priority = ",".join(update_data.download_sources_priority)

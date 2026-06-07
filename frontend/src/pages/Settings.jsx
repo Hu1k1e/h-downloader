@@ -462,6 +462,40 @@ export default function Settings() {
                         Automatically search Radarr missing movies
                     </label>
                 </div>
+                {formData.enable_radarr_auto_search && (
+                    <>
+                        <div className="form-row">
+                            <span className="form-label">Missing Search Interval</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <input
+                                    className="form-input"
+                                    type="number"
+                                    name="missing_search_interval_hours"
+                                    value={formData.missing_search_interval_hours}
+                                    onChange={handleChange}
+                                    min={1}
+                                    style={{ maxWidth: 80 }}
+                                />
+                                <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>hours</span>
+                            </div>
+                        </div>
+                        <div className="form-row">
+                            <span className="form-label">Missing Search Batch Size</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <input
+                                    className="form-input"
+                                    type="number"
+                                    name="missing_search_batch_size"
+                                    value={formData.missing_search_batch_size}
+                                    onChange={handleChange}
+                                    min={1}
+                                    style={{ maxWidth: 80 }}
+                                />
+                                <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>movies</span>
+                            </div>
+                        </div>
+                    </>
+                )}
             </div>
 
             {/* Einthusan Languages */}

@@ -16,6 +16,7 @@ from backend.models import AppSettings, DownloadJob, JobStatus
 from backend.orchestrator import process_request
 from backend.sync import delayed_search
 from backend.db_logger import log_action
+from backend.services.tmdb import get_movie_details
 
 router = APIRouter(prefix="/webhook", tags=["webhook"])
 
@@ -117,14 +118,25 @@ async def radarr_webhook(
 
     if event_type == "MovieAdded":
         if not job:
+            if settings.tmdb_api_key:
+                try:
+                    details = await get_movie_details(tmdb_id, settings)
+                    lang = details.get("original_language", "").lower()
+                    allowed_langs = [l.strip().lower() for l in settings.einthusan_languages_str.split(",") if l.strip()]
+                    if lang not in allowed_langs:
+                        log_action("Webhook", f"Skipped movie '{title}' (Language '{lang}' not in configured languages)", tmdb_id=tmdb_id)
+                        return {"status": "skipped", "reason": "language_not_allowed", "language": lang}
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning(f"Failed to fetch TMDB details for {tmdb_id}: {e}")
+
             job = DownloadJob(tmdb_id=tmdb_id, title=title, status=JobStatus.MOVIE_MISSING)
             session.add(job)
             session.commit()
             session.refresh(job)
         
-        # If auto search is enabled, start the delay timer to search for it
         log_action("Webhook", f"Movie '{title}' added to Radarr", tmdb_id=tmdb_id, job_id=job.id if job else None)
-        if settings.enable_radarr_auto_search and job.status == JobStatus.MOVIE_MISSING:
+        if job.status == JobStatus.MOVIE_MISSING:
             background_tasks.add_task(delayed_search, tmdb_id, None)
             
     elif event_type == "MovieDeleted":
