@@ -19,6 +19,9 @@ export default function Settings() {
     const [importing, setImporting] = useState(false)
     const [importMsg, setImportMsg] = useState('')
 
+    const [triggeringDiscovery, setTriggeringDiscovery] = useState(false)
+    const [discoveryMsg, setDiscoveryMsg] = useState('')
+
     const [qbtTesting, setQbtTesting] = useState(false)
     const [qbtStatus, setQbtStatus] = useState(null)
     const [qbtMsg, setQbtMsg] = useState('')
@@ -142,6 +145,20 @@ export default function Settings() {
             setImportMsg(`Import failed: ${e.message}`)
         } finally {
             setImporting(false)
+        }
+    }
+
+    async function triggerDiscoveryBatch() {
+        setTriggeringDiscovery(true)
+        setDiscoveryMsg('')
+        try {
+            const res = await api.triggerDiscovery()
+            setDiscoveryMsg(`Successfully triggered discovery for ${res.triggered} movies!`)
+            setTimeout(() => setDiscoveryMsg(''), 5000)
+        } catch (e) {
+            setDiscoveryMsg(`Failed to trigger: ${e.message}`)
+        } finally {
+            setTriggeringDiscovery(false)
         }
     }
 
@@ -483,6 +500,15 @@ export default function Settings() {
                             style={{ maxWidth: 80 }}
                         />
                         <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>movies to check per interval</span>
+                    </div>
+                </div>
+                <div className="form-row">
+                    <span className="form-label">Manual Trigger</span>
+                    <div className="connection-test-row">
+                        <button className="btn btn-secondary btn-sm" onClick={triggerDiscoveryBatch} disabled={triggeringDiscovery}>
+                            {triggeringDiscovery ? <><span className="spinner" /> Triggering…</> : 'Run Discovery Now'}
+                        </button>
+                        {discoveryMsg && <span className={discoveryMsg.includes('Failed') ? 'test-result err' : 'test-result ok'}>{discoveryMsg}</span>}
                     </div>
                 </div>
             </div>

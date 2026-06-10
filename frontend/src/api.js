@@ -46,6 +46,7 @@ export const api = {
     triggerDownload: (data) => request('/api/jobs/trigger', { method: 'POST', body: data }),
     triggerMonitored: () => request('/api/jobs/trigger-monitored', { method: 'POST' }),
     triggerMissing: () => request('/api/jobs/trigger-missing', { method: 'POST' }),
+    triggerDiscovery: () => request('/api/jobs/discovery', { method: 'POST' }),
     getSettings: () => request('/api/settings'),
     updateSettings: (data) => request('/api/settings', { method: 'POST', body: data }),
     testRadarr: () => request('/api/test/radarr'),

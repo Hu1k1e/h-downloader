@@ -299,6 +299,33 @@ async def active_job_tracker_loop():
             
         await asyncio.sleep(5)
 
+async def run_discovery_batch(batch_size: int) -> int:
+    """Runs a single batch of discovery searches and returns the number of movies triggered."""
+    from backend.orchestrator import process_request
+    from backend.db_logger import log_action
+    
+    with Session(engine) as session:
+        jobs = session.exec(
+            select(DownloadJob)
+            .where(DownloadJob.status.in_([JobStatus.MOVIE_MISSING, JobStatus.SKIPPED]))
+            .order_by(DownloadJob.updated_at.asc())
+            .limit(batch_size)
+        ).all()
+        
+        if jobs:
+            log_action("Discovery", f"Triggering discovery search for {len(jobs)} movies")
+            for job in jobs:
+                # Update the updated_at timestamp immediately so it goes to the back of the queue
+                job.updated_at = datetime.utcnow()
+                session.add(job)
+                
+                # Fully automate the discovery background loop
+                asyncio.create_task(process_request(job.tmdb_id, job.language, auto_download=True))
+                
+            session.commit()
+            
+        return len(jobs)
+
 async def discovery_tracker_loop():
     """
     Periodically retries searching for MOVIE_MISSING and SKIPPED jobs.
@@ -312,20 +339,7 @@ async def discovery_tracker_loop():
                 batch_size = settings.missing_search_batch_size
 
             if interval > 0:
-                with Session(engine) as session:
-                    jobs = session.exec(
-                        select(DownloadJob)
-                        .where(DownloadJob.status.in_([JobStatus.MOVIE_MISSING, JobStatus.SKIPPED]))
-                        .limit(batch_size)
-                    ).all()
-                    
-                    if jobs:
-                        from backend.db_logger import log_action
-                        log_action("Discovery", f"Triggering discovery search for {len(jobs)} movies")
-                        for job in jobs:
-                            if job.status in [JobStatus.MOVIE_MISSING, JobStatus.SKIPPED]:
-                                # Fully automate the discovery background loop
-                                asyncio.create_task(process_request(job.tmdb_id, job.language, auto_download=True))
+                await run_discovery_batch(batch_size)
 
             sleep_time = (interval * 3600) if interval > 0 else 86400
             await asyncio.sleep(sleep_time)

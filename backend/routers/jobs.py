@@ -394,6 +394,15 @@ async def trigger_import_radarr(background_tasks: BackgroundTasks, session: Sess
     return {"status": "success", "imported": imported_count, "deleted": deleted_count}
 
 
+@router.post("/jobs/discovery")
+async def trigger_discovery(session: Session = Depends(get_session)):
+    """Manually trigger a background discovery batch."""
+    settings = get_settings(session)
+    from backend.sync import run_discovery_batch
+    triggered = await run_discovery_batch(settings.missing_search_batch_size)
+    return {"status": "success", "triggered": triggered}
+
+
 # ── Connection tests ─────────────────────────────────────────────────────────
 
 @router.get("/test/radarr")
