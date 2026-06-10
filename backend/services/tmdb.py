@@ -77,13 +77,10 @@ async def get_movie_details(tmdb_id: int, settings: AppSettings) -> Dict[str, An
     }
 
 
-async def get_digital_release_date(tmdb_id: int, settings: AppSettings) -> Optional[date]:
+async def get_digital_release_date(tmdb_id: int, settings: AppSettings) -> Tuple[Optional[date], Optional[date], Optional[date]]:
     """
-    Return the best estimated digital release date:
-    1. Explicit digital (type=4) release date from any region
-    2. Physical (type=5) release date as proxy
-    3. Theatrical (type=3) + DIGITAL_RELEASE_FALLBACK_DAYS
-    4. None if no theatrical date either
+    Return all release dates found for the movie.
+    Returns: (digital_date, physical_date, theatrical_date)
     """
     async with httpx.AsyncClient(timeout=15) as client:
         resp = await _fetch_with_retry(
@@ -118,24 +115,33 @@ async def get_digital_release_date(tmdb_id: int, settings: AppSettings) -> Optio
                 if theatrical_date is None or d < theatrical_date:
                     theatrical_date = d
 
-    if digital_date:
-        return digital_date
-    if physical_date:
-        return physical_date
-    return None
+    return digital_date, physical_date, theatrical_date
 
 
 async def has_digital_release_passed(tmdb_id: int, settings: AppSettings) -> Tuple[bool, Optional[str]]:
-    """Return (passed, status_message) based strictly on TMDB digital/physical dates."""
-    release_date = await get_digital_release_date(tmdb_id, settings)
-    if release_date is None:
-        return False, "Waiting for official digital release date on TMDB"
+    """Return (passed, status_message) based strictly on TMDB digital/physical dates, with a fallback for old movies."""
+    digital_date, physical_date, theatrical_date = await get_digital_release_date(tmdb_id, settings)
     
-    passed = date.today() >= release_date
-    if passed:
-        return True, f"Released on {release_date}"
-    else:
-        return False, f"Digital release not yet passed (official: {release_date})"
+    if digital_date:
+        if date.today() >= digital_date:
+            return True, f"Released digitally on {digital_date}"
+        else:
+            return False, f"Digital release not yet passed (official: {digital_date})"
+            
+    if physical_date:
+        if date.today() >= physical_date:
+            return True, f"Released physically on {physical_date}"
+        else:
+            return False, f"Physical release not yet passed (official: {physical_date})"
+            
+    if theatrical_date:
+        days_since_theatrical = (date.today() - theatrical_date).days
+        # If it's been more than the fallback days (default 90) since theatrical release,
+        # we can safely assume it's been digitally released even if TMDB lacks the date.
+        if days_since_theatrical >= settings.digital_release_fallback_days:
+            return True, f"Released (Theatrical fallback: {theatrical_date})"
+            
+    return False, "Waiting for official digital release date on TMDB"
 
 
 async def test_connection(settings: AppSettings) -> Dict[str, Any]:
