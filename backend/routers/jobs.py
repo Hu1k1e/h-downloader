@@ -301,6 +301,97 @@ async def retry_job(job_id: int, background_tasks: BackgroundTasks, session: Ses
     return {"status": "retrying", "tmdb_id": job.tmdb_id}
 
 
+@router.post("/jobs/{job_id}/sync")
+async def sync_single_job(job_id: int, session: Session = Depends(get_session)):
+    """Manually reconcile a single job's state with Radarr."""
+    job = session.get(DownloadJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+        
+    settings = get_settings(session)
+    try:
+        radarr_movie = await radarr_svc.is_movie_in_radarr(job.tmdb_id, settings)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to reach Radarr: {e}")
+        
+    if not radarr_movie:
+        job.status = JobStatus.NOT_IN_RADARR
+        job.monitored = False
+        log_action("Manual", f"Sync: '{job.title}' marked as NOT_IN_RADARR", tmdb_id=job.tmdb_id, job_id=job.id)
+    else:
+        job.monitored = radarr_movie.get("monitored", False)
+        if radarr_movie.get("hasFile"):
+            job.status = JobStatus.DONE
+            job.progress_pct = 100
+            job.file_path = radarr_movie.get("movieFile", {}).get("path")
+        elif job.status in (JobStatus.DONE, JobStatus.NOT_IN_RADARR, JobStatus.NOT_FOUND):
+            # It's back in Radarr or file is missing
+            job.status = JobStatus.MOVIE_MISSING
+            job.progress_pct = 0
+            job.file_path = None
+        log_action("Manual", f"Sync: '{job.title}' state updated from Radarr", tmdb_id=job.tmdb_id, job_id=job.id)
+        
+    session.add(job)
+    session.commit()
+    return {"status": "synced", "job_id": job.id, "state": job.status}
+
+@router.post("/jobs/sync-all")
+async def sync_all_jobs(background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
+    """Manually trigger a full Radarr state reconciliation for all jobs."""
+    settings = get_settings(session)
+    try:
+        all_radarr_movies = await radarr_svc.get_all_movies(settings)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to fetch movies from Radarr: {e}")
+        
+    radarr_map = {m["tmdbId"]: m for m in all_radarr_movies if "tmdbId" in m}
+    all_jobs = session.exec(select(DownloadJob)).all()
+    
+    updated_count = 0
+    deleted_count = 0
+    
+    for job in all_jobs:
+        if job.status in (JobStatus.SEARCHING, JobStatus.IMPORTING) or (job.status == JobStatus.DOWNLOADING and job.source_indexer != "radarr"):
+            continue
+            
+        radarr_movie = radarr_map.get(job.tmdb_id)
+        changed = False
+        
+        if not radarr_movie:
+            if job.status != JobStatus.NOT_IN_RADARR:
+                job.status = JobStatus.NOT_IN_RADARR
+                job.monitored = False
+                changed = True
+                deleted_count += 1
+        else:
+            monitored = radarr_movie.get("monitored", False)
+            if job.monitored != monitored:
+                job.monitored = monitored
+                changed = True
+                
+            if radarr_movie.get("hasFile"):
+                path = radarr_movie.get("movieFile", {}).get("path")
+                if job.status != JobStatus.DONE or job.file_path != path:
+                    job.status = JobStatus.DONE
+                    job.progress_pct = 100
+                    job.file_path = path
+                    changed = True
+            elif job.status in (JobStatus.DONE, JobStatus.NOT_IN_RADARR, JobStatus.NOT_FOUND):
+                job.status = JobStatus.MOVIE_MISSING
+                job.progress_pct = 0
+                job.file_path = None
+                changed = True
+                
+        if changed:
+            session.add(job)
+            updated_count += 1
+            
+    if updated_count > 0:
+        session.commit()
+        log_action("Manual", f"Sync All: {updated_count} jobs updated from Radarr (including {deleted_count} deleted).")
+        
+    return {"status": "success", "updated": updated_count}
+
 @router.post("/jobs/import-radarr")
 async def trigger_import_radarr(background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
     """Import all movies from Radarr that match configured regional languages."""

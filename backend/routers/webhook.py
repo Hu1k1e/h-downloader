@@ -143,7 +143,9 @@ async def radarr_webhook(
     elif event_type == "MovieDeleted":
         if job:
             log_action("Webhook", f"Movie '{title}' deleted from Radarr", tmdb_id=tmdb_id, job_id=job.id)
-            session.delete(job)
+            job.status = JobStatus.NOT_IN_RADARR
+            job.monitored = False
+            session.add(job)
             session.commit()
             
     elif event_type == "Download":

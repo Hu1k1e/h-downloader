@@ -15,6 +15,7 @@ const STATUS_COLOR = {
     skipped: 'var(--text-muted)',
     movie_missing: '#ef4444',
     discovered: 'var(--success)',
+    not_in_radarr: 'var(--text-muted)',
 }
 
 const STATUS_LABEL = {
@@ -29,6 +30,7 @@ const STATUS_LABEL = {
     skipped: 'Skipped',
     movie_missing: 'File Missing',
     discovered: 'Discovered',
+    not_in_radarr: 'Deleted in Radarr',
 }
 
 // Filter tabs definition
@@ -45,7 +47,7 @@ function matchesTab(movie, tab) {
     const s = (movie.status || '').toLowerCase()
     if (tab === 'all') return true
     if (tab === 'active') return ['downloading', 'searching', 'pending', 'checking_radarr', 'importing'].includes(s)
-    if (tab === 'missing') return s === 'movie_missing' || s === 'not_found'
+    if (tab === 'missing') return s === 'movie_missing' || s === 'not_found' || s === 'not_in_radarr'
     if (tab === 'discovered') return s === 'discovered'
     if (tab === 'done') return s === 'done'
     if (tab === 'failed') return s === 'failed'
@@ -110,13 +112,16 @@ function MovieModal({ movie, onClose }) {
                     <button className="btn btn-secondary btn-sm" onClick={() => onTrigger(movie, '1tamilmv')}>
                         Force Search 1TamilMV
                     </button>
+                    <button className="btn btn-secondary btn-sm" onClick={() => onSync(movie.id)} style={{ marginLeft: 'auto' }}>
+                        ↻ Sync with Radarr
+                    </button>
                 </div>
             </div>
         </div>
     )
 }
 
-function PosterCard({ movie, onTrigger, onDelete, onSelect }) {
+function PosterCard({ movie, onTrigger, onDelete, onSelect, onToggleMonitor }) {
     const status = (movie.status || '').toLowerCase()
     const colour = STATUS_COLOR[status] || 'var(--text-muted)'
     const label = STATUS_LABEL[status] || status.toUpperCase()
@@ -161,12 +166,15 @@ function PosterCard({ movie, onTrigger, onDelete, onSelect }) {
                     )}
                 </div>
                 {/* Monitored / Missing indicator dot */}
-                {movie.monitored && (
-                    <div
-                        className={`poster-monitored-dot${status === 'movie_missing' ? ' poster-monitored-dot--missing' : ''}`}
-                        title={status === 'movie_missing' ? 'File missing from Radarr folder' : 'Monitored'}
-                    />
-                )}
+                <div
+                    className={`poster-monitored-dot${!movie.monitored ? ' poster-monitored-dot--unmonitored' : ''}${status === 'movie_missing' ? ' poster-monitored-dot--missing' : ''}`}
+                    title={movie.monitored ? (status === 'movie_missing' ? 'File missing from Radarr folder' : 'Monitored (Click to unmonitor)') : 'Unmonitored (Click to monitor)'}
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleMonitor(movie);
+                    }}
+                    style={{ cursor: 'pointer', opacity: movie.monitored ? 1 : 0.3 }}
+                />
             </div>
 
             <div className="poster-info">
@@ -254,6 +262,33 @@ export default function Movies() {
         } catch (err) { console.error(err) }
     }
 
+    const toggleMonitor = async (movie) => {
+        try {
+            await fetch(`/api/jobs/${movie.id}/monitor`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ monitored: !movie.monitored })
+            })
+            fetchMovies()
+        } catch (err) { console.error(err) }
+    }
+
+    const syncMovie = async (id) => {
+        try {
+            await api.syncMovie(id)
+            fetchMovies()
+        } catch (err) { console.error(err) }
+    }
+
+    const syncAll = async () => {
+        setIsTriggering(true)
+        try {
+            await api.syncAll()
+            fetchMovies()
+        } catch (err) { console.error(err) }
+        finally { setIsTriggering(false) }
+    }
+
     const triggerJob = async (movie, indexer = null) => {
         if ((movie.status || '').toLowerCase() === 'discovered' && !indexer) {
             try {
@@ -285,7 +320,7 @@ export default function Movies() {
 
     return (
         <div className="main-content">
-            {selectedMovie && <MovieModal movie={movies.find(m => m.id === selectedMovie.id) || selectedMovie} onClose={() => setSelectedMovie(null)} />}
+            {selectedMovie && <MovieModal movie={movies.find(m => m.id === selectedMovie.id) || selectedMovie} onClose={() => setSelectedMovie(null)} onTrigger={triggerJob} onSync={syncMovie} />}
             
             {/* Header */}
             <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -296,6 +331,9 @@ export default function Movies() {
                 <div style={{ display: 'flex', gap: '10px' }}>
                     <button className="btn btn-secondary" onClick={() => setShowBatchModal(true)}>
                         Import List
+                    </button>
+                    <button className="btn btn-secondary" onClick={syncAll} disabled={isTriggering}>
+                        {isTriggering ? 'Syncing...' : '↻ Sync All'}
                     </button>
                     <button className="btn btn-primary" onClick={triggerMonitored} disabled={isTriggering || movies.length === 0}>
                         {isTriggering ? 'Triggering...' : 'Trigger Monitored'}
@@ -359,6 +397,7 @@ export default function Movies() {
                             onTrigger={triggerJob}
                             onDelete={deleteJob}
                             onSelect={() => setSelectedMovie(movie)}
+                            onToggleMonitor={toggleMonitor}
                         />
                     ))}
                 </div>

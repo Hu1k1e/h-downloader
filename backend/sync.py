@@ -373,10 +373,19 @@ async def radarr_state_sync_loop():
                         
                     radarr_movie = radarr_map.get(job.tmdb_id)
                     
-                    if not radarr_movie or not radarr_movie.get("monitored", False):
-                        session.delete(job)
-                        deleted_count += 1
+                    if not radarr_movie:
+                        if job.status != JobStatus.NOT_IN_RADARR:
+                            job.status = JobStatus.NOT_IN_RADARR
+                            job.monitored = False
+                            session.add(job)
+                            deleted_count += 1
                         continue
+                        
+                    # Sync monitored state
+                    monitored_in_radarr = radarr_movie.get("monitored", False)
+                    if job.monitored != monitored_in_radarr:
+                        job.monitored = monitored_in_radarr
+                        session.add(job)
                         
                     if radarr_movie.get("hasFile"):
                         path = radarr_movie.get("movieFile", {}).get("path")
@@ -389,7 +398,7 @@ async def radarr_state_sync_loop():
                         
                 session.commit()
                 if deleted_count > 0 or completed_count > 0:
-                    logger.info(f"Radarr state sync: Deleted {deleted_count} unmonitored/removed, marked {completed_count} as DONE/Updated.")
+                    logger.info(f"Radarr state sync: Marked {deleted_count} as NOT_IN_RADARR, marked {completed_count} as DONE/Updated.")
                     
         except Exception as e:
             logger.error(f"Error in radarr_state_sync_loop: {e}")

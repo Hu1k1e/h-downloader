@@ -45,6 +45,7 @@ class JobStatus(str, Enum):
     DONE = "done"
     MOVIE_MISSING = "movie_missing"   # Radarr has movie entry but file is gone from disk
     NOT_FOUND = "not_found"
+    NOT_IN_RADARR = "not_in_radarr"   # Movie has been deleted from Radarr
     FAILED = "failed"
     SKIPPED = "skipped"
     DISCOVERED = "discovered"
