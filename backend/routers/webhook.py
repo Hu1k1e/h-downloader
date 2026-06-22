@@ -169,4 +169,32 @@ async def radarr_webhook(
         if settings.enable_radarr_auto_search:
             background_tasks.add_task(delayed_search, tmdb_id, None)
 
+    elif event_type == "Grab":
+        # Radarr grabbed a download — track it as a native Radarr download
+        # so the active_job_tracker_loop monitors it and triggers fallback if it disappears
+        if not job:
+            job = DownloadJob(tmdb_id=tmdb_id, title=title)
+            session.add(job)
+        if job.status not in (JobStatus.DOWNLOADING, JobStatus.DONE, JobStatus.IMPORTING):
+            job.status = JobStatus.DOWNLOADING
+            job.source_indexer = "radarr"
+            job.error_msg = None
+            job.progress_pct = 0
+        log_action("Webhook", f"Radarr grabbed download for '{title}'", tmdb_id=tmdb_id, job_id=job.id)
+        session.commit()
+
+    elif event_type in ("DownloadFailed", "ManualInteractionRequired"):
+        # Radarr download failed or was removed (e.g. stalled deletion)
+        # Trigger immediate fallback search
+        if job and job.status in (JobStatus.DOWNLOADING, JobStatus.MOVIE_MISSING, JobStatus.PENDING):
+            job.status = JobStatus.MOVIE_MISSING
+            job.source_indexer = None
+            job.torrent_hash = None
+            job.progress_pct = 0
+            job.error_msg = None
+            log_action("Webhook", f"Radarr download failed/removed for '{title}'. Triggering fallback search.", tmdb_id=tmdb_id, job_id=job.id)
+            session.commit()
+            # Immediate fallback — override delay to 0
+            background_tasks.add_task(delayed_search, tmdb_id, None, override_delay=0)
+
     return {"status": "accepted", "event": event_type, "tmdb_id": tmdb_id}

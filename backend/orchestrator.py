@@ -103,6 +103,7 @@ async def process_request(tmdb_id: int, requested_language: Optional[str] = None
             session.refresh(job)
             
         job_id = job.id
+        log_action("Orchestrator", f"Pipeline started for '{title}' (tmdb_id={tmdb_id}, lang={requested_language or 'auto'}, indexer={indexer or 'all'}, fallback_from={fallback_from})", tmdb_id=tmdb_id, job_id=job_id)
 
     # Run the async pipeline in a background task
     asyncio.create_task(

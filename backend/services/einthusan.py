@@ -107,10 +107,30 @@ async def search(title: str, year: Optional[int], lang: str) -> Optional[str]:
         title_lower = title.lower()
         card_lower = card_title.lower()
 
-        score = max(
-            fuzz.token_set_ratio(title_lower, card_lower),
-            fuzz.token_sort_ratio(title_lower, card_lower),
-        )
+        # Start with token-based scores
+        token_set = fuzz.token_set_ratio(title_lower, card_lower)
+        token_sort = fuzz.token_sort_ratio(title_lower, card_lower)
+        strict = fuzz.ratio(title_lower, card_lower)
+
+        # token_set_ratio is dangerously generous with subset matches:
+        # e.g. token_set_ratio("kochi rajavu", "kochi") ≈ 100 because "kochi"
+        # is a perfect subset of "kochi rajavu" tokens.
+        # Guard against this by blending with strict ratio.
+        score = max(token_set, token_sort)
+
+        # Token count mismatch penalty: if search has more words than candidate,
+        # the candidate is likely a shorter, different movie.
+        search_tokens = title_lower.split()
+        card_tokens = card_lower.split()
+        if len(search_tokens) > len(card_tokens):
+            missing_count = len(search_tokens) - len(card_tokens)
+            # Heavy penalty per missing word — e.g. "Kochi" vs "Kochi Rajavu" loses 25 points
+            score -= missing_count * 25
+
+        # If strict ratio is very low, cap the score — prevents subset false positives
+        # e.g. strict ratio of "kochi" vs "kochi rajavu" ≈ 46, way below 70
+        if strict < 70:
+            score = min(score, strict + 20)
 
         # Exact match override (including stripping all punctuation/spaces for edge cases like "NH10" vs "NH 10")
         title_alphanum = re.sub(r'[^a-z0-9]', '', title_lower)

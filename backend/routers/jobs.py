@@ -15,6 +15,7 @@ from backend.services import tmdb as tmdb_svc
 from backend import config
 from backend.services import qbittorrent
 from backend.sync import delayed_search
+from backend.db_logger import log_action
 
 router = APIRouter(prefix="/api", tags=["jobs"])
 
@@ -251,6 +252,7 @@ async def trigger_download(req: TriggerRequest, background_tasks: BackgroundTask
             raise HTTPException(status_code=404, detail=f"No TMDB results for '{req.title}'")
         tmdb_id = results[0]["id"]
 
+    log_action("Manual", f"Manual search triggered for tmdb_id={tmdb_id} (language={req.language}, indexer={req.indexer})", tmdb_id=tmdb_id)
     background_tasks.add_task(process_request, tmdb_id, req.language, auto_download=True, indexer=req.indexer)
     return {"status": "accepted", "tmdb_id": tmdb_id}
 
@@ -264,7 +266,8 @@ async def trigger_all_monitored(background_tasks: BackgroundTasks, session: Sess
         if job.status not in (JobStatus.DOWNLOADING, JobStatus.SEARCHING, JobStatus.IMPORTING):
              background_tasks.add_task(process_request, job.tmdb_id, job.language)
              triggered += 1
-             
+    
+    log_action("Manual", f"Bulk trigger: {triggered} monitored jobs queued for search")
     return {"status": "accepted", "triggered": triggered}
 
 @router.post("/jobs/trigger-missing")
@@ -276,7 +279,8 @@ async def trigger_missing(background_tasks: BackgroundTasks, session: Session = 
         if job.status not in (JobStatus.DOWNLOADING, JobStatus.SEARCHING, JobStatus.IMPORTING):
              background_tasks.add_task(process_request, job.tmdb_id, job.language)
              triggered += 1
-             
+    
+    log_action("Manual", f"Bulk trigger: {triggered} missing jobs queued for search")
     return {"status": "accepted", "triggered": triggered}
 
 @router.post("/jobs/{job_id}/retry")
@@ -292,6 +296,7 @@ async def retry_job(job_id: int, background_tasks: BackgroundTasks, session: Ses
     session.add(job)
     session.commit()
     
+    log_action("Manual", f"Retrying job for '{job.title}'", tmdb_id=job.tmdb_id, job_id=job.id)
     background_tasks.add_task(process_request, job.tmdb_id, job.language)
     return {"status": "retrying", "tmdb_id": job.tmdb_id}
 
