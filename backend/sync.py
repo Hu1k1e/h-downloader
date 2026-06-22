@@ -402,4 +402,4 @@ async def radarr_state_sync_loop():
         except Exception as e:
             logger.error(f"Error in radarr_state_sync_loop: {e}")
             
-        await asyncio.sleep(10)
+        await asyncio.sleep(60)
