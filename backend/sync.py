@@ -351,13 +351,11 @@ async def discovery_tracker_loop():
 async def radarr_state_sync_loop():
     """
     Periodically syncs full state with Radarr. Removes unmonitored/deleted, 
-    updates paths and done states.
+    updates paths and done states. Runs frequently to keep UI real-time.
     """
     logger.info("Starting full radarr state sync loop...")
     while True:
         try:
-            await asyncio.sleep(900) # 15 mins
-            
             with Session(engine) as session:
                 settings = get_settings(session)
                 all_radarr_movies = await radarr.get_all_movies(settings)
@@ -397,9 +395,11 @@ async def radarr_state_sync_loop():
                             completed_count += 1
                         
                 session.commit()
+                # Don't log every 10 seconds unless there's a change to avoid log spam
                 if deleted_count > 0 or completed_count > 0:
                     logger.info(f"Radarr state sync: Marked {deleted_count} as NOT_IN_RADARR, marked {completed_count} as DONE/Updated.")
                     
         except Exception as e:
             logger.error(f"Error in radarr_state_sync_loop: {e}")
-            await asyncio.sleep(900)
+            
+        await asyncio.sleep(10)
