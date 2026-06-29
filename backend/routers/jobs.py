@@ -196,6 +196,113 @@ async def trigger_discovered_download(job_id: int, session: Session = Depends(ge
     else:
         raise HTTPException(status_code=400, detail="Discovered job missing both magnet and direct_url")
 
+
+class ImportUrlRequest(BaseModel):
+    url: str
+
+@router.post("/jobs/{job_id}/import-url")
+async def import_url_for_job(job_id: int, req: ImportUrlRequest, session: Session = Depends(get_session)):
+    """
+    Accept a provider URL (Einthusan watch page or 1TamilMV thread) and start the
+    download pipeline for an existing job.
+    """
+    import re
+    import asyncio
+    from backend.services import einthusan
+    from backend.services import tamilmv
+    from backend.services.downloader import get_movie_file_path, download_movie
+    from backend.database import engine
+
+    job = session.get(DownloadJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    settings = get_settings(session)
+    url = req.url.strip()
+
+    if not url:
+        raise HTTPException(status_code=400, detail="URL is required")
+
+    # ── Detect provider from URL ──────────────────────────────────────────
+    is_einthusan = bool(re.search(r'einthusan\.tv/movie/watch/', url, re.IGNORECASE))
+    is_tamilmv = bool(re.search(r'1tamilmv\.\w+/', url, re.IGNORECASE))
+
+    if not is_einthusan and not is_tamilmv:
+        raise HTTPException(
+            status_code=400,
+            detail="URL not recognised. Must be an Einthusan watch page or 1TamilMV thread URL."
+        )
+
+    if is_einthusan:
+        # Extract MP4 from Einthusan watch page
+        try:
+            direct_url = await einthusan.extract_mp4_url(url)
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Failed to extract video from Einthusan: {e}")
+
+        if not direct_url:
+            raise HTTPException(status_code=404, detail="Could not extract video URL from this Einthusan page.")
+
+        # Get file path from Radarr
+        folder_path = await radarr_svc.get_movie_folder(job.tmdb_id, job.title, job.year or 0, settings)
+        file_path = get_movie_file_path(folder_path, job.title, job.year)
+
+        job.status = JobStatus.DOWNLOADING
+        job.error_msg = None
+        job.source_indexer = "einthusan"
+        job.einthusan_url = url
+        job.direct_url = direct_url
+        job.file_path = file_path
+        session.add(job)
+        session.commit()
+
+        log_action("Manual", f"Manual URL import: starting Einthusan download for '{job.title}'", tmdb_id=job.tmdb_id, job_id=job.id)
+
+        # Fire async download task
+        async def _run_dl(jid, dl_url, fp):
+            with Session(engine) as sess:
+                dl_success = await download_movie(jid, dl_url, fp, sess)
+                if dl_success:
+                    sess_job = sess.get(DownloadJob, jid)
+                    if sess_job:
+                        movie_data = await radarr_svc.is_movie_in_radarr(sess_job.tmdb_id, settings)
+                        if movie_data and "id" in movie_data:
+                            await radarr_svc.trigger_rescan(movie_data["id"], settings)
+                        sess_job.status = JobStatus.DONE
+                        sess_job.progress_pct = 100
+                        sess_job.monitored = False
+                        sess_job.error_msg = None
+                        sess.add(sess_job)
+                        sess.commit()
+
+        asyncio.create_task(_run_dl(job.id, direct_url, file_path))
+        return {"status": "started", "type": "einthusan", "url": url}
+
+    elif is_tamilmv:
+        # Extract magnet from 1TamilMV thread
+        try:
+            magnet = await tamilmv.extract_magnet(url)
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Failed to extract magnet from 1TamilMV: {e}")
+
+        if not magnet:
+            raise HTTPException(status_code=404, detail="No magnet link found on this 1TamilMV page.")
+
+        torrent_hash = await asyncio.to_thread(qbittorrent.add_magnet_to_qbittorrent, magnet, settings)
+        if not torrent_hash:
+            raise HTTPException(status_code=500, detail="Failed to add magnet to qBittorrent")
+
+        job.status = JobStatus.DOWNLOADING
+        job.error_msg = None
+        job.source_indexer = "1tamilmv"
+        job.torrent_hash = torrent_hash
+        session.add(job)
+        session.commit()
+
+        log_action("Manual", f"Manual URL import: added 1TamilMV magnet for '{job.title}'. Hash: {torrent_hash}", tmdb_id=job.tmdb_id, job_id=job.id)
+        return {"status": "started", "type": "1tamilmv", "hash": torrent_hash}
+
+
 # ── Stats ────────────────────────────────────────────────────────────────────
 
 @router.get("/stats")

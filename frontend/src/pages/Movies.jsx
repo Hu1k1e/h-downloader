@@ -58,11 +58,65 @@ function tabCount(movies, tab) {
     return movies.filter(m => matchesTab(m, tab)).length
 }
 
-function MovieModal({ movie, onClose, onTrigger, onSync }) {
+function MovieModal({ movie, onClose, onTrigger, onSync, settings, onImportUrl }) {
+    const [importUrl, setImportUrl] = useState('')
+    const [importLoading, setImportLoading] = useState(false)
+    const [importMsg, setImportMsg] = useState('')
+
     if (!movie) return null;
+
+    // Determine active providers from settings
+    const activeSources = settings?.download_sources_priority || ['einthusan', '1tamilmv']
+    const configuredLangs = settings?.einthusan_languages || []
+
+    // Build manual search URLs
+    const searchLinks = []
+
+    if (activeSources.includes('einthusan')) {
+        // One link per configured language
+        const movieLangs = movie.language ? [movie.language] : []
+        const langsToShow = movieLangs.length > 0
+            ? [...new Set([...movieLangs, ...configuredLangs])]
+            : configuredLangs
+
+        langsToShow.forEach(lang => {
+            const q = encodeURIComponent(movie.title)
+            searchLinks.push({
+                label: `Einthusan (${lang.charAt(0).toUpperCase() + lang.slice(1)})`,
+                url: `https://einthusan.tv/movie/results/?lang=${lang}&query=${q}`,
+                provider: 'einthusan'
+            })
+        })
+    }
+
+    if (activeSources.includes('1tamilmv')) {
+        const q = encodeURIComponent(`${movie.title} ${movie.year || ''}`.trim())
+        searchLinks.push({
+            label: '1TamilMV',
+            url: `https://www.1tamilmv.fi/index.php?/search/&q=${q}&search_and_or=and`,
+            provider: '1tamilmv'
+        })
+    }
+
+    const handleImportUrl = async () => {
+        if (!importUrl.trim()) return
+        setImportLoading(true)
+        setImportMsg('')
+        try {
+            await onImportUrl(movie.id, importUrl.trim())
+            setImportMsg('Download started!')
+            setImportUrl('')
+            setTimeout(() => setImportMsg(''), 3000)
+        } catch (err) {
+            setImportMsg(`Error: ${err.message}`)
+        } finally {
+            setImportLoading(false)
+        }
+    }
+
     return (
         <div className="modal-overlay" onClick={onClose} style={{position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
-            <div className="modal-content card" onClick={e => e.stopPropagation()} style={{width: 500, maxWidth: '90%', maxHeight: '90vh', overflowY: 'auto', padding: 24, position: 'relative', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12}}>
+            <div className="modal-content card" onClick={e => e.stopPropagation()} style={{width: 540, maxWidth: '90%', maxHeight: '90vh', overflowY: 'auto', padding: 24, position: 'relative', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12}}>
                 <button onClick={onClose} style={{position: 'absolute', top: 16, right: 16, background: 'none', border: 'none', fontSize: 24, cursor: 'pointer', color: 'var(--text-secondary)'}}>✕</button>
                 <h2 style={{marginTop: 0, marginBottom: 8}}>{movie.title} {movie.year && `(${movie.year})`}</h2>
                 <div style={{color: 'var(--text-secondary)', marginBottom: 24}}>{movie.language}</div>
@@ -104,8 +158,65 @@ function MovieModal({ movie, onClose, onTrigger, onSync }) {
                 <div style={{marginBottom: 16}}>
                     <strong>Last Updated:</strong> {new Date(movie.updated_at).toLocaleString()}
                 </div>
+
+                {/* ── Manual Search Links ─────────────────────────────── */}
+                {searchLinks.length > 0 && (
+                    <div style={{ marginTop: 20, padding: '14px 16px', background: 'var(--bg-tertiary)', borderRadius: 8, border: '1px solid var(--border)' }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 10 }}>
+                            Search Manually
+                        </div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                            {searchLinks.map((link, i) => (
+                                <a
+                                    key={i}
+                                    href={link.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="btn btn-secondary btn-sm"
+                                    style={{ textDecoration: 'none', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                                >
+                                    <span style={{ fontSize: 11 }}>↗</span> {link.label}
+                                </a>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {/* ── Import URL ──────────────────────────────────────── */}
+                <div style={{ marginTop: 12, padding: '14px 16px', background: 'var(--bg-tertiary)', borderRadius: 8, border: '1px solid var(--border)' }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 }}>
+                        Import from URL
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
+                        Paste an Einthusan watch page or 1TamilMV thread URL
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                        <input
+                            type="text"
+                            className="form-input"
+                            placeholder="https://einthusan.tv/movie/watch/..."
+                            value={importUrl}
+                            onChange={e => setImportUrl(e.target.value)}
+                            onKeyDown={e => e.key === 'Enter' && handleImportUrl()}
+                            style={{ flex: 1, fontSize: 13 }}
+                        />
+                        <button
+                            className="btn btn-primary btn-sm"
+                            onClick={handleImportUrl}
+                            disabled={importLoading || !importUrl.trim()}
+                            style={{ whiteSpace: 'nowrap' }}
+                        >
+                            {importLoading ? 'Importing…' : 'Import'}
+                        </button>
+                    </div>
+                    {importMsg && (
+                        <div style={{ marginTop: 6, fontSize: 12, color: importMsg.includes('Error') ? 'var(--error)' : 'var(--success)' }}>
+                            {importMsg}
+                        </div>
+                    )}
+                </div>
                 
-                <div style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid var(--border-color)', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border-color)', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                     <button className="btn btn-secondary btn-sm" onClick={() => onTrigger(movie, 'einthusan')}>
                         Force Search Einthusan
                     </button>
@@ -224,6 +335,7 @@ export default function Movies() {
         setSearchParams(p)
     }
     const [selectedMovie, setSelectedMovie] = useState(null)
+    const [settings, setSettings] = useState(null)
 
     const fetchMovies = async () => {
         try {
@@ -241,6 +353,7 @@ export default function Movies() {
 
     useEffect(() => {
         fetchMovies()
+        api.getSettings().then(setSettings).catch(() => {})
         const interval = setInterval(fetchMovies, 5000)
         return () => clearInterval(interval)
     }, [])
@@ -312,6 +425,11 @@ export default function Movies() {
         }
     }
 
+    const handleImportUrl = async (jobId, url) => {
+        await api.importUrl(jobId, url)
+        fetchMovies()
+    }
+
     const filtered = movies.filter(m => {
         const matchSearch = m.title.toLowerCase().includes(search.toLowerCase())
         const matchTab = matchesTab(m, activeTab)
@@ -320,7 +438,7 @@ export default function Movies() {
 
     return (
         <div className="main-content">
-            {selectedMovie && <MovieModal movie={movies.find(m => m.id === selectedMovie.id) || selectedMovie} onClose={() => setSelectedMovie(null)} onTrigger={triggerJob} onSync={syncMovie} />}
+            {selectedMovie && <MovieModal movie={movies.find(m => m.id === selectedMovie.id) || selectedMovie} onClose={() => setSelectedMovie(null)} onTrigger={triggerJob} onSync={syncMovie} settings={settings} onImportUrl={handleImportUrl} />}
             
             {/* Header */}
             <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

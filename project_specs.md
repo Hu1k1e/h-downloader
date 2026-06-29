@@ -1182,3 +1182,26 @@ The app lacked detailed logs for searches and background tasks, making it diffic
 - Replaced periodic background sync with a real-time event-driven architecture using Radarr Webhooks.
 - Replaced global sync interval settings with a configurable search_delay_seconds setting for fallback searches.
 
+---
+
+## [2026-06-29] Manual Provider Links, URL Import, and Short-Title Search Fix
+
+**Problem:**
+1. The UI provided no way to manually search active providers (Einthusan, 1TamilMV) for a specific movie.
+2. The movie `Mrs` (TMDB year 2023) failed to be found on Einthusan despite being present, because Einthusan lists it as 2025 (a 2-year gap exceeded the ±1 year tolerance).
+3. When automated search failed, there was no way to paste a provider URL to manually trigger the download pipeline.
+
+**Changes made:**
+- **Einthusan Search Fallback:** Refactored `search()` in `backend/services/einthusan.py` into a wrapper that calls `_search_with_query()`. If the initial title-only query returns no match, it retries with `{title} {year}` and adjacent years. This helps short titles (e.g. `Mrs`) and year-discrepancy cases.
+- **Year Tolerance Widened:** Changed the Einthusan year bonus match from ±1 to ±2 years to handle Einthusan/TMDB date discrepancies.
+- **Manual URL Import Endpoint:** Added `POST /api/jobs/{job_id}/import-url` in `backend/routers/jobs.py`. Accepts an Einthusan watch URL or 1TamilMV thread URL, auto-detects the provider, extracts the download (MP4 or magnet), and starts the job.
+- **Manual Search Links:** Updated `MovieModal` in `frontend/src/pages/Movies.jsx` to display clickable search links for each active provider — one Einthusan link per configured language, plus a 1TamilMV search link. Links open in new tabs.
+- **Import URL UI:** Added an `Import from URL` input field in the movie modal. Users can paste a provider URL and click Import to start the download.
+- **Frontend API:** Added `importUrl()` method to `frontend/src/api.js`.
+
+**Files changed:**
+- `backend/services/einthusan.py`
+- `backend/routers/jobs.py`
+- `frontend/src/api.js`
+- `frontend/src/pages/Movies.jsx`
+- `project_specs.md`

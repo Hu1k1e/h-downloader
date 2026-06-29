@@ -57,8 +57,40 @@ async def search(title: str, year: Optional[int], lang: str) -> Optional[str]:
     Calling anchor.get_text() returns "GuppyMust Watch".
     fuzz.token_set_ratio("guppy", "guppymust watch") ≈ 67 → fails the 85 threshold.
     The fix: always read the <h3> child directly, never the full anchor text.
+
+    FALLBACK (added 2026-06-29):
+    Very short titles (e.g. "Mrs") may return zero results from Einthusan.
+    If the initial query returns no candidates, retry with "{title} {year}".
     """
-    query = quote_plus(title)
+    result = await _search_with_query(title, year, lang, query_override=None)
+    if result:
+        return result
+
+    # Fallback: retry with year appended to query (helps short titles)
+    if year:
+        logger.info(f"No results for '{title}' — retrying with '{title} {year}'")
+        result = await _search_with_query(title, year, lang, query_override=f"{title} {year}")
+        if result:
+            return result
+
+        # Try adjacent years too (Einthusan often has different year than TMDB)
+        for alt_year in [year - 1, year + 1, year - 2, year + 2]:
+            logger.debug(f"Retrying with '{title} {alt_year}'")
+            result = await _search_with_query(title, year, lang, query_override=f"{title} {alt_year}")
+            if result:
+                return result
+
+    logger.info(
+        f"No valid Einthusan match for '{title}' "
+        f"(year={year}, lang={lang!r}) after all fallback attempts"
+    )
+    return None
+
+
+async def _search_with_query(title: str, year: Optional[int], lang: str, query_override: Optional[str] = None) -> Optional[str]:
+    """Internal search function that performs a single Einthusan query and scores results."""
+    query_str = query_override or title
+    query = quote_plus(query_str)
     search_url = f"{EINTHUSAN_BASE}/movie/results/?lang={lang}&query={query}"
 
     async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
@@ -159,7 +191,7 @@ async def search(title: str, year: Optional[int], lang: str) -> Optional[str]:
                 parent = parent.parent
             card_text = parent.get_text() if parent else ""
             years_in_card = [int(y) for y in re.findall(r'\b(19\d{2}|20\d{2})\b', card_text)]
-            if years_in_card and any(abs(y - year) <= 1 for y in years_in_card):
+            if years_in_card and any(abs(y - year) <= 2 for y in years_in_card):
                 score += 15  # Confirmed year match — boost confidence
 
         logger.debug(f"  candidate: {card_title!r} href={href!r} score={score}")
@@ -179,8 +211,8 @@ async def search(title: str, year: Optional[int], lang: str) -> Optional[str]:
         logger.info(f"Einthusan match: '{best_url}' (score={best_score}) for '{title}' (year={year})")
         return best_url
 
-    logger.info(
-        f"No valid Einthusan match for '{title}' "
+    logger.debug(
+        f"No valid Einthusan match for '{title}' in this query "
         f"(year={year}, lang={lang!r}, best_score={best_score})"
     )
     return None

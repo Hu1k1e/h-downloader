@@ -55,4 +55,5 @@ export const api = {
     testTmdb: () => request('/api/test/tmdb'),
     importRadarr: () => request('/api/jobs/import-radarr', { method: 'POST' }),
     testQbittorrent: (data) => request('/api/settings/test-qbittorrent', { method: 'POST', body: data }),
+    importUrl: (jobId, url) => request(`/api/jobs/${jobId}/import-url`, { method: 'POST', body: { url } }),
 }
