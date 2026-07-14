@@ -1205,3 +1205,26 @@ The app lacked detailed logs for searches and background tasks, making it diffic
 - `frontend/src/api.js`
 - `frontend/src/pages/Movies.jsx`
 - `project_specs.md`
+
+---
+
+## [2026-07-14] Discovery Loop Fixes: NOT_FOUND Retry + Release Date Bypass
+
+**Problem:**
+A movie ('Mollywood Times') was added to Radarr on June 12 but the app never searched for it. Radarr independently grabbed it 32 days later. Root cause analysis revealed:
+1. Movies that failed source search were marked `NOT_FOUND` — a permanent dead end never retried by the discovery loop.
+2. Movies without a TMDB digital release date were perpetually `SKIPPED` by the pipeline, even when available on sources (common for regional Indian cinema where digital dates are rarely listed).
+3. `delayed_search` passed `None` as language instead of using the resolved language from the webhook.
+4. No log entries were created when movies were SKIPPED, making debugging impossible.
+
+**Changes made:**
+- **NOT_FOUND Retry:** Added `NOT_FOUND` to the discovery loop query in `backend/sync.py`. Movies that weren't found on Einthusan/1TamilMV will now be retried every `missing_search_interval_hours` (default 24h).
+- **Release Date Bypass:** Added `skip_release_check` parameter to `process_request` and `_run_pipeline` in `backend/orchestrator.py`. The discovery loop now passes `skip_release_check=True` for `SKIPPED` and `NOT_FOUND` jobs, allowing them to proceed to source search even if TMDB lacks a digital release date.
+- **Language Passthrough:** Fixed `backend/routers/webhook.py` to pass `job.language` instead of `None` to `delayed_search`, avoiding a redundant TMDB API call.
+- **SKIPPED Logging:** Added `log_action` call in `backend/orchestrator.py` when a movie is SKIPPED due to release date gating.
+
+**Files changed:**
+- `backend/sync.py`
+- `backend/orchestrator.py`
+- `backend/routers/webhook.py`
+- `project_specs.md`

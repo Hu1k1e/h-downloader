@@ -40,7 +40,7 @@ def _update_job(session: Session, job: DownloadJob, **kwargs):
     session.refresh(job)
 
 
-async def process_request(tmdb_id: int, requested_language: Optional[str] = None, auto_download: bool = True, indexer: Optional[str] = None, fallback_from: Optional[str] = None) -> int:
+async def process_request(tmdb_id: int, requested_language: Optional[str] = None, auto_download: bool = True, indexer: Optional[str] = None, fallback_from: Optional[str] = None, skip_release_check: bool = False) -> int:
     """
     Main entry point. Creates a DownloadJob and runs the full pipeline.
     Returns the job_id.
@@ -107,7 +107,7 @@ async def process_request(tmdb_id: int, requested_language: Optional[str] = None
 
     # Run the async pipeline in a background task
     asyncio.create_task(
-        _run_pipeline(job_id, tmdb_id, title, year, original_lang_code, requested_language, auto_download, indexer, fallback_from)
+        _run_pipeline(job_id, tmdb_id, title, year, original_lang_code, requested_language, auto_download, indexer, fallback_from, skip_release_check)
     )
     return job_id
 
@@ -122,6 +122,7 @@ async def _run_pipeline(
     auto_download: bool = True,
     indexer: Optional[str] = None,
     fallback_from: Optional[str] = None,
+    skip_release_check: bool = False,
 ):
     with Session(engine) as session:
         job = session.get(DownloadJob, job_id)
@@ -151,9 +152,17 @@ async def _run_pipeline(
             _update_job(session, job, status=JobStatus.FAILED, error_msg=f"TMDB date check failed: {e}")
             return
 
-        if not passed and not indexer:
+        if not passed and not indexer and not skip_release_check:
+            log_action(
+                action="search_skipped",
+                message=f"'{title}' skipped: {release_msg}",
+                tmdb_id=tmdb_id,
+                job_id=job_id
+            )
             _update_job(session, job, status=JobStatus.SKIPPED, error_msg=release_msg)
             return
+        elif not passed and skip_release_check:
+            logger.info(f"Release date not passed for '{title}' but skip_release_check=True — proceeding with search anyway.")
 
         # ── Step 3: Determine which languages to search ──────────────────────
         # Priority: explicitly requested language > TMDB original language > skip

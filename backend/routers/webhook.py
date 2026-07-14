@@ -138,7 +138,7 @@ async def radarr_webhook(
         
         log_action("Webhook", f"Movie '{title}' added to Radarr", tmdb_id=tmdb_id, job_id=job.id if job else None)
         if job.status == JobStatus.MOVIE_MISSING:
-            background_tasks.add_task(delayed_search, tmdb_id, None)
+            background_tasks.add_task(delayed_search, tmdb_id, job.language)
             
     elif event_type == "MovieDeleted":
         if job:
@@ -169,7 +169,7 @@ async def radarr_webhook(
         log_action("Webhook", f"Movie file deleted for '{title}' in Radarr", tmdb_id=tmdb_id, job_id=job.id)
         session.commit()
         if settings.enable_radarr_auto_search:
-            background_tasks.add_task(delayed_search, tmdb_id, None)
+            background_tasks.add_task(delayed_search, tmdb_id, job.language)
 
     elif event_type == "Grab":
         # Radarr grabbed a download — track it as a native Radarr download

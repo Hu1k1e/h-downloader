@@ -307,7 +307,7 @@ async def run_discovery_batch(batch_size: int) -> int:
     with Session(engine) as session:
         jobs = session.exec(
             select(DownloadJob)
-            .where(DownloadJob.status.in_([JobStatus.MOVIE_MISSING, JobStatus.SKIPPED]))
+            .where(DownloadJob.status.in_([JobStatus.MOVIE_MISSING, JobStatus.SKIPPED, JobStatus.NOT_FOUND]))
             .order_by(DownloadJob.updated_at.asc())
             .limit(batch_size)
         ).all()
@@ -319,12 +319,20 @@ async def run_discovery_batch(batch_size: int) -> int:
                 job.updated_at = datetime.utcnow()
                 session.add(job)
                 
-                # Fully automate the discovery background loop
-                asyncio.create_task(process_request(job.tmdb_id, job.language, auto_download=True))
+                # For SKIPPED (release date not passed) and NOT_FOUND (source search failed),
+                # bypass the digital release date gate. The movie may be available on sources
+                # even if TMDB lacks a digital release date (common for regional Indian cinema).
+                should_skip_release = job.status in (JobStatus.SKIPPED, JobStatus.NOT_FOUND)
+                
+                asyncio.create_task(process_request(
+                    job.tmdb_id, job.language, auto_download=True,
+                    skip_release_check=should_skip_release
+                ))
                 
             session.commit()
             
         return len(jobs)
+
 
 async def discovery_tracker_loop():
     """
