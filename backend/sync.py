@@ -10,6 +10,33 @@ from backend.orchestrator import process_request
 
 logger = logging.getLogger(__name__)
 
+async def _fetch_and_update_metadata(job_id: int):
+    """Background task to fetch missing TMDB metadata (poster/year/lang) for a job."""
+    from backend.services.tmdb import get_movie_details
+    from backend import config
+    
+    with Session(engine) as session:
+        job = session.get(DownloadJob, job_id)
+        if not job or job.poster_path:
+            return
+        settings = get_settings(session)
+        if not settings.tmdb_api_key:
+            return
+            
+        try:
+            details = await get_movie_details(job.tmdb_id, settings)
+            job.poster_path = details.get("poster_path")
+            job.year = details.get("year")
+            
+            if not job.language:
+                tmdb_lang_code = details.get("original_language", "").lower()
+                job.language = config.TMDB_LANG_TO_EINTHUSAN.get(tmdb_lang_code, tmdb_lang_code)
+                
+            session.add(job)
+            session.commit()
+        except Exception as e:
+            logger.warning(f"Failed to fetch metadata for job {job_id}: {e}")
+
 async def delayed_search(tmdb_id: int, language: Optional[str] = None, override_delay: Optional[int] = None):
     """Wait for configured delay, looping every 10s to check if Radarr grabbed it natively."""
     with Session(engine) as session:
@@ -279,6 +306,9 @@ async def active_job_tracker_loop():
                                     j.status = JobStatus.DOWNLOADING
                                     j.source_indexer = "radarr"
                                     
+                                    if not j.poster_path:
+                                        asyncio.create_task(_fetch_and_update_metadata(j.id))
+                                    
                                     sizeleft = q.get("sizeleft", 0)
                                     size = q.get("size", 0)
                                     j.progress_pct = int(max(0, 100 * (1 - sizeleft/size))) if size > 0 else 0
@@ -408,8 +438,11 @@ async def radarr_state_sync_loop():
                                 monitored=True
                             )
                             session.add(new_job)
+                            session.commit()
+                            session.refresh(new_job)
                             job_map[tmdb_id] = new_job
                             added_count += 1
+                            asyncio.create_task(_fetch_and_update_metadata(new_job.id))
                 
                 for job in all_jobs:
                     if job.status in (JobStatus.SEARCHING, JobStatus.IMPORTING) or (job.status == JobStatus.DOWNLOADING and job.source_indexer != "radarr"):

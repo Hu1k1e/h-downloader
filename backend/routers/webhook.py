@@ -119,11 +119,15 @@ async def radarr_webhook(
     if event_type == "MovieAdded":
         if not job:
             mapped_lang = None
+            poster_path = None
+            year = None
             if settings.tmdb_api_key:
                 try:
                     details = await get_movie_details(tmdb_id, settings)
                     tmdb_lang_code = details.get("original_language", "").lower()
                     mapped_lang = config.TMDB_LANG_TO_EINTHUSAN.get(tmdb_lang_code, tmdb_lang_code)
+                    poster_path = details.get("poster_path")
+                    year = details.get("year")
                     allowed_langs = [l.strip().lower() for l in settings.einthusan_languages_str.split(",") if l.strip()]
                     if mapped_lang not in allowed_langs:
                         log_action("Webhook", f"Skipped movie '{title}' (Language '{mapped_lang}' not in configured languages)", tmdb_id=tmdb_id)
@@ -132,7 +136,10 @@ async def radarr_webhook(
                     import logging
                     logging.getLogger(__name__).warning(f"Failed to fetch TMDB details for {tmdb_id}: {e}")
 
-            job = DownloadJob(tmdb_id=tmdb_id, title=title, status=JobStatus.MOVIE_MISSING, language=mapped_lang)
+            job = DownloadJob(
+                tmdb_id=tmdb_id, title=title, status=JobStatus.MOVIE_MISSING, 
+                language=mapped_lang, poster_path=poster_path, year=year
+            )
             session.add(job)
             session.commit()
             session.refresh(job)

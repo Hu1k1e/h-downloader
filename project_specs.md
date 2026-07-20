@@ -1252,3 +1252,23 @@ Several movies (e.g. Thira, Naradan, Vodka Diaries) failed to trigger auto-downl
 - backend/routers/webhook.py
 - backend/routers/settings.py
 
+
+
+---
+
+## [2026-07-20] Auto-Retrieve Missing Posters Fix
+
+**Problem:**
+Movies automatically added by Radarr webhooks or state sync showed up in the UI without movie posters or release years. The system only fetched the poster path and year if the user manually clicked search or if the backend orchestration pipeline was fully triggered. If Radarr grabbed the movie natively, it never entered the orchestration pipeline, leaving the UI permanently broken with a placeholder image.
+
+**Changes made:**
+- **Webhook Extraction:** Updated backend/routers/webhook.py to immediately extract and save the \poster_path\ and \year\ to the DownloadJob when processing the MovieAdded webhook.
+- **Background Metadata Fetcher:** Created an \_fetch_and_update_metadata(job_id)\ background helper in backend/sync.py to silently fetch missing TMDB metadata.
+- **Sync Loop Backfill:** Hooked the metadata fetcher into adarr_state_sync_loop\ so any \MOVIE_MISSING\ jobs created from missed webhooks immediately fetch their posters.
+- **Active Download Backfill:** Hooked the metadata fetcher into \ctive_job_tracker_loop\ so any natively downloading Radarr jobs that were previously missing posters get backfilled dynamically.
+
+**Files changed:**
+- backend/routers/webhook.py
+- backend/sync.py
+- project_specs.md
+
