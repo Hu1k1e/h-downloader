@@ -145,6 +145,23 @@ async def _run_pipeline(
             _update_job(session, job, status=JobStatus.DONE, monitored=False, progress_pct=100, error_msg=None)
             return
 
+        # ── Step 1.5: Check if Radarr is actively downloading ─────────────────
+        # Prevents dual downloads: if Radarr has a healthy queue item, defer to it
+        if not indexer:
+            try:
+                radarr_movie_data = await radarr.is_movie_in_radarr(tmdb_id, settings)
+                if radarr_movie_data and "id" in radarr_movie_data:
+                    queue_item = await radarr.get_movie_queue_status(radarr_movie_data["id"], settings)
+                    if queue_item:
+                        tracked = queue_item.get("trackedDownloadStatus", "").lower()
+                        q_status = queue_item.get("status", "").lower()
+                        if tracked not in ("warning", "error") and q_status != "completed":
+                            logger.info(f"Radarr already actively downloading '{title}' — deferring to Radarr native download.")
+                            _update_job(session, job, status=JobStatus.DOWNLOADING, source_indexer="radarr", error_msg=None)
+                            return
+            except Exception as e:
+                logger.warning(f"Failed to check Radarr queue for active downloads: {e}")
+
         # ── Step 2: Check digital release date ──────────────────────────────
         try:
             passed, release_msg = await tmdb.has_digital_release_passed(tmdb_id, settings)

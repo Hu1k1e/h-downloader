@@ -144,6 +144,7 @@ class AppSettings(SQLModel, table=True):
     max_file_size_mb: int = Field(default=15000)
     
     enable_jellyseerr_auto_request: bool = Field(default=True)
+    enable_radarr_auto_search: bool = Field(default=True)
 
 class AppSettingsRead(SQLModel):
     radarr_url: str
@@ -171,6 +172,7 @@ class AppSettingsRead(SQLModel):
     max_file_size_mb: int
     
     enable_jellyseerr_auto_request: bool
+    enable_radarr_auto_search: bool
 
 
 class AppSettingsUpdate(SQLModel):
@@ -201,4 +203,5 @@ class AppSettingsUpdate(SQLModel):
     max_file_size_mb: Optional[int] = None
     
     enable_jellyseerr_auto_request: Optional[bool] = None
+    enable_radarr_auto_search: Optional[bool] = None
 

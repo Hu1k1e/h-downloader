@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from datetime import datetime
 from typing import Optional
 from sqlmodel import Session, select
 from backend.database import engine, get_settings
@@ -100,6 +101,19 @@ async def active_job_tracker_loop():
                                     if radarr_movie.get("hasFile"):
                                         job.file_path = radarr_movie.get("movieFile", {}).get("path")
                                     session.add(job)
+                                elif tracked in ("warning", "error"):
+                                    # get_movie_queue_status returns healthy items first;
+                                    # if the returned item is in error/warning, ALL queue items are failed.
+                                    # Trigger fallback search via our own sources.
+                                    from backend.db_logger import log_action
+                                    logger.warning(f"All Radarr downloads for '{job.title}' are in '{tracked}' state. Triggering fallback search.")
+                                    log_action("System", f"All Radarr downloads failed for '{job.title}' (status: {tracked}). Triggering fallback.", tmdb_id=job.tmdb_id, job_id=job.id)
+                                    job.status = JobStatus.MOVIE_MISSING
+                                    job.source_indexer = None
+                                    job.progress_pct = 0
+                                    session.add(job)
+                                    session.commit()
+                                    asyncio.create_task(process_request(job.tmdb_id, job.language, auto_download=True))
                                 else:
                                     sizeleft = queue_item.get("sizeleft", 0)
                                     size = queue_item.get("size", 0)
@@ -256,8 +270,11 @@ async def active_job_tracker_loop():
                             if tmdb_id and tmdb_id in job_by_tmdb:
                                 j = job_by_tmdb[tmdb_id]
                                 status = q.get("status", "").lower()
+                                tracked_status = q.get("trackedDownloadStatus", "").lower()
                                 
-                                if status != "completed":
+                                # Only re-sync healthy queue items — skip error/warning ones
+                                # to prevent re-promoting failed Radarr downloads back to DOWNLOADING
+                                if status != "completed" and tracked_status not in ("warning", "error"):
                                     logger.info(f"Discovered un-tracked Radarr native download for '{j.title}'. Bringing into Active Downloads.")
                                     j.status = JobStatus.DOWNLOADING
                                     j.source_indexer = "radarr"
@@ -307,7 +324,7 @@ async def run_discovery_batch(batch_size: int) -> int:
     with Session(engine) as session:
         jobs = session.exec(
             select(DownloadJob)
-            .where(DownloadJob.status.in_([JobStatus.MOVIE_MISSING, JobStatus.SKIPPED, JobStatus.NOT_FOUND]))
+            .where(DownloadJob.status.in_([JobStatus.MOVIE_MISSING, JobStatus.SKIPPED, JobStatus.NOT_FOUND, JobStatus.FAILED]))
             .order_by(DownloadJob.updated_at.asc())
             .limit(batch_size)
         ).all()
@@ -370,8 +387,29 @@ async def radarr_state_sync_loop():
                 radarr_map = {m["tmdbId"]: m for m in all_radarr_movies if "tmdbId" in m}
                 
                 all_jobs = session.exec(select(DownloadJob)).all()
+                job_map = {job.tmdb_id: job for job in all_jobs if job.tmdb_id}
+                
                 deleted_count = 0
                 completed_count = 0
+                added_count = 0
+                reverted_count = 0
+                
+                # Loophole 1 Fix: Discover movies in Radarr that are missing from our DB
+                # This catches movies added manually or when the app was offline/restarting
+                for tmdb_id, radarr_movie in radarr_map.items():
+                    if tmdb_id not in job_map:
+                        # Only add if it's monitored and missing a file in Radarr
+                        if radarr_movie.get("monitored", False) and not radarr_movie.get("hasFile", False):
+                            title = radarr_movie.get("title", f"TMDB:{tmdb_id}")
+                            new_job = DownloadJob(
+                                tmdb_id=tmdb_id,
+                                title=title,
+                                status=JobStatus.MOVIE_MISSING,
+                                monitored=True
+                            )
+                            session.add(new_job)
+                            job_map[tmdb_id] = new_job
+                            added_count += 1
                 
                 for job in all_jobs:
                     if job.status in (JobStatus.SEARCHING, JobStatus.IMPORTING) or (job.status == JobStatus.DOWNLOADING and job.source_indexer != "radarr"):
@@ -401,11 +439,19 @@ async def radarr_state_sync_loop():
                             job.file_path = path
                             session.add(job)
                             completed_count += 1
+                    else:
+                        # Loophole 2 Fix: Movie file was deleted in Radarr, but we still think it's DONE
+                        if job.status == JobStatus.DONE and monitored_in_radarr:
+                            job.status = JobStatus.MOVIE_MISSING
+                            job.progress_pct = 0
+                            job.file_path = None
+                            session.add(job)
+                            reverted_count += 1
                         
                 session.commit()
                 # Don't log every 10 seconds unless there's a change to avoid log spam
-                if deleted_count > 0 or completed_count > 0:
-                    logger.info(f"Radarr state sync: Marked {deleted_count} as NOT_IN_RADARR, marked {completed_count} as DONE/Updated.")
+                if deleted_count > 0 or completed_count > 0 or added_count > 0 or reverted_count > 0:
+                    logger.info(f"Radarr state sync: {added_count} added, {deleted_count} removed, {completed_count} marked DONE, {reverted_count} reverted to MISSING.")
                     
         except Exception as e:
             logger.error(f"Error in radarr_state_sync_loop: {e}")

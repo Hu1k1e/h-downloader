@@ -118,6 +118,7 @@ async def radarr_webhook(
 
     if event_type == "MovieAdded":
         if not job:
+            mapped_lang = None
             if settings.tmdb_api_key:
                 try:
                     details = await get_movie_details(tmdb_id, settings)

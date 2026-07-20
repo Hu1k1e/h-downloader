@@ -1228,3 +1228,27 @@ A movie ('Mollywood Times') was added to Radarr on June 12 but the app never sea
 - `backend/orchestrator.py`
 - `backend/routers/webhook.py`
 - `project_specs.md`
+
+
+---
+
+## [2026-07-20] Auto-Download Workflow Fixes & Sync Loopholes Patched
+
+**Problem:**
+Several movies (e.g. Thira, Naradan, Vodka Diaries) failed to trigger auto-downloads despite Radarr grabs failing. Radarr would indefinitely cycle through grabs, or the download would sit in a Warning/Error state without our platform falling back to custom sources. Furthermore, the discovery_tracker_loop was silently crashing due to a missing import, and two major sync loopholes allowed movies to be permanently ignored if they were added while the app was offline or deleted from Radarr after completing.
+
+**Changes made:**
+- **Error State Detection:** Modified active_job_tracker_loop in backend/sync.py to trigger an immediate fallback search if all Radarr queue items for a movie enter a warning or error state.
+- **Dual Download Prevention:** Added a check in orchestrator.py (_run_pipeline) to defer to Radarr if Radarr actively has a healthy (non-error) download, preventing both systems from downloading the same movie simultaneously.
+- **Discovery Loop Fixes:** Added missing datetime import to backend/sync.py to prevent silent crashes, and added JobStatus.FAILED to the discovery loop query so failed jobs get retried.
+- **Sync Loopholes Patched:** Modified radarr_state_sync_loop in backend/sync.py to actively cross-reference Radarrs library. It now creates a MOVIE_MISSING job for any monitored Radarr movie missing a file that isnt in our DB, and it reverts DONE jobs back to MOVIE_MISSING if their file gets deleted from Radarr.
+- **Model and Config Consistency:** Added the missing enable_radarr_auto_search field to the AppSettings SQLModel schemas in backend/models.py and exposed it via the settings API in backend/routers/settings.py.
+- **Variable Scope Crash Fix:** Fixed an undefined mapped_lang variable scope crash in the MovieAdded webhook handler (backend/routers/webhook.py).
+
+**Files changed:**
+- backend/sync.py
+- backend/orchestrator.py
+- backend/models.py
+- backend/routers/webhook.py
+- backend/routers/settings.py
+
