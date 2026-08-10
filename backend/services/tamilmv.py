@@ -32,8 +32,12 @@ async def search_movie(title: str, year: int, domain: str, langs: list[str] = No
             response = await client.get(search_url, params=params, headers=headers)
             response.raise_for_status()
             
-            data = response.json()
-            results = data.get("results", [])
+            try:
+                data = response.json()
+                results = data.get("results", [])
+            except ValueError:
+                logger.error(f"1TamilMV search returned non-JSON response: {response.text[:200]}...")
+                return None
             
             valid_links = []
             for item in results:

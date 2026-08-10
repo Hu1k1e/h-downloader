@@ -684,6 +684,88 @@ async def trigger_import_radarr(background_tasks: BackgroundTasks, session: Sess
     return {"status": "success", "imported": imported_count, "deleted": deleted_count}
 
 
+@router.post("/jobs/import-sonarr")
+async def trigger_import_sonarr(background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
+    """Import all series from Sonarr to ensure they are tracked as jobs."""
+    settings = get_settings(session)
+    if not settings.sonarr_api_key:
+        raise HTTPException(status_code=400, detail="Sonarr API key is not configured.")
+
+    try:
+        series_list = await sonarr_svc.get_all_series(settings)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to fetch series from Sonarr: {e}")
+
+    imported_count = 0
+    to_trigger = []
+
+    for series in series_list:
+        tvdb_id = series.get("tvdbId")
+        if not tvdb_id:
+            continue
+            
+        series_id = series.get("id")
+        title = series.get("title", "Unknown")
+
+        try:
+            episodes = await sonarr_svc.get_episodes(series_id, settings)
+        except Exception:
+            continue
+
+        for ep in episodes:
+            s_num = ep.get("seasonNumber")
+            e_num = ep.get("episodeNumber")
+            has_file = ep.get("hasFile", False)
+            monitored = ep.get("monitored", False)
+
+            if not monitored and not has_file:
+                continue
+
+            existing_job = session.exec(select(DownloadJob).where(
+                DownloadJob.media_type == "tv",
+                DownloadJob.tvdb_id == tvdb_id,
+                DownloadJob.season_number == s_num,
+                DownloadJob.episode_number == e_num
+            )).first()
+
+            if existing_job:
+                updated = False
+                if existing_job.status == JobStatus.PENDING and not has_file:
+                    existing_job.status = JobStatus.MOVIE_MISSING
+                    updated = True
+                if updated:
+                    session.add(existing_job)
+                    imported_count += 1
+                continue
+
+            ep_title = f"{title} S{s_num:02d}E{e_num:02d}"
+            new_job = DownloadJob(
+                media_type="tv",
+                tmdb_id=0,
+                tvdb_id=tvdb_id,
+                season_number=s_num,
+                episode_number=e_num,
+                title=ep_title,
+                monitored=monitored,
+                status=JobStatus.DONE if has_file else JobStatus.MOVIE_MISSING
+            )
+            session.add(new_job)
+            imported_count += 1
+            if new_job.status == JobStatus.MOVIE_MISSING:
+                to_trigger.append(new_job)
+
+    if imported_count > 0:
+        session.commit()
+        from backend.db_logger import log_action
+        log_action("Import", f"Manual Sonarr import completed. Imported/updated {imported_count} episodes.")
+
+    for job in to_trigger:
+        # Trigger background search for missing episodes
+        background_tasks.add_task(process_request, job.id, auto_download=True)
+
+    return {"status": "success", "imported": imported_count}
+
+
 @router.post("/jobs/discovery")
 async def trigger_discovery(session: Session = Depends(get_session)):
     """Manually trigger a background discovery batch."""

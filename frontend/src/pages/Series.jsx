@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import { formatETA } from '../components/ui'
+import TriggerModal from '../components/TriggerModal'
 
 const STATUS_COLOR = {
     done: 'var(--success)',
@@ -343,6 +344,21 @@ export default function Series() {
     }
     const [selectedMovie, setSelectedMovie] = useState(null)
     const [settings, setSettings] = useState(null)
+    const [showTriggerModal, setShowTriggerModal] = useState(false)
+
+    const handleImportList = async () => {
+        if (!confirm('This will import all monitored series from Sonarr. Continue?')) return
+        setIsTriggering(true)
+        try {
+            const res = await api.importSonarr()
+            alert(`Imported/updated ${res.imported} episodes successfully!`)
+            fetchMovies()
+        } catch (err) {
+            alert(`Error: ${err.message}`)
+        } finally {
+            setIsTriggering(false)
+        }
+    }
 
     const fetchMovies = async () => {
         try {
@@ -453,6 +469,7 @@ export default function Series() {
     return (
         <div className="main-content">
             {selectedMovie && <MovieModal movie={movies.find(m => m.id === selectedMovie.id) || selectedMovie} onClose={() => setSelectedMovie(null)} onTrigger={triggerJob} onSync={syncMovie} settings={settings} onImportUrl={handleImportUrl} />}
+            {showTriggerModal && <TriggerModal onClose={() => setShowTriggerModal(false)} onSuccess={fetchMovies} />}
             
             {/* Header */}
             <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -461,7 +478,7 @@ export default function Series() {
                     <p className="page-subtitle">{movies.length} tracked jobs</p>
                 </div>
                 <div style={{ display: 'flex', gap: '10px' }}>
-                    <button className="btn btn-secondary" onClick={() => setShowBatchModal(true)}>
+                    <button className="btn btn-secondary" onClick={handleImportList} disabled={isTriggering}>
                         Import List
                     </button>
                     <button className="btn btn-secondary" onClick={syncAll} disabled={isTriggering}>
