@@ -39,8 +39,8 @@ def list_jobs(
         query = query.where(DownloadJob.status == status)
     if language:
         query = query.where(DownloadJob.language == language)
-    elif configured_langs:
-        # Only show languages that have been ticked in settings
+    elif configured_langs and media_type != "tv":
+        # Only show languages that have been ticked in settings (for movies)
         query = query.where(DownloadJob.language.in_(configured_langs))
         
     if media_type:
@@ -539,7 +539,7 @@ async def sync_all_jobs(background_tasks: BackgroundTasks, session: Session = De
         raise HTTPException(status_code=502, detail=f"Failed to fetch movies from Radarr: {e}")
         
     radarr_map = {m["tmdbId"]: m for m in all_radarr_movies if "tmdbId" in m}
-    all_jobs = session.exec(select(DownloadJob)).all()
+    all_jobs = session.exec(select(DownloadJob).where(DownloadJob.media_type == "movie")).all()
     
     updated_count = 0
     deleted_count = 0
