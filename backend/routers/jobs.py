@@ -398,7 +398,7 @@ async def trigger_download(req: TriggerRequest, background_tasks: BackgroundTask
             if not job:
                 title = f"{series.get('title', 'Unknown')} S{s_num:02d}E{e_num:02d}"
                 job = DownloadJob(
-                    media_type="tv", tvdb_id=tvdb_id, season_number=s_num, episode_number=e_num,
+                    media_type="tv", tmdb_id=0, tvdb_id=tvdb_id, season_number=s_num, episode_number=e_num,
                     title=title, status=JobStatus.MOVIE_MISSING, monitored=True
                 )
                 session.add(job)

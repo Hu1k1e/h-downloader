@@ -79,6 +79,14 @@ def init_db():
                 conn.execute(text("ALTER TABLE downloadjob ADD COLUMN season_number INTEGER"))
             if dj_result and "episode_number" not in dj_columns:
                 conn.execute(text("ALTER TABLE downloadjob ADD COLUMN episode_number INTEGER"))
+                
+            # Auto-migrate LogEntry table
+            le_result = conn.execute(text("PRAGMA table_info(logentry)")).fetchall()
+            le_columns = [row[1] for row in le_result]
+            if le_result and "tvdb_id" not in le_columns:
+                conn.execute(text("ALTER TABLE logentry ADD COLUMN tvdb_id INTEGER"))
+            if le_result and "job_id" not in le_columns:
+                conn.execute(text("ALTER TABLE logentry ADD COLUMN job_id INTEGER"))
     except Exception as e:
         import logging
         logging.getLogger(__name__).warning(f"Auto-migration failed: {e}")

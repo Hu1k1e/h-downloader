@@ -5,7 +5,7 @@ from backend.database import engine
 
 logger = logging.getLogger(__name__)
 
-def log_action(action: str, message: str, level: LogLevel = LogLevel.INFO, tmdb_id: int = None, job_id: int = None):
+def log_action(action: str, message: str, level: LogLevel = LogLevel.INFO, tmdb_id: int = None, tvdb_id: int = None, job_id: int = None):
     """
     Logs an action to the database and standard console logger.
     """
@@ -25,6 +25,7 @@ def log_action(action: str, message: str, level: LogLevel = LogLevel.INFO, tmdb_
                 action=action,
                 message=message,
                 tmdb_id=tmdb_id,
+                tvdb_id=tvdb_id,
                 job_id=job_id
             )
             session.add(entry)

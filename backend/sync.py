@@ -599,6 +599,7 @@ async def sonarr_state_sync_loop():
                                 title = f"{series.get('title', 'Unknown')} S{s_num:02d}E{e_num:02d}"
                                 new_job = DownloadJob(
                                     media_type="tv",
+                                    tmdb_id=0,
                                     tvdb_id=tvdb_id,
                                     season_number=s_num,
                                     episode_number=e_num,
