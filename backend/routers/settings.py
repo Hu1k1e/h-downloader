@@ -20,6 +20,9 @@ def get_current_settings(session: Session = Depends(get_session)):
         radarr_url=settings.radarr_url,
         radarr_root_folder=settings.radarr_root_folder,
         radarr_api_key_set=bool(settings.radarr_api_key),
+        sonarr_url=settings.sonarr_url,
+        sonarr_root_folder=settings.sonarr_root_folder,
+        sonarr_api_key_set=bool(settings.sonarr_api_key),
         jellyseerr_url=settings.jellyseerr_url,
         jellyseerr_api_key_set=bool(settings.jellyseerr_api_key),
         tmdb_api_key_set=bool(settings.tmdb_api_key),
@@ -30,7 +33,8 @@ def get_current_settings(session: Session = Depends(get_session)):
         missing_search_batch_size=settings.missing_search_batch_size,
         app_version=config.APP_VERSION,
         webhook_url_hint="/webhook/jellyseerr",
-        download_sources_priority=[s.strip() for s in settings.download_sources_priority.split(",") if s.strip()],
+        movie_download_sources_priority=[s.strip() for s in settings.movie_download_sources_priority.split(",") if s.strip()],
+        tv_download_sources_priority=[s.strip() for s in settings.tv_download_sources_priority.split(",") if s.strip()],
         qbittorrent_url=settings.qbittorrent_url,
         qbittorrent_username=settings.qbittorrent_username,
         qbittorrent_category_movies=settings.qbittorrent_category_movies,
@@ -41,6 +45,7 @@ def get_current_settings(session: Session = Depends(get_session)):
         max_file_size_mb=settings.max_file_size_mb,
         enable_jellyseerr_auto_request=settings.enable_jellyseerr_auto_request,
         enable_radarr_auto_search=settings.enable_radarr_auto_search,
+        enable_sonarr_auto_search=settings.enable_sonarr_auto_search,
     )
 
 
@@ -55,6 +60,13 @@ def update_settings(update_data: AppSettingsUpdate, session: Session = Depends(g
     if update_data.radarr_api_key is not None and update_data.radarr_api_key != "":
         settings.radarr_api_key = update_data.radarr_api_key
         
+    if update_data.sonarr_url is not None:
+        settings.sonarr_url = update_data.sonarr_url
+    if update_data.sonarr_root_folder is not None:
+        settings.sonarr_root_folder = update_data.sonarr_root_folder
+    if update_data.sonarr_api_key is not None and update_data.sonarr_api_key != "":
+        settings.sonarr_api_key = update_data.sonarr_api_key
+        
     if update_data.jellyseerr_url is not None:
         settings.jellyseerr_url = update_data.jellyseerr_url
     if update_data.jellyseerr_api_key is not None and update_data.jellyseerr_api_key != "":
@@ -66,8 +78,11 @@ def update_settings(update_data: AppSettingsUpdate, session: Session = Depends(g
     if update_data.search_delay_seconds is not None:
         settings.search_delay_seconds = max(0, update_data.search_delay_seconds)
         
-    if update_data.download_sources_priority is not None:
-        settings.download_sources_priority = ",".join(update_data.download_sources_priority)
+    if update_data.movie_download_sources_priority is not None:
+        settings.movie_download_sources_priority = ",".join(update_data.movie_download_sources_priority)
+        
+    if update_data.tv_download_sources_priority is not None:
+        settings.tv_download_sources_priority = ",".join(update_data.tv_download_sources_priority)
         
     if update_data.einthusan_languages is not None:
         settings.einthusan_languages_str = ",".join(update_data.einthusan_languages)
@@ -81,8 +96,8 @@ def update_settings(update_data: AppSettingsUpdate, session: Session = Depends(g
     if update_data.missing_search_batch_size is not None:
         settings.missing_search_batch_size = max(1, update_data.missing_search_batch_size)
 
-    if update_data.download_sources_priority is not None:
-        settings.download_sources_priority = ",".join(update_data.download_sources_priority)
+    if update_data.missing_search_batch_size is not None:
+        settings.missing_search_batch_size = max(1, update_data.missing_search_batch_size)
         
     if update_data.qbittorrent_url is not None:
         settings.qbittorrent_url = update_data.qbittorrent_url
@@ -106,6 +121,8 @@ def update_settings(update_data: AppSettingsUpdate, session: Session = Depends(g
         settings.enable_jellyseerr_auto_request = update_data.enable_jellyseerr_auto_request
     if update_data.enable_radarr_auto_search is not None:
         settings.enable_radarr_auto_search = update_data.enable_radarr_auto_search
+    if update_data.enable_sonarr_auto_search is not None:
+        settings.enable_sonarr_auto_search = update_data.enable_sonarr_auto_search
         
     session.add(settings)
     session.commit()

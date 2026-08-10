@@ -52,6 +52,7 @@ export const api = {
     getSettings: () => request('/api/settings'),
     updateSettings: (data) => request('/api/settings', { method: 'POST', body: data }),
     testRadarr: () => request('/api/test/radarr'),
+    testSonarr: () => request('/api/test/sonarr'),
     testTmdb: () => request('/api/test/tmdb'),
     importRadarr: () => request('/api/jobs/import-radarr', { method: 'POST' }),
     testQbittorrent: (data) => request('/api/settings/test-qbittorrent', { method: 'POST', body: data }),

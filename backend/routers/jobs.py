@@ -14,6 +14,7 @@ from backend.services import radarr as radarr_svc
 from backend.services import tmdb as tmdb_svc
 from backend import config
 from backend.services import qbittorrent
+from backend.services import sonarr as sonarr_svc
 from backend.sync import delayed_search
 from backend.db_logger import log_action
 
@@ -25,6 +26,7 @@ router = APIRouter(prefix="/api", tags=["jobs"])
 def list_jobs(
     status: Optional[str] = None,
     language: Optional[str] = None,
+    media_type: Optional[str] = None,
     limit: int = 10000,
     offset: int = 0,
     session: Session = Depends(get_session),
@@ -40,6 +42,9 @@ def list_jobs(
     elif configured_langs:
         # Only show languages that have been ticked in settings
         query = query.where(DownloadJob.language.in_(configured_langs))
+        
+    if media_type:
+        query = query.where(DownloadJob.media_type == media_type)
         
     query = query.offset(offset).limit(limit)
     return session.exec(query).all()
@@ -321,22 +326,97 @@ def get_stats(session: Session = Depends(get_session)):
 
 # ── Manual trigger ───────────────────────────────────────────────────────────
 
+
 class TriggerRequest(BaseModel):
+    media_type: str = "movie"
     tmdb_id: Optional[int] = None
+    tvdb_id: Optional[int] = None
+    season_number: Optional[int] = None
+    episode_number: Optional[int] = None
     title: Optional[str] = None
     language: Optional[str] = None
     indexer: Optional[str] = None
 
 
+
 @router.post("/jobs/trigger")
 async def trigger_download(req: TriggerRequest, background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
+    settings = get_settings(session)
+    
+    if req.media_type == "tv":
+        if not req.tvdb_id and not req.title:
+            raise HTTPException(status_code=400, detail="Provide tvdb_id or title for TV Show")
+        if req.season_number is None:
+            raise HTTPException(status_code=400, detail="Season number is required for TV Shows")
+            
+        tvdb_id = req.tvdb_id
+        if not tvdb_id:
+            try:
+                import httpx
+                async with httpx.AsyncClient(timeout=10) as client:
+                    resp = await client.get(
+                        f"{settings.sonarr_url}/api/v3/series/lookup",
+                        params={"term": req.title},
+                        headers={"X-Api-Key": settings.sonarr_api_key}
+                    )
+                    resp.raise_for_status()
+                    results = resp.json()
+                    if not results:
+                        raise HTTPException(status_code=404, detail=f"No Sonarr results for '{req.title}'")
+                    tvdb_id = results[0]["tvdbId"]
+            except Exception as e:
+                raise HTTPException(status_code=502, detail=f"Sonarr search failed: {e}")
+                
+        try:
+            series = await sonarr_svc.ensure_series_added(tvdb_id, req.title or "Unknown", settings)
+            episodes = await sonarr_svc.get_episodes(series["id"], settings)
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Failed to setup series in Sonarr: {e}")
+            
+        episodes_to_dl = []
+        if req.episode_number is not None:
+            ep = next((e for e in episodes if e.get("seasonNumber") == req.season_number and e.get("episodeNumber") == req.episode_number), None)
+            if ep: episodes_to_dl.append(ep)
+        else:
+            episodes_to_dl = [e for e in episodes if e.get("seasonNumber") == req.season_number]
+            
+        if not episodes_to_dl:
+            raise HTTPException(status_code=404, detail="No episodes found for specified season/episode")
+            
+        triggered = 0
+        for ep in episodes_to_dl:
+            s_num = ep.get("seasonNumber")
+            e_num = ep.get("episodeNumber")
+            
+            job = session.exec(select(DownloadJob).where(
+                DownloadJob.media_type == "tv",
+                DownloadJob.tvdb_id == tvdb_id,
+                DownloadJob.season_number == s_num,
+                DownloadJob.episode_number == e_num
+            )).first()
+            
+            if not job:
+                title = f"{series.get('title', 'Unknown')} S{s_num:02d}E{e_num:02d}"
+                job = DownloadJob(
+                    media_type="tv", tvdb_id=tvdb_id, season_number=s_num, episode_number=e_num,
+                    title=title, status=JobStatus.MOVIE_MISSING, monitored=True
+                )
+                session.add(job)
+                session.commit()
+                session.refresh(job)
+                
+            background_tasks.add_task(process_request, job.id, auto_download=True, indexer=req.indexer)
+            triggered += 1
+            
+        log_action("Manual", f"Triggered {triggered} TV episodes for tvdb_id={tvdb_id} season={req.season_number}", tvdb_id=tvdb_id)
+        return {"status": "accepted", "tvdb_id": tvdb_id, "triggered": triggered}
+
+    # Movie logic
     if not req.tmdb_id and not req.title:
         raise HTTPException(status_code=400, detail="Provide tmdb_id or title")
 
-    settings = get_settings(session)
     tmdb_id = req.tmdb_id
 
-    # If no TMDB ID, search TMDB by title
     if not tmdb_id and req.title:
         if not settings.tmdb_api_key:
             raise HTTPException(status_code=400, detail="TMDB API key is not configured. Please go to Settings and save your TMDB API key first.")
@@ -359,9 +439,16 @@ async def trigger_download(req: TriggerRequest, background_tasks: BackgroundTask
             raise HTTPException(status_code=404, detail=f"No TMDB results for '{req.title}'")
         tmdb_id = results[0]["id"]
 
-    log_action("Manual", f"Manual search triggered for tmdb_id={tmdb_id} (language={req.language}, indexer={req.indexer})", tmdb_id=tmdb_id)
-    background_tasks.add_task(process_request, tmdb_id, req.language, auto_download=True, indexer=req.indexer)
-    return {"status": "accepted", "tmdb_id": tmdb_id}
+    job = session.exec(select(DownloadJob).where(DownloadJob.tmdb_id == tmdb_id, DownloadJob.media_type == "movie")).first()
+    if not job:
+        job = DownloadJob(media_type="movie", tmdb_id=tmdb_id, title=req.title or f"TMDB:{tmdb_id}", status=JobStatus.MOVIE_MISSING, language=req.language)
+        session.add(job)
+        session.commit()
+        session.refresh(job)
+
+    log_action("Manual", f"Manual search triggered for tmdb_id={tmdb_id} (language={req.language}, indexer={req.indexer})", tmdb_id=tmdb_id, job_id=job.id)
+    background_tasks.add_task(process_request, job.id, auto_download=True, indexer=req.indexer)
+    return {"status": "accepted", "tmdb_id": tmdb_id, "job_id": job.id}
 
 @router.post("/jobs/trigger-monitored")
 async def trigger_all_monitored(background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
@@ -371,7 +458,7 @@ async def trigger_all_monitored(background_tasks: BackgroundTasks, session: Sess
     for job in jobs:
         # Avoid re-triggering jobs that are already actively processing
         if job.status not in (JobStatus.DOWNLOADING, JobStatus.SEARCHING, JobStatus.IMPORTING):
-             background_tasks.add_task(process_request, job.tmdb_id, job.language)
+             background_tasks.add_task(process_request, job.id)
              triggered += 1
     
     log_action("Manual", f"Bulk trigger: {triggered} monitored jobs queued for search")
@@ -384,7 +471,7 @@ async def trigger_missing(background_tasks: BackgroundTasks, session: Session = 
     triggered = 0
     for job in jobs:
         if job.status not in (JobStatus.DOWNLOADING, JobStatus.SEARCHING, JobStatus.IMPORTING):
-             background_tasks.add_task(process_request, job.tmdb_id, job.language)
+             background_tasks.add_task(process_request, job.id)
              triggered += 1
     
     log_action("Manual", f"Bulk trigger: {triggered} missing jobs queued for search")
@@ -404,7 +491,7 @@ async def retry_job(job_id: int, background_tasks: BackgroundTasks, session: Ses
     session.commit()
     
     log_action("Manual", f"Retrying job for '{job.title}'", tmdb_id=job.tmdb_id, job_id=job.id)
-    background_tasks.add_task(process_request, job.tmdb_id, job.language)
+    background_tasks.add_task(process_request, job.id)
     return {"status": "retrying", "tmdb_id": job.tmdb_id}
 
 
@@ -607,6 +694,16 @@ async def trigger_discovery(session: Session = Depends(get_session)):
 
 
 # ── Connection tests ─────────────────────────────────────────────────────────
+
+
+@router.get("/test/sonarr")
+async def test_sonarr(session: Session = Depends(get_session)):
+    settings = get_settings(session)
+    try:
+        result = await sonarr_svc.test_connection(settings)
+        return {"status": "ok", "version": result.get("version")}
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=str(e))
 
 @router.get("/test/radarr")
 async def test_radarr(session: Session = Depends(get_session)):

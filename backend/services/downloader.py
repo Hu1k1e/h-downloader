@@ -109,3 +109,55 @@ async def download_movie(
     finally:
         ACTIVE_DIRECT_DOWNLOADS.discard(job_id)
 
+
+async def download_m3u8(
+    job_id: int, url: str, referer: str, dest_path: str, session: Session
+) -> bool:
+    """
+    Downloads an HLS stream (.m3u8) to MP4 using ffmpeg.
+    """
+    logger.info(f"Starting m3u8 ffmpeg download to {dest_path}")
+    ACTIVE_DIRECT_DOWNLOADS.add(job_id)
+    try:
+        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+        
+        # We don't easily know total duration, so we will just show 'Downloading...' with 50% progress
+        # to indicate it's active.
+        _update_job_progress(session, job_id, 0, 0, 50, status=JobStatus.DOWNLOADING)
+        
+        headers_arg = f"Referer: {referer}\r\nUser-Agent: {_HEADERS['User-Agent']}\r\n"
+        
+        cmd = [
+            "ffmpeg",
+            "-y", # Overwrite output files
+            "-headers", headers_arg,
+            "-i", url,
+            "-c", "copy",
+            "-bsf:a", "aac_adtstoasc",
+            dest_path
+        ]
+        
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        
+        stdout, stderr = await process.communicate()
+        
+        if process.returncode != 0:
+            logger.error(f"ffmpeg failed with code {process.returncode}: {stderr.decode('utf-8', errors='ignore')}")
+            raise Exception("FFMPEG download failed")
+            
+        logger.info(f"Finished m3u8 download for Job {job_id}")
+        _update_job_progress(session, job_id, 0, 0, 100, status=JobStatus.DOWNLOADING)
+        return True
+
+    except Exception as e:
+        logger.error(f"M3U8 Download error for Job {job_id}: {e}")
+        _update_job_progress(session, job_id, 0, 0, 0, status=JobStatus.FAILED, error=str(e))
+        if os.path.exists(dest_path):
+            os.remove(dest_path)
+        return False
+    finally:
+        ACTIVE_DIRECT_DOWNLOADS.discard(job_id)

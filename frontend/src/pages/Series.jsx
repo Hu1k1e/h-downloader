@@ -289,7 +289,14 @@ function PosterCard({ movie, onTrigger, onDelete, onSelect, onToggleMonitor }) {
             </div>
 
             <div className="poster-info">
-                <div className="poster-title" title={movie.title}>{movie.title}</div>
+                <div className="poster-title" title={movie.title}>
+                    {movie.title}
+                    {movie.season_number !== null && (
+                        <div style={{fontSize: 11, color: 'var(--text-muted)'}}>
+                            S{String(movie.season_number).padStart(2, '0')}E{String(movie.episode_number).padStart(2, '0')}
+                        </div>
+                    )}
+                </div>
                 <div className="poster-meta">
                     {movie.year && <span>{movie.year}</span>}
                     {movie.language && (
@@ -321,7 +328,7 @@ function PosterCard({ movie, onTrigger, onDelete, onSelect, onToggleMonitor }) {
     )
 }
 
-export default function Movies() {
+export default function Series() {
     const [movies, setMovies] = useState([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState(null)
@@ -339,7 +346,7 @@ export default function Movies() {
 
     const fetchMovies = async () => {
         try {
-            const res = await fetch('/api/jobs?media_type=movie')
+            const res = await fetch('/api/jobs?media_type=tv')
             if (!res.ok) throw new Error('Failed to fetch movies')
             const data = await res.json()
             setMovies(data)
@@ -358,10 +365,10 @@ export default function Movies() {
         return () => clearInterval(interval)
     }, [])
 
-    const triggerMonitored = async () => {
+    const triggerMonitoredTV = async () => {
         setIsTriggering(true)
         try {
-            await api.triggerMonitored()
+            await api.triggerMonitoredTV()
             fetchMovies()
         } catch (err) { console.error(err) }
         finally { setIsTriggering(false) }
@@ -402,6 +409,7 @@ export default function Movies() {
         finally { setIsTriggering(false) }
     }
 
+    
     const triggerJob = async (movie, indexer = null) => {
         if ((movie.status || '').toLowerCase() === 'discovered' && !indexer) {
             try {
@@ -415,13 +423,19 @@ export default function Movies() {
             await fetch('/api/jobs/trigger', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ tmdb_id: movie.tmdb_id, language: movie.language, indexer })
+                body: JSON.stringify({
+                    media_type: 'tv',
+                    tvdb_id: movie.tvdb_id,
+                    season_number: movie.season_number,
+                    episode_number: movie.episode_number,
+                    indexer
+                })
             })
             fetchMovies()
         } catch (err) { console.error(err) }
         
         if (indexer) {
-            setSelectedMovie(null) // close modal after manual trigger
+            setSelectedMovie(null)
         }
     }
 
@@ -453,7 +467,7 @@ export default function Movies() {
                     <button className="btn btn-secondary" onClick={syncAll} disabled={isTriggering}>
                         {isTriggering ? 'Syncing...' : '↻ Sync All'}
                     </button>
-                    <button className="btn btn-primary" onClick={triggerMonitored} disabled={isTriggering || movies.length === 0}>
+                    <button className="btn btn-primary" onClick={triggerMonitoredTV} disabled={isTriggering || movies.length === 0}>
                         {isTriggering ? 'Triggering...' : 'Trigger Monitored'}
                     </button>
                     <button className="btn btn-primary" onClick={() => setShowTriggerModal(true)}>

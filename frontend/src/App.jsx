@@ -1,6 +1,7 @@
 import { Routes, Route, NavLink, Navigate } from 'react-router-dom'
 import Dashboard from './pages/Dashboard'
 import Movies from './pages/Movies'
+import Series from './pages/Series'
 import Settings from './pages/Settings'
 import Logs from './pages/Logs'
 
@@ -23,6 +24,10 @@ function Sidebar() {
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="15" rx="2" ry="2"></rect><polyline points="17 2 12 7 7 2"></polyline></svg>
                     Movies
                 </NavLink>
+                <NavLink to="/series" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="15" rx="2" ry="2"></rect><polyline points="17 2 12 7 7 2"></polyline></svg>
+                    TV Shows
+                </NavLink>
                 <NavLink to="/logs" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
                     System Logs
@@ -42,7 +47,8 @@ function App() {
             <Sidebar />
             <Routes>
                 <Route path="/dashboard" element={<Dashboard />} />
-                <Route path="/movies" element={<Movies />} />
+                                <Route path="/movies" element={<Movies />} />
+                <Route path="/series" element={<Series />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/logs" element={<Logs />} />
                 <Route path="*" element={<Navigate to="/dashboard" replace />} />

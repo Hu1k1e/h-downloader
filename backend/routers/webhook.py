@@ -25,6 +25,7 @@ class JellyseerrPayload(BaseModel):
     notification_type: Optional[str] = None
     media_type: Optional[str] = None
     tmdbId: Optional[str] = None
+    tvdbId: Optional[str] = None
     title: Optional[str] = None
 
 class RadarrMoviePayload(BaseModel):
@@ -34,6 +35,21 @@ class RadarrMoviePayload(BaseModel):
 class RadarrPayload(BaseModel):
     eventType: Optional[str] = None
     movie: Optional[RadarrMoviePayload] = None
+
+class SonarrSeriesPayload(BaseModel):
+    tvdbId: Optional[int] = None
+    title: Optional[str] = None
+
+class SonarrEpisodePayload(BaseModel):
+    id: Optional[int] = None
+    title: Optional[str] = None
+    seasonNumber: Optional[int] = None
+    episodeNumber: Optional[int] = None
+
+class SonarrPayload(BaseModel):
+    eventType: Optional[str] = None
+    series: Optional[SonarrSeriesPayload] = None
+    episodes: Optional[list[SonarrEpisodePayload]] = None
 
 
 @router.post("/jellyseerr")
@@ -66,9 +82,9 @@ async def jellyseerr_webhook(
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
 
-    # Only handle movie requests
-    if payload.media_type and payload.media_type.lower() != "movie":
-        return {"status": "skipped", "reason": "not a movie"}
+    # Handle movie and tv requests
+    if payload.media_type and payload.media_type.lower() not in ("movie", "tv"):
+        return {"status": "skipped", "reason": f"unsupported media_type: {payload.media_type}"}
 
     # Only act on pending/approved events
     allowed_types = {"media_pending", "media_approved", "media-pending", "media-approved"}
@@ -80,21 +96,30 @@ async def jellyseerr_webhook(
 
     tmdb_id = int(payload.tmdbId)
 
-    job = session.exec(select(DownloadJob).where(DownloadJob.tmdb_id == tmdb_id)).first()
-    if not job:
-        job = DownloadJob(
-            tmdb_id=tmdb_id,
-            title=payload.title or f"TMDB:{tmdb_id}",
-            status=JobStatus.MOVIE_MISSING
-        )
-        session.add(job)
-        session.commit()
+    if payload.media_type.lower() == "movie":
+        job = session.exec(select(DownloadJob).where(DownloadJob.tmdb_id == tmdb_id, DownloadJob.media_type == "movie")).first()
+        if not job:
+            job = DownloadJob(
+                media_type="movie",
+                tmdb_id=tmdb_id,
+                title=payload.title or f"TMDB:{tmdb_id}",
+                status=JobStatus.MOVIE_MISSING
+            )
+            session.add(job)
+            session.commit()
 
-    # Fire and forget — trigger delayed search to allow Radarr to grab torrents first
-    log_action("Webhook", f"Jellyseerr request approved for '{payload.title}'", tmdb_id=tmdb_id)
-    background_tasks.add_task(delayed_search, tmdb_id, None)
+        # Fire and forget — trigger delayed search to allow Radarr to grab torrents first
+        log_action("Webhook", f"Jellyseerr request approved for movie '{payload.title}'", tmdb_id=tmdb_id)
+        background_tasks.add_task(delayed_search, tmdb_id, None)
+    elif payload.media_type.lower() == "tv":
+        tvdb_id = int(payload.tvdbId) if payload.tvdbId else None
+        if not tvdb_id:
+            # Try to get tvdbId if not provided (Jellyseerr usually provides it)
+            pass
+        log_action("Webhook", f"Jellyseerr request approved for TV show '{payload.title}'", tmdb_id=tmdb_id, tvdb_id=tvdb_id)
+        # We rely on the Sonarr webhook 'SeriesAdded' or the sync loop to create the episode jobs.
 
-    return {"status": "accepted", "tmdb_id": tmdb_id, "title": payload.title}
+    return {"status": "accepted", "tmdb_id": tmdb_id, "media_type": payload.media_type, "title": payload.title}
 
 @router.post("/radarr")
 async def radarr_webhook(
@@ -114,7 +139,7 @@ async def radarr_webhook(
     tmdb_id = payload.movie.tmdbId
     title = payload.movie.title or f"TMDB:{tmdb_id}"
     
-    job = session.exec(select(DownloadJob).where(DownloadJob.tmdb_id == tmdb_id)).first()
+    job = session.exec(select(DownloadJob).where(DownloadJob.tmdb_id == tmdb_id, DownloadJob.media_type == "movie")).first()
 
     if event_type == "MovieAdded":
         if not job:
@@ -137,6 +162,7 @@ async def radarr_webhook(
                     logging.getLogger(__name__).warning(f"Failed to fetch TMDB details for {tmdb_id}: {e}")
 
             job = DownloadJob(
+                media_type="movie",
                 tmdb_id=tmdb_id, title=title, status=JobStatus.MOVIE_MISSING, 
                 language=mapped_lang, poster_path=poster_path, year=year
             )
@@ -159,7 +185,7 @@ async def radarr_webhook(
     elif event_type == "Download":
         # Radarr successfully downloaded a file
         if not job:
-            job = DownloadJob(tmdb_id=tmdb_id, title=title)
+            job = DownloadJob(media_type="movie", tmdb_id=tmdb_id, title=title)
             session.add(job)
         job.status = JobStatus.DONE
         job.monitored = False
@@ -170,7 +196,7 @@ async def radarr_webhook(
         
     elif event_type == "MovieFileDeleted":
         if not job:
-            job = DownloadJob(tmdb_id=tmdb_id, title=title)
+            job = DownloadJob(media_type="movie", tmdb_id=tmdb_id, title=title)
             session.add(job)
         job.status = JobStatus.MOVIE_MISSING
         job.monitored = True
@@ -183,7 +209,7 @@ async def radarr_webhook(
         # Radarr grabbed a download — track it as a native Radarr download
         # so the active_job_tracker_loop monitors it and triggers fallback if it disappears
         if not job:
-            job = DownloadJob(tmdb_id=tmdb_id, title=title)
+            job = DownloadJob(media_type="movie", tmdb_id=tmdb_id, title=title)
             session.add(job)
         if job.status not in (JobStatus.DOWNLOADING, JobStatus.DONE, JobStatus.IMPORTING):
             job.status = JobStatus.DOWNLOADING
@@ -208,3 +234,28 @@ async def radarr_webhook(
             background_tasks.add_task(delayed_search, tmdb_id, None, override_delay=0)
 
     return {"status": "accepted", "event": event_type, "tmdb_id": tmdb_id}
+
+@router.post("/sonarr")
+async def sonarr_webhook(
+    payload: SonarrPayload,
+    background_tasks: BackgroundTasks,
+    session: Session = Depends(get_session),
+):
+    """
+    Receives Sonarr webhook events (SeriesAdded, SeriesDeleted, Download, EpisodeFileDeleted, Grab).
+    """
+    settings = get_settings(session)
+    event_type = payload.eventType
+    if not event_type or not payload.series or not payload.series.tvdbId:
+        return {"status": "skipped", "reason": "missing required fields"}
+
+    tvdb_id = payload.series.tvdbId
+    series_title = payload.series.title or f"TVDB:{tvdb_id}"
+    
+    # We leave the actual DownloadJob creation to the sonarr_state_sync_loop to avoid race conditions
+    # with Sonarr finishing its own initial metadata/episode scan.
+    # We just log the webhook events and rely on sync.py to manage the missing queue for TV shows.
+
+    log_action("Webhook", f"Sonarr event '{event_type}' received for '{series_title}'", tvdb_id=tvdb_id)
+
+    return {"status": "accepted", "event": event_type, "tvdb_id": tvdb_id}

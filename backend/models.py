@@ -23,6 +23,7 @@ class LogEntry(SQLModel, table=True):
     action: str = Field(index=True)
     message: str
     tmdb_id: Optional[int] = None
+    tvdb_id: Optional[int] = None
     job_id: Optional[int] = None
 
 
@@ -33,6 +34,7 @@ class LogEntryRead(SQLModel):
     action: str
     message: str
     tmdb_id: Optional[int]
+    tvdb_id: Optional[int]
     job_id: Optional[int]
 
 
@@ -53,7 +55,11 @@ class JobStatus(str, Enum):
 
 class DownloadJob(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    tmdb_id: int = Field(index=True)
+    media_type: str = Field(default="movie", index=True) # "movie" or "tv"
+    tmdb_id: Optional[int] = Field(default=None, index=True)
+    tvdb_id: Optional[int] = Field(default=None, index=True)
+    season_number: Optional[int] = None
+    episode_number: Optional[int] = None
     title: str
     year: Optional[int] = None
     language: Optional[str] = None          # e.g. "malayalam"
@@ -83,7 +89,11 @@ class DownloadJob(SQLModel, table=True):
 class DownloadJobRead(SQLModel):
     """Public schema returned by the API (same fields, no table=True)."""
     id: int
-    tmdb_id: int
+    media_type: str
+    tmdb_id: Optional[int]
+    tvdb_id: Optional[int]
+    season_number: Optional[int]
+    episode_number: Optional[int]
     title: str
     year: Optional[int]
     language: Optional[str]
@@ -114,6 +124,11 @@ class AppSettings(SQLModel, table=True):
     radarr_root_folder: str = Field(default="/movies")
     radarr_quality_profile_id: int = Field(default=1)
     
+    sonarr_url: str = Field(default="http://localhost:8989")
+    sonarr_api_key: str = Field(default="")
+    sonarr_root_folder: str = Field(default="/tv")
+    sonarr_quality_profile_id: int = Field(default=1)
+    
     jellyseerr_url: str = Field(default="http://localhost:5055")
     jellyseerr_api_key: str = Field(default="")
     webhook_secret: str = Field(default="")
@@ -131,7 +146,8 @@ class AppSettings(SQLModel, table=True):
     missing_search_interval_hours: int = Field(default=24)
     missing_search_batch_size: int = Field(default=50)
     
-    download_sources_priority: str = Field(default="einthusan,1tamilmv")
+    movie_download_sources_priority: str = Field(default="einthusan,1tamilmv")
+    tv_download_sources_priority: str = Field(default="1tamilmv,bollyzone")
     
     qbittorrent_url: str = Field(default="http://localhost:8080")
     qbittorrent_username: str = Field(default="admin")
@@ -145,11 +161,15 @@ class AppSettings(SQLModel, table=True):
     
     enable_jellyseerr_auto_request: bool = Field(default=True)
     enable_radarr_auto_search: bool = Field(default=True)
+    enable_sonarr_auto_search: bool = Field(default=True)
 
 class AppSettingsRead(SQLModel):
     radarr_url: str
     radarr_root_folder: str
     radarr_api_key_set: bool
+    sonarr_url: str
+    sonarr_root_folder: str
+    sonarr_api_key_set: bool
     jellyseerr_url: str
     jellyseerr_api_key_set: bool
     tmdb_api_key_set: bool
@@ -160,7 +180,8 @@ class AppSettingsRead(SQLModel):
     missing_search_batch_size: int
     app_version: str
     webhook_url_hint: str
-    download_sources_priority: List[str]
+    movie_download_sources_priority: List[str]
+    tv_download_sources_priority: List[str]
     qbittorrent_url: str
     qbittorrent_username: str
     qbittorrent_category_movies: str
@@ -173,12 +194,17 @@ class AppSettingsRead(SQLModel):
     
     enable_jellyseerr_auto_request: bool
     enable_radarr_auto_search: bool
+    enable_sonarr_auto_search: bool
 
 
 class AppSettingsUpdate(SQLModel):
     radarr_url: Optional[str] = None
     radarr_root_folder: Optional[str] = None
     radarr_api_key: Optional[str] = None # Empty string means don't update
+    
+    sonarr_url: Optional[str] = None
+    sonarr_root_folder: Optional[str] = None
+    sonarr_api_key: Optional[str] = None
     
     jellyseerr_url: Optional[str] = None
     jellyseerr_api_key: Optional[str] = None
@@ -190,7 +216,8 @@ class AppSettingsUpdate(SQLModel):
     search_delay_seconds: Optional[int] = None
     missing_search_interval_hours: Optional[int] = None
     missing_search_batch_size: Optional[int] = None
-    download_sources_priority: Optional[List[str]] = None
+    movie_download_sources_priority: Optional[List[str]] = None
+    tv_download_sources_priority: Optional[List[str]] = None
     
     qbittorrent_url: Optional[str] = None
     qbittorrent_username: Optional[str] = None
@@ -204,4 +231,5 @@ class AppSettingsUpdate(SQLModel):
     
     enable_jellyseerr_auto_request: Optional[bool] = None
     enable_radarr_auto_search: Optional[bool] = None
+    enable_sonarr_auto_search: Optional[bool] = None
 

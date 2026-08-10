@@ -5,7 +5,7 @@ from typing import Optional
 from sqlmodel import Session, select
 from backend.database import engine, get_settings
 from backend.models import DownloadJob, JobStatus
-from backend.services import radarr, qbittorrent
+from backend.services import radarr, qbittorrent, sonarr
 from backend.orchestrator import process_request
 
 logger = logging.getLogger(__name__)
@@ -86,7 +86,11 @@ async def delayed_search(tmdb_id: int, language: Optional[str] = None, override_
         waited += poll_interval
         
     logger.info(f"Delayed search check: No active Radarr download for tmdb_id={tmdb_id} after {delay}s. Triggering Auto-Download.")
-    asyncio.create_task(process_request(tmdb_id, language, auto_download=True))
+    # Need to get job_id since process_request takes job_id
+    with Session(engine) as session:
+        job = session.exec(select(DownloadJob).where(DownloadJob.tmdb_id == tmdb_id)).first()
+        if job:
+            asyncio.create_task(process_request(job.id, auto_download=True))
 
 async def active_job_tracker_loop():
     """
@@ -105,7 +109,7 @@ async def active_job_tracker_loop():
 
                 for job in active_jobs:
                     # 1. Handle Radarr native downloads
-                    if job.status == JobStatus.DOWNLOADING and job.source_indexer == "radarr":
+                    if job.status == JobStatus.DOWNLOADING and job.source_indexer == "radarr" and job.media_type == "movie":
                         try:
                             radarr_movie = await radarr.is_movie_in_radarr(job.tmdb_id, settings)
                             if not radarr_movie or "id" not in radarr_movie:
@@ -113,7 +117,7 @@ async def active_job_tracker_loop():
                                 job.status = JobStatus.MOVIE_MISSING
                                 session.add(job)
                                 session.commit()
-                                asyncio.create_task(process_request(job.tmdb_id, job.language, auto_download=True))
+                                asyncio.create_task(process_request(job.id, auto_download=True))
                                 continue
                                 
                             queue_item = await radarr.get_movie_queue_status(radarr_movie["id"], settings)
@@ -140,7 +144,7 @@ async def active_job_tracker_loop():
                                     job.progress_pct = 0
                                     session.add(job)
                                     session.commit()
-                                    asyncio.create_task(process_request(job.tmdb_id, job.language, auto_download=True))
+                                    asyncio.create_task(process_request(job.id, auto_download=True))
                                 else:
                                     sizeleft = queue_item.get("sizeleft", 0)
                                     size = queue_item.get("size", 0)
@@ -184,10 +188,65 @@ async def active_job_tracker_loop():
                                     job.status = JobStatus.MOVIE_MISSING
                                     session.add(job)
                                     session.commit()
-                                    asyncio.create_task(process_request(job.tmdb_id, job.language, auto_download=True))
+                                    asyncio.create_task(process_request(job.id, auto_download=True))
                         except Exception as e:
                             logger.error(f"Error checking Radarr native queue for {job.title}: {e}")
                             
+                    # 1.5 Handle Sonarr native downloads
+                    elif job.status == JobStatus.DOWNLOADING and job.source_indexer == "sonarr" and job.media_type == "tv":
+                        try:
+                            series = await sonarr.is_series_in_sonarr(job.tvdb_id, settings)
+                            if not series or "id" not in series:
+                                logger.warning(f"Sonarr native download '{job.title}' missing from Sonarr library. Triggering fallback.")
+                                job.status = JobStatus.MOVIE_MISSING
+                                session.add(job)
+                                session.commit()
+                                asyncio.create_task(process_request(job.tmdb_id, job.language, auto_download=True))
+                                continue
+                                
+                            episodes = await sonarr.get_episodes(series["id"], settings)
+                            ep = next((e for e in episodes if e.get("seasonNumber") == job.season_number and e.get("episodeNumber") == job.episode_number), None)
+                            if not ep:
+                                continue
+                                
+                            queue_item = await sonarr.get_episode_queue_status(ep["id"], settings)
+                            if queue_item:
+                                status = queue_item.get("status", "").lower()
+                                tracked = queue_item.get("trackedDownloadStatus", "").lower()
+                                
+                                if status == "completed":
+                                    job.status = JobStatus.DONE
+                                    job.progress_pct = 100
+                                    session.add(job)
+                                elif tracked in ("warning", "error"):
+                                    job.status = JobStatus.MOVIE_MISSING
+                                    job.source_indexer = None
+                                    job.progress_pct = 0
+                                    session.add(job)
+                                    session.commit()
+                                    asyncio.create_task(process_request(job.id, auto_download=True))
+                                else:
+                                    sizeleft = queue_item.get("sizeleft", 0)
+                                    size = queue_item.get("size", 0)
+                                    pct = int(max(0, 100 * (1 - sizeleft/size))) if size > 0 else 0
+                                    job.downloaded_bytes = max(0, size - sizeleft)
+                                    job.total_bytes = size
+                                    if pct != job.progress_pct:
+                                        job.progress_pct = pct
+                                        session.add(job)
+                            else:
+                                if ep.get("hasFile"):
+                                    job.status = JobStatus.DONE
+                                    job.progress_pct = 100
+                                    session.add(job)
+                                else:
+                                    job.status = JobStatus.MOVIE_MISSING
+                                    session.add(job)
+                                    session.commit()
+                                    asyncio.create_task(process_request(job.id, auto_download=True))
+                        except Exception as e:
+                            logger.error(f"Error checking Sonarr native queue for {job.title}: {e}")
+
                     # 2. Handle qBittorrent downloads
                     elif job.status == JobStatus.DOWNLOADING and job.torrent_hash:
                         t_info = await asyncio.to_thread(qbittorrent.get_torrent_info, job.torrent_hash, settings)
@@ -228,7 +287,7 @@ async def active_job_tracker_loop():
                             session.commit()
                             
                             from backend.orchestrator import process_request
-                            asyncio.create_task(process_request(job.tmdb_id, job.language, auto_download=True, fallback_from=fallback_source))
+                            asyncio.create_task(process_request(job.id, auto_download=True, fallback_from=fallback_source))
                             continue
                         
                         state = t_info.get("state", "").lower()
@@ -372,7 +431,7 @@ async def run_discovery_batch(batch_size: int) -> int:
                 should_skip_release = job.status in (JobStatus.SKIPPED, JobStatus.NOT_FOUND)
                 
                 asyncio.create_task(process_request(
-                    job.tmdb_id, job.language, auto_download=True,
+                    job.id, auto_download=True,
                     skip_release_check=should_skip_release
                 ))
                 
@@ -490,3 +549,93 @@ async def radarr_state_sync_loop():
             logger.error(f"Error in radarr_state_sync_loop: {e}")
             
         await asyncio.sleep(60)
+
+async def sonarr_state_sync_loop():
+    """
+    Periodically syncs full state with Sonarr. Removes unmonitored/deleted, 
+    updates paths and done states. Runs frequently to keep UI real-time.
+    """
+    logger.info("Starting full sonarr state sync loop...")
+    while True:
+        try:
+            with Session(engine) as session:
+                settings = get_settings(session)
+                all_sonarr_series = await sonarr.get_all_series(settings)
+                
+                # Fetch all existing TV jobs
+                all_tv_jobs = session.exec(select(DownloadJob).where(DownloadJob.media_type == "tv")).all()
+                job_map = {(j.tvdb_id, j.season_number, j.episode_number): j for j in all_tv_jobs if j.tvdb_id}
+                
+                added_count = 0
+                completed_count = 0
+                
+                for series in all_sonarr_series:
+                    tvdb_id = series.get("tvdbId")
+                    if not tvdb_id: continue
+                    
+                    series_id = series.get("id")
+                    
+                    try:
+                        episodes = await sonarr.get_episodes(series_id, settings)
+                    except Exception as e:
+                        logger.error(f"Failed to fetch episodes for series {tvdb_id}: {e}")
+                        continue
+                        
+                    for ep in episodes:
+                        s_num = ep.get("seasonNumber")
+                        e_num = ep.get("episodeNumber")
+                        
+                        # Only care about monitored episodes or those that have a file
+                        has_file = ep.get("hasFile", False)
+                        monitored = ep.get("monitored", False)
+                        
+                        if not monitored and not has_file:
+                            continue
+                            
+                        job_key = (tvdb_id, s_num, e_num)
+                        
+                        if job_key not in job_map:
+                            if monitored and not has_file:
+                                title = f"{series.get('title', 'Unknown')} S{s_num:02d}E{e_num:02d}"
+                                new_job = DownloadJob(
+                                    media_type="tv",
+                                    tvdb_id=tvdb_id,
+                                    season_number=s_num,
+                                    episode_number=e_num,
+                                    title=title,
+                                    status=JobStatus.MOVIE_MISSING,
+                                    monitored=True
+                                )
+                                session.add(new_job)
+                                job_map[job_key] = new_job
+                                added_count += 1
+                        else:
+                            job = job_map[job_key]
+                            if job.status in (JobStatus.SEARCHING, JobStatus.IMPORTING) or (job.status == JobStatus.DOWNLOADING and job.source_indexer != "sonarr"):
+                                continue
+                                
+                            if job.monitored != monitored:
+                                job.monitored = monitored
+                                session.add(job)
+                                
+                            if has_file:
+                                if job.status != JobStatus.DONE:
+                                    job.status = JobStatus.DONE
+                                    job.progress_pct = 100
+                                    session.add(job)
+                                    completed_count += 1
+                            else:
+                                if job.status == JobStatus.DONE and monitored:
+                                    job.status = JobStatus.MOVIE_MISSING
+                                    job.progress_pct = 0
+                                    session.add(job)
+                
+                session.commit()
+                if added_count > 0 or completed_count > 0:
+                    logger.info(f"Sonarr state sync: {added_count} episodes added, {completed_count} marked DONE.")
+                    
+        except Exception as e:
+            logger.error(f"Error in sonarr_state_sync_loop: {e}")
+            
+        await asyncio.sleep(60)
+

@@ -142,6 +142,25 @@ async def has_digital_release_passed(tmdb_id: int, settings: AppSettings) -> Tup
             return True, f"Released (Theatrical fallback: {theatrical_date})"
             
     return False, "Waiting for official digital release date on TMDB"
+    
+async def get_tv_episode_details(tmdb_id: int, season_number: int, episode_number: int, settings: AppSettings) -> Dict[str, Any]:
+    """Fetch air date and name for a specific TV episode."""
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await _fetch_with_retry(
+            client,
+            _url(f"/tv/{tmdb_id}/season/{season_number}/episode/{episode_number}"),
+            headers=_headers(settings),
+            params={"api_key": settings.tmdb_api_key},
+        )
+        data = resp.json()
+        
+    return {
+        "tmdb_id": tmdb_id,
+        "season_number": season_number,
+        "episode_number": episode_number,
+        "name": data.get("name", f"Episode {episode_number}"),
+        "air_date": data.get("air_date"), # YYYY-MM-DD format
+    }
 
 
 async def test_connection(settings: AppSettings) -> Dict[str, Any]:

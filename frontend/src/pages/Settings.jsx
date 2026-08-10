@@ -11,6 +11,11 @@ export default function Settings() {
 
     const [radarrStatus, setRadarrStatus] = useState(null)  // null | 'ok' | 'err'
     const [tmdbStatus, setTmdbStatus] = useState(null)
+
+    const [sonarrStatus, setSonarrStatus] = useState(null)
+    const [sonarrTesting, setSonarrTesting] = useState(false)
+    const [sonarrMsg, setSonarrMsg] = useState('')
+
     const [radarrTesting, setRadarrTesting] = useState(false)
     const [tmdbTesting, setTmdbTesting] = useState(false)
     const [radarrMsg, setRadarrMsg] = useState('')
@@ -33,6 +38,9 @@ export default function Settings() {
             setFormData({
                 radarr_url: data.radarr_url,
                 radarr_root_folder: data.radarr_root_folder,
+                sonarr_url: data.sonarr_url,
+                sonarr_api_key: '',
+                sonarr_root_folder: data.sonarr_root_folder,
                 radarr_api_key: '', // Empty means don't update
                 jellyseerr_url: data.jellyseerr_url,
                 jellyseerr_api_key: '',
@@ -43,7 +51,8 @@ export default function Settings() {
                 missing_search_interval_hours: data.missing_search_interval_hours ?? 24,
                 missing_search_batch_size: data.missing_search_batch_size ?? 10,
                 search_delay_seconds: data.search_delay_seconds ?? 120,
-                download_sources_priority: data.download_sources_priority || ['einthusan', '1tamilmv'],
+                movie_download_sources_priority: data.movie_download_sources_priority || ['einthusan', '1tamilmv'],
+                tv_download_sources_priority: data.tv_download_sources_priority || ['1tamilmv', 'bollyzone'],
                 qbittorrent_url: data.qbittorrent_url || '',
                 qbittorrent_username: data.qbittorrent_username || '',
                 qbittorrent_password: '',
@@ -79,30 +88,31 @@ export default function Settings() {
         })
     }
 
-    const moveSource = (index, direction) => {
+    
+    const moveSource = (index, direction, type) => {
         setFormData(prev => {
-            const newSources = [...(prev.download_sources_priority || [])];
+            const key = type === 'movie' ? 'movie_download_sources_priority' : 'tv_download_sources_priority'
+            const newSources = [...(prev[key] || [])];
             if (direction === 'up' && index > 0) {
                 [newSources[index - 1], newSources[index]] = [newSources[index], newSources[index - 1]];
             } else if (direction === 'down' && index < newSources.length - 1) {
                 [newSources[index + 1], newSources[index]] = [newSources[index], newSources[index + 1]];
             }
-            return { ...prev, download_sources_priority: newSources };
+            return { ...prev, [key]: newSources };
         });
     }
 
-    const toggleSource = (source) => {
+    const toggleSource = (source, type) => {
         setFormData(prev => {
-            const current = prev.download_sources_priority || [];
+            const key = type === 'movie' ? 'movie_download_sources_priority' : 'tv_download_sources_priority'
+            const current = prev[key] || [];
             if (current.includes(source)) {
-                return { ...prev, download_sources_priority: current.filter(s => s !== source) };
+                return { ...prev, [key]: current.filter(s => s !== source) };
             } else {
-                return { ...prev, download_sources_priority: [...current, source] };
+                return { ...prev, [key]: [...current, source] };
             }
         });
     }
-
-
 
     const handleSave = async () => {
         setSaving(true)
@@ -183,6 +193,22 @@ export default function Settings() {
         }
     }
 
+
+    
+    async function testSonarr() {
+        setSonarrTesting(true)
+        setSonarrStatus(null)
+        try {
+            const r = await api.testSonarr()
+            setSonarrStatus('ok')
+            setSonarrMsg(r.version ? `v${r.version}` : '')
+        } catch (e) {
+            setSonarrStatus('err')
+            setSonarrMsg(e.message)
+        } finally {
+            setSonarrTesting(false)
+        }
+    }
 
     async function testTmdb() {
         setTmdbTesting(true)
@@ -271,6 +297,34 @@ export default function Settings() {
                 </div>
             </div>
 
+            
+            {/* Sonarr */}
+            <div className="card settings-section" style={{ marginBottom: 16 }}>
+                <div className="settings-section-title">Sonarr Connection</div>
+                <div className="form-row">
+                    <span className="form-label">URL</span>
+                    <input className="form-input" name="sonarr_url" value={formData.sonarr_url} onChange={handleChange} placeholder="http://localhost:8989" />
+                </div>
+                <div className="form-row">
+                    <span className="form-label">API Key</span>
+                    <input className="form-input" name="sonarr_api_key" value={formData.sonarr_api_key} onChange={handleChange} placeholder={settings.sonarr_api_key_set ? '●●●●●●●●● (Set - Type to change)' : 'Not set'} />
+                </div>
+                <div className="form-row">
+                    <span className="form-label">Root Folder</span>
+                    <input className="form-input" name="sonarr_root_folder" value={formData.sonarr_root_folder} onChange={handleChange} placeholder="/series" />
+                </div>
+                <div className="form-row">
+                    <span className="form-label">Connection</span>
+                    <div className="connection-test-row">
+                        <button className="btn btn-secondary btn-sm" onClick={testSonarr} disabled={sonarrTesting}>
+                            {sonarrTesting ? <><span className="spinner" /> Testing…</> : 'Test Connection'}
+                        </button>
+                        {sonarrStatus === 'ok' && <span className="test-result ok">✓ Connected {sonarrMsg}</span>}
+                        {sonarrStatus === 'err' && <span className="test-result err">✗ {sonarrMsg}</span>}
+                    </div>
+                </div>
+            </div>
+
             {/* Jellyseerr */}
             <div className="card settings-section" style={{ marginBottom: 16 }}>
                 <div className="settings-section-title">Jellyseerr Connection</div>
@@ -328,9 +382,10 @@ export default function Settings() {
                 </div>
             </div>
 
+            
             {/* Download Sources */}
             <div className="card settings-section" style={{ marginBottom: 16 }}>
-                <div className="settings-section-title">Download Sources</div>
+                <div className="settings-section-title">Movie Download Sources</div>
                 <div className="form-row">
                     <span className="form-label">Active Sources</span>
                     <div>
@@ -339,30 +394,71 @@ export default function Settings() {
                         </div>
                         {['1tamilmv', 'einthusan']
                             .sort((a, b) => {
-                                const aIdx = (formData.download_sources_priority || []).indexOf(a);
-                                const bIdx = (formData.download_sources_priority || []).indexOf(b);
+                                const aIdx = (formData.movie_download_sources_priority || []).indexOf(a);
+                                const bIdx = (formData.movie_download_sources_priority || []).indexOf(b);
                                 if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
                                 if (aIdx !== -1) return -1;
                                 if (bIdx !== -1) return 1;
                                 return a.localeCompare(b);
                             })
                             .map((source) => {
-                                const isEnabled = (formData.download_sources_priority || []).includes(source);
-                                const idx = (formData.download_sources_priority || []).indexOf(source);
+                                const isEnabled = (formData.movie_download_sources_priority || []).includes(source);
+                                const idx = (formData.movie_download_sources_priority || []).indexOf(source);
                                 return (
                                     <div key={source} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px', background: 'var(--bg-tertiary)', marginBottom: 4, borderRadius: 6, opacity: isEnabled ? 1 : 0.6 }}>
                                         <input 
                                             type="checkbox" 
                                             checked={isEnabled} 
-                                            onChange={() => toggleSource(source)} 
+                                            onChange={() => toggleSource(source, 'movie')} 
                                             style={{ cursor: 'pointer' }}
                                         />
                                         <span style={{ fontWeight: 'bold', minWidth: 20 }}>{isEnabled ? `${idx + 1}.` : '-'}</span>
                                         <span style={{ flex: 1 }}>{source === '1tamilmv' ? '1TamilMV' : source === 'einthusan' ? 'Einthusan' : source}</span>
                                         {isEnabled && (
                                             <>
-                                                <button className="btn btn-secondary btn-sm" onClick={() => moveSource(idx, 'up')} disabled={idx === 0}>↑</button>
-                                                <button className="btn btn-secondary btn-sm" onClick={() => moveSource(idx, 'down')} disabled={idx === (formData.download_sources_priority || []).length - 1}>↓</button>
+                                                <button className="btn btn-secondary btn-sm" onClick={() => moveSource(idx, 'up', 'movie')} disabled={idx === 0}>↑</button>
+                                                <button className="btn btn-secondary btn-sm" onClick={() => moveSource(idx, 'down', 'movie')} disabled={idx === (formData.movie_download_sources_priority || []).length - 1}>↓</button>
+                                            </>
+                                        )}
+                                    </div>
+                                )
+                            })}
+                    </div>
+                </div>
+
+                <div className="settings-section-title" style={{ marginTop: 24 }}>TV Download Sources</div>
+                <div className="form-row">
+                    <span className="form-label">Active Sources</span>
+                    <div>
+                        <div style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 8 }}>
+                            Check to enable. Drag arrows to set search priority.
+                        </div>
+                        {['1tamilmv', 'bollyzone']
+                            .sort((a, b) => {
+                                const aIdx = (formData.tv_download_sources_priority || []).indexOf(a);
+                                const bIdx = (formData.tv_download_sources_priority || []).indexOf(b);
+                                if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
+                                if (aIdx !== -1) return -1;
+                                if (bIdx !== -1) return 1;
+                                return a.localeCompare(b);
+                            })
+                            .map((source) => {
+                                const isEnabled = (formData.tv_download_sources_priority || []).includes(source);
+                                const idx = (formData.tv_download_sources_priority || []).indexOf(source);
+                                return (
+                                    <div key={source} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px', background: 'var(--bg-tertiary)', marginBottom: 4, borderRadius: 6, opacity: isEnabled ? 1 : 0.6 }}>
+                                        <input 
+                                            type="checkbox" 
+                                            checked={isEnabled} 
+                                            onChange={() => toggleSource(source, 'tv')} 
+                                            style={{ cursor: 'pointer' }}
+                                        />
+                                        <span style={{ fontWeight: 'bold', minWidth: 20 }}>{isEnabled ? `${idx + 1}.` : '-'}</span>
+                                        <span style={{ flex: 1 }}>{source === '1tamilmv' ? '1TamilMV' : source === 'bollyzone' ? 'Bollyzone' : source}</span>
+                                        {isEnabled && (
+                                            <>
+                                                <button className="btn btn-secondary btn-sm" onClick={() => moveSource(idx, 'up', 'tv')} disabled={idx === 0}>↑</button>
+                                                <button className="btn btn-secondary btn-sm" onClick={() => moveSource(idx, 'down', 'tv')} disabled={idx === (formData.tv_download_sources_priority || []).length - 1}>↓</button>
                                             </>
                                         )}
                                     </div>

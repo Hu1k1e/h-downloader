@@ -16,7 +16,7 @@ from backend import config
 
 
 import asyncio
-from backend.sync import active_job_tracker_loop, discovery_tracker_loop, radarr_state_sync_loop
+from backend.sync import active_job_tracker_loop, discovery_tracker_loop, radarr_state_sync_loop, sonarr_state_sync_loop
 from backend.database import get_settings
 from sqlmodel import Session
 from backend.database import engine
@@ -30,6 +30,7 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(active_job_tracker_loop())
     asyncio.create_task(discovery_tracker_loop())
     asyncio.create_task(radarr_state_sync_loop())
+    asyncio.create_task(sonarr_state_sync_loop())
     
     yield
 
