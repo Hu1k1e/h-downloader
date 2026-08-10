@@ -73,8 +73,11 @@ def init_db():
                 conn.execute(text("ALTER TABLE downloadjob ADD COLUMN eta_seconds INTEGER"))
             if dj_result and "media_type" not in dj_columns:
                 conn.execute(text("ALTER TABLE downloadjob ADD COLUMN media_type VARCHAR NOT NULL DEFAULT 'movie'"))
+            if dj_result and "tvdb_id" not in dj_columns:
                 conn.execute(text("ALTER TABLE downloadjob ADD COLUMN tvdb_id INTEGER"))
+            if dj_result and "season_number" not in dj_columns:
                 conn.execute(text("ALTER TABLE downloadjob ADD COLUMN season_number INTEGER"))
+            if dj_result and "episode_number" not in dj_columns:
                 conn.execute(text("ALTER TABLE downloadjob ADD COLUMN episode_number INTEGER"))
     except Exception as e:
         import logging
