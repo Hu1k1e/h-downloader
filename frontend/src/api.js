@@ -48,7 +48,16 @@ export const api = {
     triggerMissing: () => request('/api/jobs/trigger-missing', { method: 'POST' }),
     triggerDiscovery: () => request('/api/jobs/discovery', { method: 'POST' }),
     syncMovie: (id) => request(`/api/jobs/${id}/sync`, { method: 'POST' }),
-    syncAll: () => request('/api/jobs/sync-all', { method: 'POST' }),
+    syncAll: async () => {
+        const res = await fetch('/api/jobs/sync-all', { method: 'POST' })
+        if (!res.ok) throw new Error('Sync all failed')
+        return res.json()
+    },
+    syncAllSonarr: async () => {
+        const res = await fetch('/api/jobs/sync-all-sonarr', { method: 'POST' })
+        if (!res.ok) throw new Error('Sync all Sonarr failed')
+        return res.json()
+    },
     getSettings: () => request('/api/settings'),
     updateSettings: (data) => request('/api/settings', { method: 'POST', body: data }),
     testRadarr: () => request('/api/test/radarr'),

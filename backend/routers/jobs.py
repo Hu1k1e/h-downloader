@@ -712,6 +712,12 @@ async def trigger_import_sonarr(background_tasks: BackgroundTasks, session: Sess
         except Exception:
             continue
 
+        poster_path = None
+        for img in series.get("images", []):
+            if img.get("coverType") == "poster":
+                poster_path = img.get("remoteUrl", "")
+                break
+
         for ep in episodes:
             s_num = ep.get("seasonNumber")
             e_num = ep.get("episodeNumber")
@@ -733,6 +739,9 @@ async def trigger_import_sonarr(background_tasks: BackgroundTasks, session: Sess
                 if existing_job.status == JobStatus.PENDING and not has_file:
                     existing_job.status = JobStatus.MOVIE_MISSING
                     updated = True
+                if poster_path and not existing_job.poster_path:
+                    existing_job.poster_path = poster_path
+                    updated = True
                 if updated:
                     session.add(existing_job)
                     imported_count += 1
@@ -747,7 +756,8 @@ async def trigger_import_sonarr(background_tasks: BackgroundTasks, session: Sess
                 episode_number=e_num,
                 title=ep_title,
                 monitored=monitored,
-                status=JobStatus.DONE if has_file else JobStatus.MOVIE_MISSING
+                status=JobStatus.DONE if has_file else JobStatus.MOVIE_MISSING,
+                poster_path=poster_path
             )
             session.add(new_job)
             imported_count += 1
@@ -764,6 +774,84 @@ async def trigger_import_sonarr(background_tasks: BackgroundTasks, session: Sess
         background_tasks.add_task(process_request, job.id, auto_download=True)
 
     return {"status": "success", "imported": imported_count}
+
+
+@router.post("/jobs/sync-all-sonarr")
+async def sync_all_sonarr(background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
+    """Manually trigger a full Sonarr state reconciliation for TV jobs."""
+    settings = get_settings(session)
+    if not settings.sonarr_api_key:
+        raise HTTPException(status_code=400, detail="Sonarr API key is not configured.")
+
+    try:
+        all_sonarr_series = await sonarr_svc.get_all_series(settings)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to fetch series from Sonarr: {e}")
+
+    sonarr_map = {s["tvdbId"]: s for s in all_sonarr_series if "tvdbId" in s}
+    all_jobs = session.exec(select(DownloadJob).where(DownloadJob.media_type == "tv")).all()
+
+    updated_count = 0
+    deleted_count = 0
+
+    # Fetch episodes for series that have jobs
+    series_episodes = {}
+    for job in all_jobs:
+        if job.status in (JobStatus.SEARCHING, JobStatus.IMPORTING) or (job.status == JobStatus.DOWNLOADING and job.source_indexer != "sonarr"):
+            continue
+
+        series = sonarr_map.get(job.tvdb_id)
+        changed = False
+
+        if not series:
+            if job.status != JobStatus.NOT_IN_RADARR:  # Reuse NOT_IN_RADARR state for Sonarr
+                job.status = JobStatus.NOT_IN_RADARR
+                job.monitored = False
+                changed = True
+                deleted_count += 1
+        else:
+            series_id = series.get("id")
+            if series_id not in series_episodes:
+                try:
+                    episodes = await sonarr_svc.get_episodes(series_id, settings)
+                    series_episodes[series_id] = {(e.get("seasonNumber"), e.get("episodeNumber")): e for e in episodes}
+                except Exception:
+                    continue
+
+            ep = series_episodes[series_id].get((job.season_number, job.episode_number))
+            if not ep:
+                if job.status != JobStatus.NOT_IN_RADARR:
+                    job.status = JobStatus.NOT_IN_RADARR
+                    job.monitored = False
+                    changed = True
+                    deleted_count += 1
+            else:
+                monitored = ep.get("monitored", False)
+                if job.monitored != monitored:
+                    job.monitored = monitored
+                    changed = True
+
+                if ep.get("hasFile"):
+                    if job.status != JobStatus.DONE:
+                        job.status = JobStatus.DONE
+                        job.progress_pct = 100
+                        changed = True
+                elif job.status in (JobStatus.DONE, JobStatus.NOT_IN_RADARR, JobStatus.NOT_FOUND):
+                    job.status = JobStatus.MOVIE_MISSING
+                    job.progress_pct = 0
+                    job.file_path = None
+                    changed = True
+
+        if changed:
+            session.add(job)
+            updated_count += 1
+
+    if updated_count > 0:
+        session.commit()
+        from backend.db_logger import log_action
+        log_action("Manual", f"Sync All Sonarr: {updated_count} episodes updated (including {deleted_count} deleted).")
+
+    return {"status": "success", "updated": updated_count}
 
 
 @router.post("/jobs/discovery")

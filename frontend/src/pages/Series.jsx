@@ -26,12 +26,12 @@ const STATUS_LABEL = {
     failed: 'Failed',
     not_found: 'Not Found',
     pending: 'Pending',
-    checking_radarr: 'Checking Radarr',
+    checking_radarr: 'Checking Sonarr',
     importing: 'Importing',
     skipped: 'Skipped',
-    movie_missing: 'File Missing',
+    movie_missing: 'Missing',
     discovered: 'Discovered',
-    not_in_radarr: 'Deleted in Radarr',
+    not_in_radarr: 'Deleted in Sonarr',
 }
 
 // Filter tabs definition
@@ -59,52 +59,32 @@ function tabCount(movies, tab) {
     return movies.filter(m => matchesTab(m, tab)).length
 }
 
-function MovieModal({ movie, onClose, onTrigger, onSync, settings, onImportUrl }) {
+function SeriesModal({ series, onClose, onTrigger, onDelete, onToggleMonitor, onSync, settings, onImportUrl }) {
     const [importUrl, setImportUrl] = useState('')
     const [importLoading, setImportLoading] = useState(false)
     const [importMsg, setImportMsg] = useState('')
+    const [importTargetJobId, setImportTargetJobId] = useState(null)
 
-    if (!movie) return null;
+    if (!series) return null;
 
-    // Determine active providers from settings
-    const activeSources = settings?.download_sources_priority || ['einthusan', '1tamilmv']
-    const configuredLangs = settings?.einthusan_languages || []
+    // group episodes by season
+    const seasons = {}
+    series.episodes.forEach(e => {
+        const s = e.season_number !== null ? e.season_number : 1
+        if (!seasons[s]) seasons[s] = []
+        seasons[s].push(e)
+    })
+    
+    // Sort seasons
+    const seasonKeys = Object.keys(seasons).map(Number).sort((a, b) => b - a)
 
-    // Build manual search URLs
-    const searchLinks = []
-
-    if (activeSources.includes('einthusan')) {
-        // One link per configured language
-        const movieLangs = movie.language ? [movie.language] : []
-        const langsToShow = movieLangs.length > 0
-            ? [...new Set([...movieLangs, ...configuredLangs])]
-            : configuredLangs
-
-        langsToShow.forEach(lang => {
-            const q = encodeURIComponent(movie.title)
-            searchLinks.push({
-                label: `Einthusan (${lang.charAt(0).toUpperCase() + lang.slice(1)})`,
-                url: `https://einthusan.tv/movie/results/?lang=${lang}&query=${q}`,
-                provider: 'einthusan'
-            })
-        })
-    }
-
-    if (activeSources.includes('1tamilmv')) {
-        const q = encodeURIComponent(`${movie.title} ${movie.year || ''}`.trim())
-        searchLinks.push({
-            label: '1TamilMV',
-            url: `https://www.1tamilmv.fi/index.php?/search/&q=${q}&search_and_or=and`,
-            provider: '1tamilmv'
-        })
-    }
-
-    const handleImportUrl = async () => {
+    const handleImportUrl = async (jobId) => {
         if (!importUrl.trim()) return
+        setImportTargetJobId(jobId)
         setImportLoading(true)
         setImportMsg('')
         try {
-            await onImportUrl(movie.id, importUrl.trim())
+            await onImportUrl(jobId, importUrl.trim())
             setImportMsg('Download started!')
             setImportUrl('')
             setTimeout(() => setImportMsg(''), 3000)
@@ -112,218 +92,178 @@ function MovieModal({ movie, onClose, onTrigger, onSync, settings, onImportUrl }
             setImportMsg(`Error: ${err.message}`)
         } finally {
             setImportLoading(false)
+            setImportTargetJobId(null)
         }
     }
 
     return (
         <div className="modal-overlay" onClick={onClose} style={{position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
-            <div className="modal-content card" onClick={e => e.stopPropagation()} style={{width: 540, maxWidth: '90%', maxHeight: '90vh', overflowY: 'auto', padding: 24, position: 'relative', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12}}>
+            <div className="modal-content card" onClick={e => e.stopPropagation()} style={{width: 700, maxWidth: '95%', maxHeight: '90vh', overflowY: 'auto', padding: 24, position: 'relative', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12}}>
                 <button onClick={onClose} style={{position: 'absolute', top: 16, right: 16, background: 'none', border: 'none', fontSize: 24, cursor: 'pointer', color: 'var(--text-secondary)'}}>✕</button>
-                <h2 style={{marginTop: 0, marginBottom: 8}}>{movie.title} {movie.year && `(${movie.year})`}</h2>
-                <div style={{color: 'var(--text-secondary)', marginBottom: 24}}>{movie.language}</div>
-                
-                <div style={{marginBottom: 16}}>
-                    <strong>Status:</strong> {STATUS_LABEL[(movie.status || '').toLowerCase()] || movie.status}
-                </div>
-                {movie.status === 'downloading' && (
-                    <div style={{marginBottom: 16}}>
-                        <strong>Progress:</strong> {movie.progress_pct}%
-                        <div style={{height: 8, background: 'var(--bg-tertiary)', borderRadius: 4, marginTop: 4, overflow: 'hidden'}}>
-                            <div style={{height: '100%', width: `${movie.progress_pct}%`, background: '#3b82f6'}} />
-                        </div>
-                        {movie.eta_seconds > 0 && (
-                            <div style={{marginTop: 8, fontSize: 12, color: 'var(--text-secondary)'}}>
-                                ETA: {formatETA(movie.eta_seconds)}
-                            </div>
-                        )}
-                    </div>
-                )}
-                {movie.source_indexer && (
-                    <div style={{marginBottom: 16}}>
-                        <strong>Source:</strong> {movie.source_indexer === '1tamilmv' ? '1TamilMV' : movie.source_indexer === 'einthusan' ? 'Einthusan' : movie.source_indexer === 'radarr' ? 'Radarr' : movie.source_indexer}
-                    </div>
-                )}
-                {movie.file_path && (
-                    <div style={{marginBottom: 16}}>
-                        <strong>Path:</strong> <span style={{fontFamily: 'monospace', fontSize: 13, wordBreak: 'break-all', display: 'block', marginTop: 4}}>{movie.file_path}</span>
-                    </div>
-                )}
-                {movie.error_msg && (
-                    <div style={{marginBottom: 16, color: 'var(--error)'}}>
-                        <strong>Error:</strong> {movie.error_msg}
-                    </div>
-                )}
-                <div style={{marginBottom: 16}}>
-                    <strong>Added:</strong> {new Date(movie.created_at).toLocaleString()}
-                </div>
-                <div style={{marginBottom: 16}}>
-                    <strong>Last Updated:</strong> {new Date(movie.updated_at).toLocaleString()}
-                </div>
-
-                {/* ── Manual Search Links ─────────────────────────────── */}
-                {searchLinks.length > 0 && (
-                    <div style={{ marginTop: 20, padding: '14px 16px', background: 'var(--bg-tertiary)', borderRadius: 8, border: '1px solid var(--border)' }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 10 }}>
-                            Search Manually
-                        </div>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                            {searchLinks.map((link, i) => (
-                                <a
-                                    key={i}
-                                    href={link.url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="btn btn-secondary btn-sm"
-                                    style={{ textDecoration: 'none', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                                >
-                                    <span style={{ fontSize: 11 }}>↗</span> {link.label}
-                                </a>
-                            ))}
-                        </div>
-                    </div>
-                )}
-
-                {/* ── Import URL ──────────────────────────────────────── */}
-                <div style={{ marginTop: 12, padding: '14px 16px', background: 'var(--bg-tertiary)', borderRadius: 8, border: '1px solid var(--border)' }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 }}>
-                        Import from URL
-                    </div>
-                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
-                        Paste an Einthusan watch page or 1TamilMV thread URL
-                    </div>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                        <input
-                            type="text"
-                            className="form-input"
-                            placeholder="https://einthusan.tv/movie/watch/..."
-                            value={importUrl}
-                            onChange={e => setImportUrl(e.target.value)}
-                            onKeyDown={e => e.key === 'Enter' && handleImportUrl()}
-                            style={{ flex: 1, fontSize: 13 }}
+                <div style={{ display: 'flex', gap: 20, marginBottom: 24 }}>
+                    {series.poster_path ? (
+                        <img 
+                            src={series.poster_path.startsWith('http') ? series.poster_path : `https://image.tmdb.org/t/p/w300${series.poster_path}`} 
+                            style={{ width: 120, borderRadius: 8, objectFit: 'cover' }} 
+                            alt={series.title} 
                         />
-                        <button
-                            className="btn btn-primary btn-sm"
-                            onClick={handleImportUrl}
-                            disabled={importLoading || !importUrl.trim()}
-                            style={{ whiteSpace: 'nowrap' }}
-                        >
-                            {importLoading ? 'Importing…' : 'Import'}
-                        </button>
-                    </div>
-                    {importMsg && (
-                        <div style={{ marginTop: 6, fontSize: 12, color: importMsg.includes('Error') ? 'var(--error)' : 'var(--success)' }}>
-                            {importMsg}
-                        </div>
+                    ) : (
+                        <div style={{ width: 120, height: 180, background: 'var(--bg-tertiary)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>?</div>
                     )}
+                    <div>
+                        <h2 style={{marginTop: 0, marginBottom: 8}}>{series.title}</h2>
+                        <div style={{color: 'var(--text-secondary)', marginBottom: 12}}>
+                            {series.episodes.length} Episodes Tracked
+                        </div>
+                        <div style={{display: 'flex', gap: 10}}>
+                            <button className="btn btn-secondary btn-sm" onClick={() => onSync(series.episodes[0]?.id)}>
+                                ↻ Force Sync Sonarr
+                            </button>
+                        </div>
+                    </div>
                 </div>
                 
-                <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border-color)', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                    <button className="btn btn-secondary btn-sm" onClick={() => onTrigger(movie, 'einthusan')}>
-                        Force Search Einthusan
-                    </button>
-                    <button className="btn btn-secondary btn-sm" onClick={() => onTrigger(movie, '1tamilmv')}>
-                        Force Search 1TamilMV
-                    </button>
-                    <button className="btn btn-secondary btn-sm" onClick={() => onSync(movie.id)} style={{ marginLeft: 'auto' }}>
-                        ↻ Sync with Radarr
-                    </button>
+                {importMsg && (
+                    <div style={{ marginBottom: 16, padding: 12, background: importMsg.includes('Error') ? 'var(--error-light)' : 'rgba(34,197,94,0.1)', color: importMsg.includes('Error') ? 'var(--error)' : 'var(--success)', borderRadius: 8 }}>
+                        {importMsg}
+                    </div>
+                )}
+
+                <div>
+                    {seasonKeys.map(season => (
+                        <div key={season} style={{ marginBottom: 24 }}>
+                            <h3 style={{ borderBottom: '1px solid var(--border)', paddingBottom: 8, marginBottom: 12 }}>
+                                Season {season}
+                            </h3>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                {seasons[season].map(ep => (
+                                    <div key={ep.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 12, background: 'var(--bg-tertiary)', borderRadius: 8 }}>
+                                        <div style={{ fontWeight: 'bold', width: 40 }}>
+                                            E{String(ep.episode_number).padStart(2, '0')}
+                                        </div>
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{ fontSize: 13, color: STATUS_COLOR[(ep.status || '').toLowerCase()] || 'var(--text-primary)' }}>
+                                                {STATUS_LABEL[(ep.status || '').toLowerCase()] || ep.status}
+                                            </div>
+                                            {ep.status === 'downloading' && (
+                                                <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                                                    <div style={{ flex: 1, height: 4, background: 'var(--bg-primary)', borderRadius: 2, overflow: 'hidden' }}>
+                                                        <div style={{ height: '100%', width: `${ep.progress_pct}%`, background: '#3b82f6' }} />
+                                                    </div>
+                                                    <span>{ep.progress_pct}%</span>
+                                                </div>
+                                            )}
+                                            {ep.file_path && (
+                                                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={ep.file_path}>
+                                                    {ep.file_path}
+                                                </div>
+                                            )}
+                                        </div>
+                                        
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                            {ep.status === 'movie_missing' && (
+                                                <div style={{ display: 'flex', gap: 4, marginRight: 8 }}>
+                                                    <input 
+                                                        type="text" 
+                                                        placeholder="Paste URL..." 
+                                                        className="form-input" 
+                                                        style={{ width: 120, padding: '4px 8px', fontSize: 11 }}
+                                                        onChange={e => setImportUrl(e.target.value)}
+                                                    />
+                                                    <button 
+                                                        className="btn btn-secondary btn-sm" 
+                                                        style={{ padding: '4px 8px', fontSize: 11 }}
+                                                        disabled={importLoading}
+                                                        onClick={() => handleImportUrl(ep.id)}
+                                                    >
+                                                        {importLoading && importTargetJobId === ep.id ? '...' : 'Import'}
+                                                    </button>
+                                                </div>
+                                            )}
+                                            <button 
+                                                className="btn btn-primary btn-sm" 
+                                                style={{ padding: '4px 8px', fontSize: 11 }}
+                                                onClick={() => onTrigger(ep)}
+                                                disabled={ep.status === 'downloading' || ep.status === 'importing'}
+                                            >
+                                                Trigger
+                                            </button>
+                                            <button 
+                                                className="btn btn-danger btn-sm" 
+                                                style={{ padding: '4px 8px', fontSize: 11 }}
+                                                onClick={() => onDelete(ep.id)}
+                                            >
+                                                Del
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    ))}
                 </div>
             </div>
         </div>
     )
 }
 
-function PosterCard({ movie, onTrigger, onDelete, onSelect, onToggleMonitor }) {
-    const status = (movie.status || '').toLowerCase()
+function PosterCard({ series, onSelect }) {
+    const status = (series.status || '').toLowerCase()
     const colour = STATUS_COLOR[status] || 'var(--text-muted)'
     const label = STATUS_LABEL[status] || status.toUpperCase()
 
-    const posterSrc = movie.poster_path
-        ? `https://image.tmdb.org/t/p/w300${movie.poster_path}`
+    const posterSrc = series.poster_path
+        ? (series.poster_path.startsWith('http') ? series.poster_path : `https://image.tmdb.org/t/p/w300${series.poster_path}`)
         : null
 
     return (
-        <div className="poster-card" onClick={() => onSelect(movie)} style={{cursor: 'pointer'}}>
+        <div className="poster-card" onClick={onSelect} style={{cursor: 'pointer'}}>
             <div className="poster-img-wrap">
                 {posterSrc ? (
                     <img
                         src={posterSrc}
-                        alt={movie.title}
+                        alt={series.title}
                         className="poster-img"
                         onError={e => {
                             e.target.onerror = null
                             e.target.replaceWith(
                                 Object.assign(document.createElement('div'), {
                                     className: 'poster-placeholder',
-                                    textContent: movie.title?.charAt(0) || '?'
+                                    textContent: series.title?.charAt(0) || '?'
                                 })
                             )
                         }}
                     />
                 ) : (
                     <div className="poster-placeholder">
-                        {movie.title?.charAt(0) || '?'}
+                        {series.title?.charAt(0) || '?'}
                     </div>
                 )}
-                {/* Status bar overlay */}
                 <div className="poster-status-bar" style={{ '--status-color': colour }}>
                     <span className="poster-status-label">{label}</span>
-                    {status === 'downloading' && movie.progress_pct > 0 && (
+                    {status === 'downloading' && series.progress_pct > 0 && (
                         <div className="poster-progress-wrap">
                             <div
                                 className="poster-progress-fill"
-                                style={{ width: `${movie.progress_pct}%` }}
+                                style={{ width: `${series.progress_pct}%` }}
                             />
                         </div>
                     )}
                 </div>
                 {/* Monitored / Missing indicator dot */}
                 <div
-                    className={`poster-monitored-dot${!movie.monitored ? ' poster-monitored-dot--unmonitored' : ''}${status === 'movie_missing' ? ' poster-monitored-dot--missing' : ''}`}
-                    title={movie.monitored ? (status === 'movie_missing' ? 'File missing from Radarr folder' : 'Monitored (Click to unmonitor)') : 'Unmonitored (Click to monitor)'}
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        onToggleMonitor(movie);
-                    }}
-                    style={{ cursor: 'pointer', opacity: movie.monitored ? 1 : 0.3 }}
+                    className={`poster-monitored-dot${!series.monitored ? ' poster-monitored-dot--unmonitored' : ''}${status === 'movie_missing' ? ' poster-monitored-dot--missing' : ''}`}
+                    title={series.monitored ? (status === 'movie_missing' ? 'File missing from Sonarr folder' : 'Monitored') : 'Unmonitored'}
                 />
             </div>
 
             <div className="poster-info">
-                <div className="poster-title" title={movie.title}>
-                    {movie.title}
-                    {movie.season_number !== null && (
-                        <div style={{fontSize: 11, color: 'var(--text-muted)'}}>
-                            S{String(movie.season_number).padStart(2, '0')}E{String(movie.episode_number).padStart(2, '0')}
-                        </div>
-                    )}
+                <div className="poster-title" title={series.title}>
+                    {series.title}
                 </div>
                 <div className="poster-meta">
-                    {movie.year && <span>{movie.year}</span>}
-                    {movie.language && (
-                        <span className="poster-lang">{movie.language}</span>
-                    )}
+                    <span className="poster-lang">{series.episodes.length} Episodes</span>
                 </div>
-            </div>
-
-            <div className="poster-actions" onClick={e => e.stopPropagation()}>
-                <button
-                    className="btn btn-danger btn-sm"
-                    onClick={() => onDelete(movie.id)}
-                    title="Delete Job"
-                    style={{ flex: 1 }}
-                >
-                    Delete
-                </button>
-                <button
-                    className="btn btn-primary btn-sm"
-                    onClick={() => onTrigger(movie)}
-                    disabled={status === 'downloading' || status === 'importing'}
-                    title={status === 'discovered' ? 'Download Discovered Content' : 'Force search'}
-                    style={{ flex: 1 }}
-                >
-                    {status === 'discovered' ? 'Download' : '▶'}
-                </button>
             </div>
         </div>
     )
@@ -342,7 +282,7 @@ export default function Series() {
         p.set('tab', tab)
         setSearchParams(p)
     }
-    const [selectedMovie, setSelectedMovie] = useState(null)
+    const [selectedSeries, setSelectedSeries] = useState(null)
     const [settings, setSettings] = useState(null)
     const [showTriggerModal, setShowTriggerModal] = useState(false)
 
@@ -391,10 +331,18 @@ export default function Series() {
     }
 
     const deleteJob = async (id) => {
-        if (!confirm('Delete this job?')) return
+        if (!confirm('Delete this episode?')) return
         try {
             await fetch(`/api/jobs/${id}`, { method: 'DELETE' })
             fetchMovies()
+            // update modal state if open
+            if (selectedSeries) {
+                setSelectedSeries(prev => {
+                    const newEps = prev.episodes.filter(e => e.id !== id)
+                    if (newEps.length === 0) return null
+                    return { ...prev, episodes: newEps }
+                })
+            }
         } catch (err) { console.error(err) }
     }
 
@@ -411,20 +359,19 @@ export default function Series() {
 
     const syncMovie = async (id) => {
         try {
-            await api.syncMovie(id)
+            await api.syncAllSonarr() 
             fetchMovies()
         } catch (err) { console.error(err) }
     }
 
-    const syncAll = async () => {
+    const syncAllSonarr = async () => {
         setIsTriggering(true)
         try {
-            await api.syncAll()
+            await api.syncAllSonarr()
             fetchMovies()
         } catch (err) { console.error(err) }
         finally { setIsTriggering(false) }
     }
-
     
     const triggerJob = async (movie, indexer = null) => {
         if ((movie.status || '').toLowerCase() === 'discovered' && !indexer) {
@@ -449,10 +396,6 @@ export default function Series() {
             })
             fetchMovies()
         } catch (err) { console.error(err) }
-        
-        if (indexer) {
-            setSelectedMovie(null)
-        }
     }
 
     const handleImportUrl = async (jobId, url) => {
@@ -460,29 +403,70 @@ export default function Series() {
         fetchMovies()
     }
 
-    const filtered = movies.filter(m => {
+    // Grouping Logic
+    const groupedSeries = {}
+    movies.forEach(m => {
         const matchSearch = m.title.toLowerCase().includes(search.toLowerCase())
-        const matchTab = matchesTab(m, activeTab)
-        return matchSearch && matchTab
+        if (search && !matchSearch) return; // filter by search first
+
+        const seriesKey = m.tvdb_id ? String(m.tvdb_id) : m.title.split(/ S\d{2}E\d{2}/)[0].trim()
+        if (!groupedSeries[seriesKey]) {
+            groupedSeries[seriesKey] = {
+                id: seriesKey,
+                tvdb_id: m.tvdb_id,
+                title: m.title.split(/ S\d{2}E\d{2}/)[0].trim(),
+                poster_path: m.poster_path,
+                language: m.language,
+                episodes: [],
+            }
+        }
+        groupedSeries[seriesKey].episodes.push(m)
     })
+
+    const seriesList = Object.values(groupedSeries).map(s => {
+        s.episodes.sort((a, b) => {
+            if (a.season_number !== b.season_number) return (a.season_number || 1) - (b.season_number || 1);
+            return (a.episode_number || 1) - (b.episode_number || 1);
+        })
+        
+        const hasDownloading = s.episodes.some(e => e.status === 'downloading')
+        const hasMissing = s.episodes.some(e => e.status === 'movie_missing')
+        const hasSearching = s.episodes.some(e => e.status === 'searching')
+        
+        s.status = hasDownloading ? 'downloading' : (hasSearching ? 'searching' : (hasMissing ? 'movie_missing' : s.episodes[0].status))
+        s.monitored = s.episodes.some(e => e.monitored)
+        s.progress_pct = hasDownloading ? Math.max(...s.episodes.map(e => e.progress_pct || 0)) : 0
+        return s;
+    }).filter(s => matchesTab(s, activeTab)) // apply tab filter on the series level
 
     return (
         <div className="main-content">
-            {selectedMovie && <MovieModal movie={movies.find(m => m.id === selectedMovie.id) || selectedMovie} onClose={() => setSelectedMovie(null)} onTrigger={triggerJob} onSync={syncMovie} settings={settings} onImportUrl={handleImportUrl} />}
+            {selectedSeries && (
+                <SeriesModal 
+                    series={seriesList.find(s => s.id === selectedSeries.id) || selectedSeries} 
+                    onClose={() => setSelectedSeries(null)} 
+                    onTrigger={triggerJob} 
+                    onDelete={deleteJob}
+                    onToggleMonitor={toggleMonitor}
+                    onSync={syncMovie} 
+                    settings={settings} 
+                    onImportUrl={handleImportUrl} 
+                />
+            )}
             {showTriggerModal && <TriggerModal onClose={() => setShowTriggerModal(false)} onSuccess={fetchMovies} />}
             
             {/* Header */}
             <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
-                    <h1 className="page-title">Jobs Library</h1>
-                    <p className="page-subtitle">{movies.length} tracked jobs</p>
+                    <h1 className="page-title">Series Library</h1>
+                    <p className="page-subtitle">{seriesList.length} tracked series</p>
                 </div>
                 <div style={{ display: 'flex', gap: '10px' }}>
                     <button className="btn btn-secondary" onClick={handleImportList} disabled={isTriggering}>
                         Import List
                     </button>
-                    <button className="btn btn-secondary" onClick={syncAll} disabled={isTriggering}>
-                        {isTriggering ? 'Syncing...' : '↻ Sync All'}
+                    <button className="btn btn-secondary" onClick={syncAllSonarr} disabled={isTriggering}>
+                        {isTriggering ? 'Syncing...' : '↻ Sync Sonarr'}
                     </button>
                     <button className="btn btn-primary" onClick={triggerMonitoredTV} disabled={isTriggering || movies.length === 0}>
                         {isTriggering ? 'Triggering...' : 'Trigger Monitored'}
@@ -503,7 +487,14 @@ export default function Series() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 20 }}>
                 <div className="filter-tabs">
                     {TABS.map(tab => {
-                        const count = tabCount(movies, tab.key)
+                        const count = Object.values(groupedSeries).map(s => {
+                            const hasDownloading = s.episodes.some(e => e.status === 'downloading')
+                            const hasMissing = s.episodes.some(e => e.status === 'movie_missing')
+                            const hasSearching = s.episodes.some(e => e.status === 'searching')
+                            s.status = hasDownloading ? 'downloading' : (hasSearching ? 'searching' : (hasMissing ? 'movie_missing' : s.episodes[0].status))
+                            return s
+                        }).filter(s => matchesTab(s, tab.key)).length
+                        
                         return (
                             <button
                                 key={tab.key}
@@ -520,7 +511,7 @@ export default function Series() {
                 </div>
                 <input
                     className="filter-search"
-                    placeholder="Search jobs..."
+                    placeholder="Search series..."
                     value={search}
                     onChange={e => setSearch(e.target.value)}
                 />
@@ -530,23 +521,20 @@ export default function Series() {
             {loading && movies.length === 0 ? (
                 <div className="empty-state">
                     <div className="spinner" style={{ width: 28, height: 28, margin: '0 auto 16px' }} />
-                    <div className="empty-state-text">Loading jobs...</div>
+                    <div className="empty-state-text">Loading series...</div>
                 </div>
-            ) : filtered.length === 0 ? (
+            ) : seriesList.length === 0 ? (
                 <div className="empty-state">
                     <div className="empty-state-icon" style={{ fontSize: 40 }}>🎬</div>
-                    <div className="empty-state-text">No jobs found</div>
+                    <div className="empty-state-text">No series found</div>
                 </div>
             ) : (
                 <div className="poster-grid">
-                    {filtered.map(movie => (
+                    {seriesList.map(series => (
                         <PosterCard
-                            key={movie.id}
-                            movie={movie}
-                            onTrigger={triggerJob}
-                            onDelete={deleteJob}
-                            onSelect={() => setSelectedMovie(movie)}
-                            onToggleMonitor={toggleMonitor}
+                            key={series.id}
+                            series={series}
+                            onSelect={() => setSelectedSeries(series)}
                         />
                     ))}
                 </div>
