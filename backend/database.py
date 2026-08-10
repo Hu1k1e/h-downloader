@@ -45,6 +45,16 @@ def init_db():
             if result and "missing_search_interval_hours" not in columns:
                 conn.execute(text("ALTER TABLE appsettings ADD COLUMN missing_search_interval_hours INTEGER NOT NULL DEFAULT 24"))
                 conn.execute(text("ALTER TABLE appsettings ADD COLUMN missing_search_batch_size INTEGER NOT NULL DEFAULT 50"))
+            if result and "movie_download_sources_priority" not in columns:
+                conn.execute(text("ALTER TABLE appsettings ADD COLUMN movie_download_sources_priority VARCHAR NOT NULL DEFAULT 'einthusan,1tamilmv'"))
+                conn.execute(text("ALTER TABLE appsettings ADD COLUMN tv_download_sources_priority VARCHAR NOT NULL DEFAULT '1tamilmv,bollyzone'"))
+            if result and "sonarr_url" not in columns:
+                conn.execute(text("ALTER TABLE appsettings ADD COLUMN sonarr_url VARCHAR NOT NULL DEFAULT 'http://localhost:8989'"))
+                conn.execute(text("ALTER TABLE appsettings ADD COLUMN sonarr_api_key VARCHAR NOT NULL DEFAULT ''"))
+                conn.execute(text("ALTER TABLE appsettings ADD COLUMN sonarr_root_folder VARCHAR NOT NULL DEFAULT '/tv'"))
+                conn.execute(text("ALTER TABLE appsettings ADD COLUMN sonarr_quality_profile_id INTEGER NOT NULL DEFAULT 1"))
+            if result and "enable_sonarr_auto_search" not in columns:
+                conn.execute(text("ALTER TABLE appsettings ADD COLUMN enable_sonarr_auto_search BOOLEAN NOT NULL DEFAULT 1"))
             
             # Auto-migrate DownloadJob table
             dj_result = conn.execute(text("PRAGMA table_info(downloadjob)")).fetchall()
@@ -61,6 +71,11 @@ def init_db():
                 conn.execute(text("ALTER TABLE downloadjob ADD COLUMN discovered_magnet VARCHAR"))
             if dj_result and "eta_seconds" not in dj_columns:
                 conn.execute(text("ALTER TABLE downloadjob ADD COLUMN eta_seconds INTEGER"))
+            if dj_result and "media_type" not in dj_columns:
+                conn.execute(text("ALTER TABLE downloadjob ADD COLUMN media_type VARCHAR NOT NULL DEFAULT 'movie'"))
+                conn.execute(text("ALTER TABLE downloadjob ADD COLUMN tvdb_id INTEGER"))
+                conn.execute(text("ALTER TABLE downloadjob ADD COLUMN season_number INTEGER"))
+                conn.execute(text("ALTER TABLE downloadjob ADD COLUMN episode_number INTEGER"))
     except Exception as e:
         import logging
         logging.getLogger(__name__).warning(f"Auto-migration failed: {e}")
