@@ -156,11 +156,11 @@ async def extract_url(episode_url: str) -> Optional[Tuple[str, str, str]]:
             soup = BeautifulSoup(resp.text, "html.parser")
             groundbanks_links = []
             
-            # Find OptionBx links
-            for div in soup.find_all("div", class_="OptionBx"):
-                a_tag = div.find("a", href=True)
-                if a_tag and "groundbanks.net" in a_tag["href"]:
-                    groundbanks_links.append(a_tag["href"])
+            # Find all groundbanks.net links on the page
+            for a_tag in soup.find_all("a", href=True):
+                if "groundbanks.net" in a_tag["href"]:
+                    if a_tag["href"] not in groundbanks_links:
+                        groundbanks_links.append(a_tag["href"])
                     
             if not groundbanks_links:
                 logger.error(f"No groundbanks.net links found on {episode_url}")
