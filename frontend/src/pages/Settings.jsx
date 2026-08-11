@@ -3,6 +3,10 @@ import { api } from '../api'
 
 const ALL_LANGS = ['malayalam', 'tamil', 'telugu', 'hindi', 'kannada', 'bengali', 'marathi', 'punjabi']
 
+const Tooltip = ({ text }) => (
+    <span className="setting-tooltip-icon" data-tooltip={text}>?</span>
+)
+
 export default function Settings() {
     const [settings, setSettings] = useState(null)
     const [formData, setFormData] = useState({})
@@ -249,35 +253,25 @@ export default function Settings() {
                     <h1 className="page-title">Settings</h1>
                     <p className="page-subtitle">Configure application settings and integrations</p>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    {saveMsg && (
-                        <span style={{ fontSize: '0.875rem', color: saveMsg.includes('Error') ? 'var(--danger)' : 'var(--success)' }}>
-                            {saveMsg}
-                        </span>
-                    )}
-                    <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-                        {saving ? <><span className="spinner" style={{ marginRight: 8 }} />Saving...</> : 'Save Settings'}
-                    </button>
-                </div>
             </div>
 
             {/* Radarr */}
             <div className="card settings-section" style={{ marginBottom: 16 }}>
                 <div className="settings-section-title">Radarr Connection</div>
                 <div className="form-row">
-                    <span className="form-label">URL</span>
+                    <span className="form-label">URL <Tooltip text="The URL to your Radarr instance (e.g. http://localhost:7878)" /></span>
                     <input className="form-input" name="radarr_url" value={formData.radarr_url} onChange={handleChange} placeholder="http://localhost:7878" />
                 </div>
                 <div className="form-row">
-                    <span className="form-label">API Key</span>
+                    <span className="form-label">API Key <Tooltip text="Your Radarr API Key (found in Settings -> General)" /></span>
                     <input className="form-input" name="radarr_api_key" value={formData.radarr_api_key} onChange={handleChange} placeholder={settings.radarr_api_key_set ? '●●●●●●●●● (Set - Type to change)' : 'Not set'} />
                 </div>
                 <div className="form-row">
-                    <span className="form-label">Root Folder</span>
+                    <span className="form-label">Root Folder <Tooltip text="The base path where Radarr stores movies" /></span>
                     <input className="form-input" name="radarr_root_folder" value={formData.radarr_root_folder} onChange={handleChange} placeholder="/movies" />
                 </div>
                 <div className="form-row">
-                    <span className="form-label">Connection</span>
+                    <span className="form-label">Connection <Tooltip text="Test connectivity to Radarr" /></span>
                     <div className="connection-test-row">
                         <button className="btn btn-secondary btn-sm" onClick={testRadarr} disabled={radarrTesting}>
                             {radarrTesting ? <><span className="spinner" /> Testing…</> : 'Test Connection'}
@@ -287,7 +281,7 @@ export default function Settings() {
                     </div>
                 </div>
                 <div className="form-row">
-                    <span className="form-label">Import</span>
+                    <span className="form-label">Import <Tooltip text="Manually fetch movies from Radarr that match your configured languages" /></span>
                     <div className="connection-test-row">
                         <button className="btn btn-secondary btn-sm" onClick={importRadarrMovies} disabled={importing || (!settings.radarr_api_key_set && !formData.radarr_api_key)}>
                             {importing ? <><span className="spinner" /> Importing…</> : 'Import Regional Movies'}
@@ -302,19 +296,19 @@ export default function Settings() {
             <div className="card settings-section" style={{ marginBottom: 16 }}>
                 <div className="settings-section-title">Sonarr Connection</div>
                 <div className="form-row">
-                    <span className="form-label">URL</span>
+                    <span className="form-label">URL <Tooltip text="The URL to your Sonarr instance (e.g. http://localhost:8989)" /></span>
                     <input className="form-input" name="sonarr_url" value={formData.sonarr_url} onChange={handleChange} placeholder="http://localhost:8989" />
                 </div>
                 <div className="form-row">
-                    <span className="form-label">API Key</span>
+                    <span className="form-label">API Key <Tooltip text="Your Sonarr API Key (found in Settings -> General)" /></span>
                     <input className="form-input" name="sonarr_api_key" value={formData.sonarr_api_key} onChange={handleChange} placeholder={settings.sonarr_api_key_set ? '●●●●●●●●● (Set - Type to change)' : 'Not set'} />
                 </div>
                 <div className="form-row">
-                    <span className="form-label">Root Folder</span>
+                    <span className="form-label">Root Folder <Tooltip text="The base path where Sonarr stores TV shows" /></span>
                     <input className="form-input" name="sonarr_root_folder" value={formData.sonarr_root_folder} onChange={handleChange} placeholder="/series" />
                 </div>
                 <div className="form-row">
-                    <span className="form-label">Connection</span>
+                    <span className="form-label">Connection <Tooltip text="Test connectivity to Sonarr" /></span>
                     <div className="connection-test-row">
                         <button className="btn btn-secondary btn-sm" onClick={testSonarr} disabled={sonarrTesting}>
                             {sonarrTesting ? <><span className="spinner" /> Testing…</> : 'Test Connection'}
@@ -329,15 +323,15 @@ export default function Settings() {
             <div className="card settings-section" style={{ marginBottom: 16 }}>
                 <div className="settings-section-title">Jellyseerr Connection</div>
                 <div className="form-row">
-                    <span className="form-label">URL</span>
+                    <span className="form-label">URL <Tooltip text="The URL to your Jellyseerr instance" /></span>
                     <input className="form-input" name="jellyseerr_url" value={formData.jellyseerr_url} onChange={handleChange} placeholder="http://localhost:5055" />
                 </div>
                 <div className="form-row">
-                    <span className="form-label">API Key</span>
+                    <span className="form-label">API Key <Tooltip text="Your Jellyseerr API Key" /></span>
                     <input className="form-input" name="jellyseerr_api_key" value={formData.jellyseerr_api_key} onChange={handleChange} placeholder={settings.jellyseerr_api_key_set ? '●●●●●●●●● (Set - Type to change)' : 'Not set'} />
                 </div>
                 <div className="form-row">
-                    <span className="form-label">Webhook URL</span>
+                    <span className="form-label">Webhook URL <Tooltip text="Paste this URL into Jellyseerr's Webhook settings" /></span>
                     <div className="copy-input-wrap">
                         <input className="form-input" readOnly value={webhookUrl} />
                         <button className="btn btn-secondary btn-sm" onClick={copyWebhook}>
@@ -360,18 +354,18 @@ export default function Settings() {
             <div className="card settings-section" style={{ marginBottom: 16 }}>
                 <div className="settings-section-title">TMDB Settings</div>
                 <div className="form-row">
-                    <span className="form-label">API Key</span>
+                    <span className="form-label">API Key <Tooltip text="Your TMDB API Key (v3 auth)" /></span>
                     <input className="form-input" name="tmdb_api_key" value={formData.tmdb_api_key} onChange={handleChange} placeholder={settings.tmdb_api_key_set ? '●●●●●●●●● (Set - Type to change)' : 'Not set'} />
                 </div>
                 <div className="form-row">
-                    <span className="form-label">Release Fallback</span>
+                    <span className="form-label">Release Fallback <Tooltip text="If no digital release date is available, wait this many days after the theatrical release to start searching" /></span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <input className="form-input" type="number" name="digital_release_fallback_days" value={formData.digital_release_fallback_days} onChange={handleChange} style={{ maxWidth: 80 }} />
                         <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>days after theatrical release</span>
                     </div>
                 </div>
                 <div className="form-row">
-                    <span className="form-label">Connection</span>
+                    <span className="form-label">Connection <Tooltip text="Test connectivity to TMDB API" /></span>
                     <div className="connection-test-row">
                         <button className="btn btn-secondary btn-sm" onClick={testTmdb} disabled={tmdbTesting}>
                             {tmdbTesting ? <><span className="spinner" /> Testing…</> : 'Test Connection'}
@@ -387,7 +381,7 @@ export default function Settings() {
             <div className="card settings-section" style={{ marginBottom: 16 }}>
                 <div className="settings-section-title">Movie Download Sources</div>
                 <div className="form-row">
-                    <span className="form-label">Active Sources</span>
+                    <span className="form-label">Active Sources <Tooltip text="Drag and drop to reorder which sources are searched first for movies" /></span>
                     <div>
                         <div style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 8 }}>
                             Check to enable. Drag arrows to set search priority.
@@ -428,7 +422,7 @@ export default function Settings() {
 
                 <div className="settings-section-title" style={{ marginTop: 24 }}>TV Download Sources</div>
                 <div className="form-row">
-                    <span className="form-label">Active Sources</span>
+                    <span className="form-label">Active Sources <Tooltip text="Drag and drop to reorder which sources are searched first for movies" /></span>
                     <div>
                         <div style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 8 }}>
                             Check to enable. Drag arrows to set search priority.
@@ -542,7 +536,7 @@ export default function Settings() {
             <div className="card settings-section" style={{ marginBottom: 16 }}>
                 <div className="settings-section-title">Automations</div>
                 <div className="form-row">
-                    <span className="form-label">Search Delay</span>
+                    <span className="form-label">Search Delay <Tooltip text="Time to wait after Radarr/Sonarr adds a movie/show before triggering fallback search, giving them a chance to grab it first" /></span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <input
                             className="form-input"
@@ -562,14 +556,14 @@ export default function Settings() {
             <div className="card settings-section" style={{ marginBottom: 16 }}>
                 <div className="settings-section-title">Automation</div>
                 <div className="form-row">
-                    <span className="form-label">Jellyseerr</span>
+                    <span className="form-label">Jellyseerr <Tooltip text="Automatically download approved requests from Jellyseerr" /></span>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', color: 'var(--text-primary)' }}>
                         <input type="checkbox" name="enable_jellyseerr_auto_request" checked={formData.enable_jellyseerr_auto_request} onChange={e => setFormData(p => ({...p, enable_jellyseerr_auto_request: e.target.checked}))} />
                         Automatically import approved movies from Jellyseerr
                     </label>
                 </div>
                 <div className="form-row">
-                    <span className="form-label">Discovery Interval</span>
+                    <span className="form-label">Discovery Interval <Tooltip text="How frequently to run the background discovery search" /></span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <input
                             className="form-input"
@@ -584,7 +578,7 @@ export default function Settings() {
                     </div>
                 </div>
                 <div className="form-row">
-                    <span className="form-label">Discovery Batch Size</span>
+                    <span className="form-label">Discovery Batch Size <Tooltip text="Number of missing movies/shows to search for per interval" /></span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <input
                             className="form-input"
@@ -599,7 +593,7 @@ export default function Settings() {
                     </div>
                 </div>
                 <div className="form-row">
-                    <span className="form-label">New Release Grace</span>
+                    <span className="form-label">New Release Grace <Tooltip text="Defer searching for newly released media to allow Radarr/Sonarr to find higher quality releases first" /></span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <input
                             className="form-input"
@@ -614,7 +608,7 @@ export default function Settings() {
                     </div>
                 </div>
                 <div className="form-row">
-                    <span className="form-label">Manual Trigger</span>
+                    <span className="form-label">Manual Trigger <Tooltip text="Immediately run a discovery batch search" /></span>
                     <div className="connection-test-row">
                         <button className="btn btn-secondary btn-sm" onClick={triggerDiscoveryBatch} disabled={triggeringDiscovery}>
                             {triggeringDiscovery ? <><span className="spinner" /> Triggering…</> : 'Run Discovery Now'}
@@ -628,7 +622,7 @@ export default function Settings() {
             <div className="card settings-section" style={{ marginBottom: 16 }}>
                 <div className="settings-section-title">Einthusan Languages</div>
                 <div className="form-row">
-                    <span className="form-label">Monitored Languages</span>
+                    <span className="form-label">Monitored Languages <Tooltip text="Only movies in these languages will be downloaded or imported" /></span>
                     <div className="lang-grid">
                         {ALL_LANGS.map(l => {
                             const selected = formData.einthusan_languages.includes(l)
@@ -651,6 +645,18 @@ export default function Settings() {
             {/* Version */}
             <div style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', marginTop: 24 }}>
                 H-Downloader {settings.app_version}
+            </div>
+        
+            {/* Floating Save Button */}
+            <div className="floating-save-container">
+                {saveMsg && (
+                    <span style={{ fontSize: '0.875rem', color: saveMsg.includes('Error') ? 'var(--danger)' : 'var(--success)' }}>
+                        {saveMsg}
+                    </span>
+                )}
+                <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+                    {saving ? <><span className="spinner" style={{ marginRight: 8 }} />Saving...</> : 'Save Settings'}
+                </button>
             </div>
         </div>
     )
