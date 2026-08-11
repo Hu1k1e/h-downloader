@@ -9,14 +9,15 @@ logger = logging.getLogger(__name__)
 
 async def _call_llm_api(prompt: str, settings: AppSettings) -> Optional[str]:
     """Internal helper to make the API call to the configured LLM endpoint."""
-    if not settings.llm_enabled or not settings.llm_api_url or not settings.llm_api_key:
+    if not settings.llm_enabled or not settings.llm_api_url:
         return None
 
     try:
         headers = {
-            "Authorization": f"Bearer {settings.llm_api_key}",
             "Content-Type": "application/json"
         }
+        if settings.llm_api_key:
+            headers["Authorization"] = f"Bearer {settings.llm_api_key}"
         payload = {
             "model": settings.llm_model or "gpt-3.5-turbo",
             "messages": [{"role": "user", "content": prompt}],

@@ -173,13 +173,19 @@ class LlmTestRequest(BaseModel):
     model: str
 
 @router.post("/test-llm")
-async def test_llm_connection(req: LlmTestRequest):
+async def test_llm_connection(req: LlmTestRequest, session: Session = Depends(get_session)):
     import httpx
     try:
+        key = req.key
+        if not key:
+            settings = get_settings(session)
+            key = settings.llm_api_key
+            
         headers = {
-            "Authorization": f"Bearer {req.key}",
             "Content-Type": "application/json"
         }
+        if key:
+            headers["Authorization"] = f"Bearer {key}"
         payload = {
             "model": req.model,
             "messages": [{"role": "user", "content": "Reply exactly with the word 'Connected'."}],
