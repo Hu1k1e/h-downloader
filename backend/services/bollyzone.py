@@ -111,11 +111,14 @@ async def search_series(title: str, air_date: str, season: int = None, episode: 
             
             for a_tag in soup.find_all("a", href=True):
                 href = a_tag["href"]
-                if "/series/" in href:
-                    text = a_tag.get_text().strip().lower()
-                    href_lower = href.lower()
+                text = a_tag.get_text().strip().lower()
+                href_lower = href.lower()
+                
+                # Filter out obvious non-episode links like pagination or categories
+                if "/category/" in href_lower or "/tag/" in href_lower or "/page/" in href_lower:
+                    continue
                     
-                    # 1. Match by Date
+                # 1. Match by Date
                     for variant in date_variants:
                         variant_lower = variant.lower()
                         # Match variant in either the link text or the URL slug itself
@@ -129,7 +132,7 @@ async def search_series(title: str, air_date: str, season: int = None, episode: 
                             # Verify title also loosely matches to avoid false positives
                             if any(word.lower() in text for word in title.split()):
                                 return href
-                            
+            
             return None
     except Exception as e:
         logger.error(f"BollyZone search failed for '{title}': {e}")
