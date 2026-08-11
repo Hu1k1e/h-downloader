@@ -155,8 +155,8 @@ function SeriesModal({ series, onClose, onTrigger, onDelete, onToggleMonitor, on
                             </summary>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingLeft: 8 }}>
                                 {seasons[season].map(ep => (
-                                    <div key={ep.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 12, background: 'var(--bg-tertiary)', borderRadius: 8 }}>
-                                        <div style={{ fontWeight: 'bold', width: 40 }}>
+                                    <div key={ep.id} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12, padding: 12, background: 'var(--bg-tertiary)', borderRadius: 8 }}>
+                                        <div style={{ fontWeight: 'bold', minWidth: 40 }}>
                                             E{String(ep.episode_number).padStart(2, '0')}
                                         </div>
                                         <div style={{ flex: 1 }}>
@@ -178,9 +178,9 @@ function SeriesModal({ series, onClose, onTrigger, onDelete, onToggleMonitor, on
                                             )}
                                         </div>
                                         
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
                                             {ep.release_date && (
-                                                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginRight: 12, minWidth: 80, textAlign: 'right' }}>
+                                                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginRight: 4, textAlign: 'right' }}>
                                                     {formatAirDate(ep.release_date)}
                                                 </div>
                                             )}
