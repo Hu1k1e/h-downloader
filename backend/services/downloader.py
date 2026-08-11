@@ -136,8 +136,12 @@ async def download_m3u8(
             "ffmpeg",
             "-nostdin",
             "-y", # Overwrite output files
+            "-rw_timeout", "15000000",
             "-reconnect", "1",
             "-reconnect_streamed", "1",
+            "-reconnect_at_eof", "1",
+            "-reconnect_on_network_error", "1",
+            "-reconnect_on_http_error", "4xx,5xx",
             "-reconnect_delay_max", "5",
             "-allowed_extensions", "ALL,juicycodes",
             "-allowed_segment_extensions", "ALL,juicycodes",
