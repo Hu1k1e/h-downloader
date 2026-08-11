@@ -814,6 +814,12 @@ async def sync_all_sonarr(background_tasks: BackgroundTasks, session: Session = 
         if not series and job.title:
             series_title = job.title.split(" S")[0].lower()
             series = sonarr_map_by_title.get(series_title)
+            if not series:
+                # Try finding a series that starts with this title or vice versa
+                for st, s_data in sonarr_map_by_title.items():
+                    if st.startswith(series_title) or series_title.startswith(st):
+                        series = s_data
+                        break
 
         changed = False
 

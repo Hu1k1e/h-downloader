@@ -130,6 +130,7 @@ async def download_m3u8(
         cmd = [
             "ffmpeg",
             "-y", # Overwrite output files
+            "-allowed_extensions", "ALL",
             "-headers", headers_arg,
             "-i", url,
             "-c", "copy",
