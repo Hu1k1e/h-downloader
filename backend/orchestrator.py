@@ -263,6 +263,21 @@ async def _run_tv_pipeline(session: Session, job: DownloadJob, settings: AppSett
         _update_job(session, job, status=JobStatus.FAILED, error_msg=f"Sonarr check failed: {e}")
         return
 
+    # Release Check for TV Shows
+    air_date_utc = ep.get("airDateUtc")
+    if air_date_utc:
+        from datetime import datetime, timezone
+        try:
+            air_dt = datetime.fromisoformat(air_date_utc.replace("Z", "+00:00"))
+            if datetime.now(timezone.utc) < air_dt and not indexer and not skip_release_check:
+                msg = f"Episode has not aired yet (airs {air_dt.strftime('%Y-%m-%d %H:%M UTC')})"
+                from backend.db_logger import log_action
+                log_action(action="search_skipped", message=f"'{title}' skipped: {msg}", tvdb_id=tvdb_id, job_id=job_id)
+                _update_job(session, job, status=JobStatus.SKIPPED, error_msg=msg)
+                return
+        except Exception as e:
+            logger.warning(f"Failed to parse airDateUtc '{air_date_utc}': {e}")
+
     _update_job(session, job, status=JobStatus.SEARCHING)
     sources = [s.strip() for s in settings.tv_download_sources_priority.split(",") if s.strip()]
     if not sources: sources = ["1tamilmv", "bollyzone"]
