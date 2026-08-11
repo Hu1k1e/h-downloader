@@ -22,7 +22,7 @@ async def _call_llm_api(messages: list, settings: AppSettings) -> Optional[str]:
             "model": settings.llm_model or "gpt-3.5-turbo",
             "messages": messages,
             "temperature": 0.0,
-            "max_tokens": 150
+            "max_tokens": 400
         }
         
         url = f"{settings.llm_api_url.rstrip('/')}/chat/completions"
@@ -78,7 +78,8 @@ async def generate_search_variants_with_llm(
             "You are a search variant generator for Indian torrent trackers. "
             "Your entire response MUST be ONLY a valid JSON array of strings containing probable naming variations. "
             "Do not include any other text, markdown formatting, or reasoning. "
-            "Example for 'Show S01E02': [\"Show Season 1 Episode 2\", \"Show 1 Episode 2\", \"Show S01 E02\", \"Show S1E2\"]"
+            "Example for 'Show S01E02': [\"Show Season 1 Episode 2\", \"Show 1 Episode 2\", \"Show S01 E02\", \"Show S1E2\"]\n"
+            "Output the JSON array directly starting with [ and ending with ]."
         )
         
         messages = [
@@ -90,17 +91,28 @@ async def generate_search_variants_with_llm(
         if not result:
             return []
             
-        import re
-        result = re.sub(r'```json\s*', '', result)
-        result = re.sub(r'```\s*', '', result)
-        
         import json
-        try:
-            variants = json.loads(result.strip())
-            if isinstance(variants, list):
-                return [str(v).lower() for v in variants]
-        except json.JSONDecodeError:
-            logger.warning(f"LLM failed to return valid JSON array for search variants. Raw: {result}")
+        
+        # Try to find JSON array brackets if LLM is chatty
+        start = result.find('[')
+        end = result.rfind(']')
+        if start != -1 and end != -1 and end > start:
+            json_str = result[start:end+1]
+            try:
+                variants = json.loads(json_str)
+                if isinstance(variants, list):
+                    return [str(v).lower() for v in variants]
+            except json.JSONDecodeError:
+                pass
+                
+        # Fallback if array parsing failed or brackets missing: just split by newlines/quotes
+        import re
+        logger.warning(f"LLM failed to return valid JSON array for search variants. Raw: {result}")
+        # Try to extract anything that looks like a quoted string
+        matches = re.findall(r'"([^"]+)"', result)
+        if matches:
+            # Filter out strings that are too long or likely conversational
+            return [m.lower() for m in matches if len(m) < 100]
             
         return []
 
