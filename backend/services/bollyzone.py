@@ -200,7 +200,12 @@ async def extract_url(episode_url: str) -> Optional[Tuple[str, str, str]]:
             
             juicy_match = re.search(r'JuicyCodes\.Run\((.*?)\);', resp.text, re.DOTALL)
             if not juicy_match:
-                logger.error(f"No JuicyCodes payload found in tvlogy response for {tvlogy_url}")
+                # Fallback for plain video.js configuration (often used when JuicyCodes isn't)
+                plain_m3u8 = re.search(r'\"(?:src|file)\":\s*\"(https?://[^\"]+\.m3u8[^\"]*)\"', resp.text)
+                if plain_m3u8:
+                    return (plain_m3u8.group(1), tvlogy_url, USER_AGENT)
+                    
+                logger.error(f"No JuicyCodes payload or plain m3u8 found in tvlogy response for {tvlogy_url}")
                 return None
                 
             unpacked = unpack_juicy(juicy_match.group(1))
