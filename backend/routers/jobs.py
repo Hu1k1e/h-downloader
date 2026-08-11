@@ -828,9 +828,60 @@ async def sync_all_sonarr(background_tasks: BackgroundTasks, session: Session = 
 
     updated_count = 0
     deleted_count = 0
+    imported_count = 0
 
-    # Fetch episodes for series that have jobs
+    # Build a lookup for existing jobs
+    existing_jobs = {}
+    for job in all_jobs:
+        key = (job.tvdb_id or job.title.split(" S")[0].lower(), job.season_number, job.episode_number)
+        existing_jobs[key] = job
+
+    # Fetch episodes for series that have jobs OR all series
     series_episodes = {}
+    
+    # 1. First loop: Import any missing episodes from Sonarr
+    for series in all_sonarr_series:
+        series_id = series.get("id")
+        tvdb_id = series.get("tvdbId")
+        if not series_id: continue
+        
+        try:
+            episodes = await sonarr_svc.get_episodes(series_id, settings)
+            series_episodes[series_id] = {(e.get("seasonNumber"), e.get("episodeNumber")): e for e in episodes}
+        except Exception:
+            continue
+            
+        for ep in episodes:
+            s_num = ep.get("seasonNumber")
+            e_num = ep.get("episodeNumber")
+            if not s_num or not e_num: continue
+            if not ep.get("monitored", False) and not ep.get("hasFile", False):
+                continue # Skip unmonitored missing episodes unless we want to track them all
+                
+            job_key_tvdb = (tvdb_id, s_num, e_num)
+            
+            if job_key_tvdb not in existing_jobs:
+                # Create it!
+                new_job = DownloadJob(
+                    title=f"{series.get('title')} S{s_num:02d}E{e_num:02d}",
+                    tvdb_id=tvdb_id,
+                    media_type="tv",
+                    season_number=s_num,
+                    episode_number=e_num,
+                    status=JobStatus.DONE if ep.get("hasFile") else JobStatus.MOVIE_MISSING,
+                    monitored=ep.get("monitored", False),
+                    progress_pct=100 if ep.get("hasFile") else 0
+                )
+                session.add(new_job)
+                existing_jobs[job_key_tvdb] = new_job # Prevent duplicates
+                imported_count += 1
+                
+    if imported_count > 0:
+        session.commit()
+        # Refresh all_jobs list after insertion
+        all_jobs = session.exec(select(DownloadJob).where(DownloadJob.media_type == "tv")).all()
+
+    # 2. Second loop: Reconcile existing jobs
     for job in all_jobs:
         if job.status == JobStatus.IMPORTING or (job.status == JobStatus.DOWNLOADING and job.source_indexer != "sonarr"):
             continue
@@ -844,7 +895,6 @@ async def sync_all_sonarr(background_tasks: BackgroundTasks, session: Session = 
             series_title = job.title.split(" S")[0].lower()
             series = sonarr_map_by_title.get(series_title)
             if not series:
-                # Try finding a series that starts with this title or vice versa
                 for st, s_data in sonarr_map_by_title.items():
                     if st.startswith(series_title) or series_title.startswith(st):
                         series = s_data
@@ -895,12 +945,12 @@ async def sync_all_sonarr(background_tasks: BackgroundTasks, session: Session = 
             session.add(job)
             updated_count += 1
 
-    if updated_count > 0:
+    if updated_count > 0 or imported_count > 0:
         session.commit()
         from backend.db_logger import log_action
-        log_action("Manual", f"Sync All Sonarr: {updated_count} episodes updated (including {deleted_count} deleted).")
+        log_action("Manual", f"Sync All Sonarr: {updated_count} updated, {imported_count} newly imported.")
 
-    return {"status": "success", "updated": updated_count}
+    return {"status": "success", "updated": updated_count, "imported": imported_count}
 
 
 @router.post("/jobs/discovery")
