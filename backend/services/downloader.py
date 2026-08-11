@@ -45,6 +45,7 @@ def get_movie_file_path(folder: str, title: str, year: Optional[int]) -> str:
 
 
 ACTIVE_DIRECT_DOWNLOADS = set()
+ACTIVE_DOWNLOAD_PROCESSES = {}  # Map job_id to asyncio.subprocess.Process
 
 def is_direct_download_active(job_id: int) -> bool:
     return job_id in ACTIVE_DIRECT_DOWNLOADS
@@ -85,6 +86,9 @@ async def download_movie(
                     last_pct = -1
 
                     async for chunk in resp.aiter_bytes(chunk_size=1024 * 1024):  # 1MB chunks
+                        if job_id not in ACTIVE_DIRECT_DOWNLOADS:
+                            raise Exception("Download cancelled by user")
+                            
                         f.write(chunk)
                         downloaded += len(chunk)
 
@@ -108,6 +112,7 @@ async def download_movie(
         return False
     finally:
         ACTIVE_DIRECT_DOWNLOADS.discard(job_id)
+        ACTIVE_DOWNLOAD_PROCESSES.pop(job_id, None)
 
 
 async def download_m3u8(
@@ -146,9 +151,11 @@ async def download_m3u8(
         
         process = await asyncio.create_subprocess_exec(
             *cmd,
-            stdout=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE
         )
+        
+        ACTIVE_DOWNLOAD_PROCESSES[job_id] = process
         
         try:
             # We will read stderr line by line to track progress
@@ -217,3 +224,17 @@ async def download_m3u8(
         return False
     finally:
         ACTIVE_DIRECT_DOWNLOADS.discard(job_id)
+        ACTIVE_DOWNLOAD_PROCESSES.pop(job_id, None)
+
+def cancel_download(job_id: int):
+    """
+    Cancels an active download process for the given job_id.
+    """
+    ACTIVE_DIRECT_DOWNLOADS.discard(job_id)
+    process = ACTIVE_DOWNLOAD_PROCESSES.get(job_id)
+    if process:
+        logger.info(f"Killing active download process for job {job_id}")
+        try:
+            process.kill()
+        except:
+            pass

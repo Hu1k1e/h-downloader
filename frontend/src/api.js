@@ -26,6 +26,7 @@ export const api = {
     getJob: (id) => request(`/api/jobs/${id}`),
     getActiveJobs: () => request('/api/jobs/active'),
     deleteJob: (id) => request(`/api/jobs/${id}`, { method: 'DELETE' }),
+    cancelJob: (id) => request(`/api/jobs/${id}/cancel`, { method: 'POST', body: {} }),
     retryJob: (id) => request(`/api/jobs/${id}/retry`, { method: 'POST', body: {} }),
     // Background Jellyseerr sync (picks up new approved requests)
     syncJellyseerr: () => request('/api/jobs/sync', { method: 'POST' }),

@@ -59,7 +59,7 @@ function tabCount(movies, tab) {
     return movies.filter(m => matchesTab(m, tab)).length
 }
 
-function MovieModal({ movie, onClose, onTrigger, onSync, settings, onImportUrl }) {
+function MovieModal({ movie, onClose, onTrigger, onDelete, onCancel, onToggleMonitor, onSync, settings, onImportUrl }) {
     const [importUrl, setImportUrl] = useState('')
     const [importLoading, setImportLoading] = useState(false)
     const [importMsg, setImportMsg] = useState('')
@@ -136,6 +136,13 @@ function MovieModal({ movie, onClose, onTrigger, onSync, settings, onImportUrl }
                                 ETA: {formatETA(movie.eta_seconds)}
                             </div>
                         )}
+                        <button 
+                            className="btn btn-danger btn-sm" 
+                            style={{ padding: '4px 8px', fontSize: 11, marginTop: 8 }}
+                            onClick={() => onCancel(movie.id)}
+                        >
+                            Stop
+                        </button>
                     </div>
                 )}
                 {movie.source_indexer && (
@@ -233,7 +240,7 @@ function MovieModal({ movie, onClose, onTrigger, onSync, settings, onImportUrl }
     )
 }
 
-function PosterCard({ movie, onTrigger, onDelete, onSelect, onToggleMonitor }) {
+function PosterCard({ movie, onTrigger, onDelete, onCancel, onSelect, onToggleMonitor }) {
     const status = (movie.status || '').toLowerCase()
     const colour = STATUS_COLOR[status] || 'var(--text-muted)'
     const label = STATUS_LABEL[status] || status.toUpperCase()
@@ -300,14 +307,15 @@ function PosterCard({ movie, onTrigger, onDelete, onSelect, onToggleMonitor }) {
             </div>
 
             <div className="poster-actions" onClick={e => e.stopPropagation()}>
-                <button
-                    className="btn btn-danger btn-sm"
-                    onClick={() => onDelete(movie.id)}
-                    title="Delete Job"
-                    style={{ flex: 1 }}
-                >
-                    Delete
-                </button>
+                {status === 'downloading' && (
+                    <button
+                        className="btn btn-danger btn-sm"
+                        style={{ flex: 1, padding: '4px 0' }}
+                        onClick={() => onCancel(movie.id)}
+                    >
+                        Stop
+                    </button>
+                )}
                 <button
                     className="btn btn-primary btn-sm"
                     onClick={() => onTrigger(movie)}
@@ -316,6 +324,14 @@ function PosterCard({ movie, onTrigger, onDelete, onSelect, onToggleMonitor }) {
                     style={{ flex: 1 }}
                 >
                     {status === 'discovered' ? 'Download' : '▶'}
+                </button>
+                <button
+                    className="btn btn-danger btn-sm"
+                    onClick={() => onDelete(movie.id)}
+                    title="Delete Job"
+                    style={{ flex: 0, padding: '4px 8px' }}
+                >
+                    🗑️
                 </button>
             </div>
         </div>
@@ -384,9 +400,16 @@ export default function Movies() {
     }
 
     const deleteJob = async (id) => {
-        if (!confirm('Delete this job?')) return
+        if (!confirm('Clear this movie?')) return
         try {
             await fetch(`/api/jobs/${id}`, { method: 'DELETE' })
+            fetchMovies()
+        } catch (err) { console.error(err) }
+    }
+
+    const cancelJob = async (id) => {
+        try {
+            await api.cancelJob(id)
             fetchMovies()
         } catch (err) { console.error(err) }
     }
@@ -454,7 +477,7 @@ export default function Movies() {
 
     return (
         <div className="main-content">
-            {selectedMovie && <MovieModal movie={movies.find(m => m.id === selectedMovie.id) || selectedMovie} onClose={() => setSelectedMovie(null)} onTrigger={triggerJob} onSync={syncMovie} settings={settings} onImportUrl={handleImportUrl} />}
+            {selectedMovie && <MovieModal movie={movies.find(m => m.id === selectedMovie.id) || selectedMovie} onClose={() => setSelectedMovie(null)} onTrigger={triggerJob} onDelete={deleteJob} onCancel={cancelJob} onSync={syncMovie} settings={settings} onImportUrl={handleImportUrl} />}
             {showTriggerModal && <TriggerModal onClose={() => setShowTriggerModal(false)} onSuccess={fetchMovies} />}
             
             {/* Header */}
@@ -531,6 +554,7 @@ export default function Movies() {
                             movie={movie}
                             onTrigger={triggerJob}
                             onDelete={deleteJob}
+                            onCancel={cancelJob}
                             onSelect={() => setSelectedMovie(movie)}
                             onToggleMonitor={toggleMonitor}
                         />

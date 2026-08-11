@@ -59,7 +59,7 @@ function tabCount(movies, tab) {
     return movies.filter(m => matchesTab(m, tab)).length
 }
 
-function SeriesModal({ series, onClose, onTrigger, onDelete, onToggleMonitor, onSync, settings, onImportUrl }) {
+function SeriesModal({ series, onClose, onTrigger, onDelete, onCancel, onToggleMonitor, onSync, settings, onImportUrl }) {
     const [importUrl, setImportUrl] = useState('')
     const [importLoading, setImportLoading] = useState(false)
     const [importMsg, setImportMsg] = useState('')
@@ -216,6 +216,15 @@ function SeriesModal({ series, onClose, onTrigger, onDelete, onToggleMonitor, on
                                                     </button>
                                                 </div>
                                             )}
+                                            {ep.status === 'downloading' && (
+                                                <button 
+                                                    className="btn btn-danger btn-sm" 
+                                                    style={{ padding: '4px 8px', fontSize: 11 }}
+                                                    onClick={() => onCancel(ep.id)}
+                                                >
+                                                    Stop
+                                                </button>
+                                            )}
                                             <button 
                                                 className="btn btn-primary btn-sm" 
                                                 style={{ padding: '4px 8px', fontSize: 11 }}
@@ -368,18 +377,17 @@ export default function Series() {
     }
 
     const deleteJob = async (id) => {
-        if (!confirm('Delete this episode?')) return
+        if (!confirm('Clear this episode?')) return
         try {
             await fetch(`/api/jobs/${id}`, { method: 'DELETE' })
             fetchMovies()
-            // update modal state if open
-            if (selectedSeries) {
-                setSelectedSeries(prev => {
-                    const newEps = prev.episodes.filter(e => e.id !== id)
-                    if (newEps.length === 0) return null
-                    return { ...prev, episodes: newEps }
-                })
-            }
+        } catch (err) { console.error(err) }
+    }
+
+    const cancelJob = async (id) => {
+        try {
+            await api.cancelJob(id)
+            fetchMovies()
         } catch (err) { console.error(err) }
     }
 
@@ -484,6 +492,7 @@ export default function Series() {
                     onClose={() => setSelectedSeries(null)} 
                     onTrigger={triggerJob} 
                     onDelete={deleteJob}
+                    onCancel={cancelJob}
                     onToggleMonitor={toggleMonitor}
                     onSync={syncMovie} 
                     settings={settings} 

@@ -95,12 +95,41 @@ def get_job(job_id: int, session: Session = Depends(get_session)):
 
 @router.delete("/jobs/{job_id}")
 def delete_job(job_id: int, session: Session = Depends(get_session)):
+    from backend.services.downloader import cancel_download
     job = session.get(DownloadJob, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    session.delete(job)
+        
+    cancel_download(job_id)
+    
+    job.status = JobStatus.MISSING
+    job.progress_pct = 0
+    job.downloaded_bytes = 0
+    job.total_bytes = 0
+    job.qbittorrent_hash = None
+    job.error_msg = None
+    job.file_path = None
+    session.add(job)
     session.commit()
-    return {"status": "deleted"}
+    return {"status": "cleared"}
+
+@router.post("/jobs/{job_id}/cancel")
+def cancel_job(job_id: int, session: Session = Depends(get_session)):
+    from backend.services.downloader import cancel_download
+    job = session.get(DownloadJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    cancel_download(job_id)
+    
+    job.status = JobStatus.MISSING
+    job.progress_pct = 0
+    job.downloaded_bytes = 0
+    job.total_bytes = 0
+    job.error_msg = "Cancelled by user"
+    session.add(job)
+    session.commit()
+    return {"status": "cancelled"}
 
 
 class MonitorUpdate(BaseModel):
