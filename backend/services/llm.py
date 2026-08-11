@@ -41,19 +41,18 @@ async def _call_llm_api(messages: list, settings: AppSettings) -> Optional[str]:
         logger.error(f"LLM API call failed: {e.__class__.__name__} {e}")
         return None
 
-async def parse_tracker_results_with_llm(
-    links: List[Tuple[str, str]], 
+async def generate_search_variants_with_llm(
     target_title: str, 
     target_year: Optional[int] = None, 
-    target_resolution: Optional[str] = None
-) -> Optional[str]:
+    season: Optional[int] = None,
+    episode: Optional[int] = None,
+    air_date: Optional[str] = None
+) -> List[str]:
     """
-    Passes a list of (url, text) tuples to the LLM to intelligently pick the best matching URL.
-    Returns the URL if found, else None.
+    Asks the LLM to generate a JSON list of probable naming formats/search variants for a movie or TV episode 
+    that Indian torrent sites might use.
     """
     try:
-        # We need settings inside this async function context
-        # Since this is a service, we'll manually fetch a session
         from sqlmodel import Session
         from backend.database import engine
         
@@ -61,28 +60,25 @@ async def parse_tracker_results_with_llm(
             settings = get_settings(session)
             
         if not settings.llm_enabled:
-            return None
+            return []
 
-        # Format the links for the LLM
-        formatted_links = "\n".join([f"- URL: {href}\n  Title: {text}" for href, text in links])
-        
         prompt = (
+            f"Generate 5 highly probable exact string formats that Indian torrent/streaming sites (like 1TamilMV, BollyZone) "
+            f"might use to name the following media release.\n"
             f"Target Media: {target_title} ({target_year or 'Unknown Year'})\n"
         )
-        if target_resolution:
-            prompt += f"Preferred Resolution: {target_resolution}\n"
+        if season is not None and episode is not None:
+            prompt += f"Season: {season}, Episode: {episode}\n"
+        elif episode is not None:
+            prompt += f"Episode: {episode}\n"
+        elif air_date is not None:
+            prompt += f"Air Date: {air_date}\n"
             
-        prompt += (
-            f"\nAvailable Results:\n{formatted_links}"
-        )
-        
         system_prompt = (
-            "You are a strict, intelligent movie/TV parser. Your job is to select the exact URL of the best matching release from the provided list.\n"
-            "Rules:\n"
-            "1. Exclude any CAM, HDTS, PRE-DVD, or strictly low-quality theatrical recordings.\n"
-            "2. If multiple valid options exist, pick the highest quality one that matches the requested resolution/episode.\n"
-            "3. If no links seem like a good, genuine match, reply ONLY with the word NONE.\n"
-            "4. Your entire response must be ONLY the exact URL (or NONE). Do not include any explanations, reasoning, formatting, or extra text."
+            "You are a search variant generator for Indian torrent trackers. "
+            "Your entire response MUST be ONLY a valid JSON array of strings containing probable naming variations. "
+            "Do not include any other text, markdown formatting, or reasoning. "
+            "Example for 'Show S01E02': [\"Show Season 1 Episode 2\", \"Show 1 Episode 2\", \"Show S01 E02\", \"Show S1E2\"]"
         )
         
         messages = [
@@ -91,20 +87,23 @@ async def parse_tracker_results_with_llm(
         ]
         
         result = await _call_llm_api(messages, settings)
-        if not result or "NONE" in result.upper():
-            return None
+        if not result:
+            return []
             
         import re
-        url_match = re.search(r'(https?://[^\s\'"]+)', result)
-        if url_match:
-            extracted_url = url_match.group(1)
-            for href, _ in links:
-                if href in extracted_url or extracted_url in href:
-                    return href
-                
-        logger.warning(f"LLM returned an invalid URL or formatted it weirdly: {result}")
-        return None
+        result = re.sub(r'```json\s*', '', result)
+        result = re.sub(r'```\s*', '', result)
+        
+        import json
+        try:
+            variants = json.loads(result.strip())
+            if isinstance(variants, list):
+                return [str(v).lower() for v in variants]
+        except json.JSONDecodeError:
+            logger.warning(f"LLM failed to return valid JSON array for search variants. Raw: {result}")
+            
+        return []
 
     except Exception as e:
-        logger.error(f"LLM parsing service failed: {e}")
-        return None
+        logger.error(f"LLM variant generation failed: {e}")
+        return []

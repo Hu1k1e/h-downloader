@@ -114,22 +114,26 @@ async def search_series(title: str, air_date: str, season: int = None, episode: 
             for a_tag in soup.find_all("a", href=True):
                 href = a_tag["href"]
                 text = a_tag.get_text().strip()
-                if "/category/" in href.lower() or "/tag/" in href.lower() or "/page/" in href.lower() or "/series/" in href.lower():
+                href_lower = href.lower()
+                if "/category/" in href_lower or "/tag/" in href_lower or "/page/" in href_lower:
+                    continue
+                if href_lower.endswith("/series/") or href_lower.endswith("/series"):
                     continue
                 if text:
                     raw_links.append((href, text))
                     
             if raw_links:
-                from backend.services.llm import parse_tracker_results_with_llm
-                llm_url = await parse_tracker_results_with_llm(
-                    links=raw_links,
+                from backend.services.llm import generate_search_variants_with_llm
+                llm_variants = await generate_search_variants_with_llm(
                     target_title=title,
                     target_year=None,
-                    target_resolution=f"Season {season} Episode {episode}" if season and episode else f"Episode {episode}" if episode else air_date
+                    season=season,
+                    episode=episode,
+                    air_date=air_date
                 )
-                if llm_url:
-                    logger.info(f"LLM successfully matched BollyZone URL: {llm_url}")
-                    return llm_url
+                if llm_variants:
+                    logger.info(f"LLM generated {len(llm_variants)} search variants for BollyZone")
+                    fallback_variants.extend(llm_variants)
             
             # 1. Match by Date (Prioritize exact date, then offsets)
             for day_variants in date_variants:
@@ -138,7 +142,9 @@ async def search_series(title: str, air_date: str, season: int = None, episode: 
                     text = a_tag.get_text().strip().lower()
                     href_lower = href.lower()
                     
-                    if "/category/" in href_lower or "/tag/" in href_lower or "/page/" in href_lower or "/series/" in href_lower:
+                    if "/category/" in href_lower or "/tag/" in href_lower or "/page/" in href_lower:
+                        continue
+                    if href_lower.endswith("/series/") or href_lower.endswith("/series"):
                         continue
                         
                     for variant in day_variants:
@@ -152,7 +158,9 @@ async def search_series(title: str, air_date: str, season: int = None, episode: 
                 text = a_tag.get_text().strip().lower()
                 href_lower = href.lower()
                 
-                if "/category/" in href_lower or "/tag/" in href_lower or "/page/" in href_lower or "/series/" in href_lower:
+                if "/category/" in href_lower or "/tag/" in href_lower or "/page/" in href_lower:
+                    continue
+                if href_lower.endswith("/series/") or href_lower.endswith("/series"):
                     continue
                     
                 for variant in fallback_variants:
