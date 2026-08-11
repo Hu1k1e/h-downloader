@@ -25,14 +25,15 @@ def _generate_date_variants(date_str: str) -> List[str]:
         variants = []
         # Generate for exact date, +1 day, and -1 day (timezone differences)
         for d in [dt, dt + timedelta(days=1), dt - timedelta(days=1)]:
-            variants.extend([
-                f"{ordinal(d.day)} {d.strftime('%B')} {d.year}", # 9th August 2026
-                f"{d.day:02d} {d.strftime('%B')} {d.year}",      # 09 August 2026
-                f"{d.day} {d.strftime('%B')} {d.year}",          # 9 August 2026
-                f"{ordinal(d.day)} {d.strftime('%b')} {d.year}", # 9th Aug 2026
-                f"{d.day:02d}-{d.month:02d}-{d.year}",           # 09-08-2026
-                f"{d.day}-{d.month}-{d.year}",                   # 9-8-2026
-            ])
+            day_variants = [
+                f"{ordinal(d.day)} {d.strftime('%B')} {d.year}",
+                f"{d.day:02d} {d.strftime('%B')} {d.year}",
+                f"{d.day} {d.strftime('%B')} {d.year}",
+                f"{ordinal(d.day)} {d.strftime('%b')} {d.year}",
+                f"{d.day:02d}-{d.month:02d}-{d.year}",
+                f"{d.day}-{d.month}-{d.year}",
+            ]
+            variants.append(day_variants)
         return variants
     except Exception as e:
         logger.warning(f"Failed to generate date variants for {date_str}: {e}")
@@ -109,29 +110,36 @@ async def search_series(title: str, air_date: str, season: int = None, episode: 
             
             soup = BeautifulSoup(resp.text, "html.parser")
             
-            for a_tag in soup.find_all("a", href=True):
-                href = a_tag["href"]
-                text = a_tag.get_text().strip().lower()
-                href_lower = href.lower()
-                
-                # Filter out obvious non-episode links like pagination or categories
-                if "/category/" in href_lower or "/tag/" in href_lower or "/page/" in href_lower:
-                    continue
-                    
-                # 1. Match by Date
-                    for variant in date_variants:
-                        variant_lower = variant.lower()
-                        # Match variant in either the link text or the URL slug itself
-                        if variant_lower in text or variant_lower.replace(" ", "-") in href_lower:
-                            return href
+                # 1. Match by Date (Prioritize exact date, then offsets)
+                for day_variants in date_variants:
+                    for a_tag in soup.find_all("a", href=True):
+                        href = a_tag["href"]
+                        text = a_tag.get_text().strip().lower()
+                        href_lower = href.lower()
+                        
+                        if "/category/" in href_lower or "/tag/" in href_lower or "/page/" in href_lower:
+                            continue
                             
-                    # 2. Match by Fallback Variants (Season/Episode)
-                    for variant in fallback_variants:
-                        variant_lower = variant.lower()
-                        if variant_lower in text or variant_lower.replace(" ", "-") in href_lower:
-                            # Verify title also loosely matches to avoid false positives
-                            if any(word.lower() in text for word in title.split()):
+                        for variant in day_variants:
+                            variant_lower = variant.lower()
+                            if variant_lower in text or variant_lower.replace(" ", "-") in href_lower:
                                 return href
+                                
+                # 2. Match by Fallback Variants (Season/Episode)
+                for a_tag in soup.find_all("a", href=True):
+                    href = a_tag["href"]
+                    text = a_tag.get_text().strip().lower()
+                    href_lower = href.lower()
+                    
+                    if "/category/" in href_lower or "/tag/" in href_lower or "/page/" in href_lower:
+                        continue
+                        
+                    for variant in fallback_variants:
+                    variant_lower = variant.lower()
+                    if variant_lower in text or variant_lower.replace(" ", "-") in href_lower:
+                        # Verify title also loosely matches to avoid false positives
+                        if any(word.lower() in text for word in title.split()):
+                            return href
             
             return None
     except Exception as e:
