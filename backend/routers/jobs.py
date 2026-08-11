@@ -126,7 +126,6 @@ async def delete_job(job_id: int, session: Session = Depends(get_session)):
     job.progress_pct = 0
     job.downloaded_bytes = 0
     job.total_bytes = 0
-    job.qbittorrent_hash = None
     job.error_msg = None
     job.file_path = None
     session.add(job)
