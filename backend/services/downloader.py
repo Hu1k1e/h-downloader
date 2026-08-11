@@ -129,7 +129,11 @@ async def download_m3u8(
         
         cmd = [
             "ffmpeg",
+            "-nostdin",
             "-y", # Overwrite output files
+            "-reconnect", "1",
+            "-reconnect_streamed", "1",
+            "-reconnect_delay_max", "5",
             "-allowed_extensions", "ALL,juicycodes",
             "-allowed_segment_extensions", "ALL,juicycodes",
             "-extension_picky", "0",
@@ -146,8 +150,13 @@ async def download_m3u8(
             stderr=asyncio.subprocess.PIPE
         )
         
-        stdout, stderr = await process.communicate()
-        
+        try:
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=3600) # 1 hour timeout
+        except asyncio.TimeoutError:
+            process.kill()
+            logger.error(f"ffmpeg timed out after 1 hour for Job {job_id}")
+            raise Exception("FFMPEG download timed out")
+            
         if process.returncode != 0:
             logger.error(f"ffmpeg failed with code {process.returncode}: {stderr.decode('utf-8', errors='ignore')}")
             raise Exception("FFMPEG download failed")
