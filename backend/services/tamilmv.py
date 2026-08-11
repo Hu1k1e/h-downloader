@@ -41,7 +41,7 @@ async def search_movie(title: str, year: int, domain: str, langs: list[str] = No
                 target_year=year
             )
             if llm_variants:
-                logger.info(f"LLM generated {len(llm_variants)} search variants for 1TamilMV")
+                logger.info(f"LLM generated {len(llm_variants)} search variants for 1TamilMV: {llm_variants}")
             else:
                 llm_variants = []
             

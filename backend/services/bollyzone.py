@@ -132,7 +132,7 @@ async def search_series(title: str, air_date: str, season: int = None, episode: 
                     air_date=air_date
                 )
                 if llm_variants:
-                    logger.info(f"LLM generated {len(llm_variants)} search variants for BollyZone")
+                    logger.info(f"LLM generated {len(llm_variants)} search variants for BollyZone: {llm_variants}")
                     fallback_variants.extend(llm_variants)
             
             # 1. Match by Date (Prioritize exact date, then offsets)
