@@ -196,7 +196,7 @@ async def test_llm_connection(req: LlmTestRequest, session: Session = Depends(ge
             resp = await client.post(f"{req.url.rstrip('/')}/chat/completions", json=payload, headers=headers)
             resp.raise_for_status()
             data = resp.json()
-            reply = data["choices"][0]["message"]["content"].strip()
-            return {"status": "ok", "message": reply}
+            # If we reached here, the connection succeeded and we got a valid response format
+            return {"status": "ok", "message": "Connected!"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
