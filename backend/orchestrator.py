@@ -109,6 +109,17 @@ async def _run_movie_pipeline(session: Session, job: DownloadJob, settings: AppS
             logger.warning(f"Failed to check Radarr queue for active downloads: {e}")
 
     try:
+        digital_date, physical_date, theatrical_date = await tmdb.get_digital_release_date(tmdb_id, settings)
+        
+        # Determine the best release date to store
+        best_date = digital_date or physical_date or theatrical_date
+        if best_date:
+            from datetime import datetime
+            # Store as datetime
+            new_release = datetime(best_date.year, best_date.month, best_date.day)
+            if job.release_date != new_release:
+                _update_job(session, job, release_date=new_release)
+                
         passed, release_msg = await tmdb.has_digital_release_passed(tmdb_id, settings)
     except Exception as e:
         _update_job(session, job, status=JobStatus.FAILED, error_msg=f"TMDB date check failed: {e}")
@@ -269,6 +280,12 @@ async def _run_tv_pipeline(session: Session, job: DownloadJob, settings: AppSett
         from datetime import datetime, timezone
         try:
             air_dt = datetime.fromisoformat(air_date_utc.replace("Z", "+00:00"))
+            
+            # Update the release date
+            new_release = air_dt.replace(tzinfo=None)
+            if job.release_date != new_release:
+                _update_job(session, job, release_date=new_release)
+                
             if datetime.now(timezone.utc) < air_dt and not indexer and not skip_release_check:
                 msg = f"Episode has not aired yet (airs {air_dt.strftime('%Y-%m-%d %H:%M UTC')})"
                 from backend.db_logger import log_action

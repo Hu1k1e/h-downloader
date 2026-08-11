@@ -79,6 +79,8 @@ def init_db():
                 conn.execute(text("ALTER TABLE downloadjob ADD COLUMN season_number INTEGER"))
             if dj_result and "episode_number" not in dj_columns:
                 conn.execute(text("ALTER TABLE downloadjob ADD COLUMN episode_number INTEGER"))
+            if dj_result and "release_date" not in dj_columns:
+                conn.execute(text("ALTER TABLE downloadjob ADD COLUMN release_date DATETIME"))
                 
             # Auto-migrate LogEntry table
             le_result = conn.execute(text("PRAGMA table_info(logentry)")).fetchall()

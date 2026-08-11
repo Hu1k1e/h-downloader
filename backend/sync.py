@@ -411,13 +411,35 @@ async def run_discovery_batch(batch_size: int) -> int:
     from backend.db_logger import log_action
     
     with Session(engine) as session:
-        jobs = session.exec(
+        from datetime import timedelta
+        now = datetime.utcnow()
+        start_date = now - timedelta(days=2)
+        end_date = now + timedelta(days=1)
+        
+        # 1. Fetch priority jobs (released in the last 2 days or airing today)
+        priority_jobs = session.exec(
             select(DownloadJob)
             .where(DownloadJob.status.in_([JobStatus.MOVIE_MISSING, JobStatus.SKIPPED, JobStatus.NOT_FOUND, JobStatus.FAILED]))
+            .where(DownloadJob.release_date != None)
+            .where(DownloadJob.release_date >= start_date)
+            .where(DownloadJob.release_date <= end_date)
             .order_by(DownloadJob.updated_at.asc())
             .limit(batch_size)
         ).all()
         
+        jobs = list(priority_jobs)
+        
+        # 2. Backfill with standard queue
+        if len(jobs) < batch_size:
+            priority_ids = [j.id for j in jobs]
+            query = select(DownloadJob).where(DownloadJob.status.in_([JobStatus.MOVIE_MISSING, JobStatus.SKIPPED, JobStatus.NOT_FOUND, JobStatus.FAILED]))
+            if priority_ids:
+                query = query.where(DownloadJob.id.not_in(priority_ids))
+            query = query.order_by(DownloadJob.updated_at.asc()).limit(batch_size - len(jobs))
+            
+            normal_jobs = session.exec(query).all()
+            jobs.extend(normal_jobs)
+            
         if jobs:
             log_action("Discovery", f"Triggering discovery search for {len(jobs)} movies")
             for job in jobs:
@@ -607,6 +629,13 @@ async def sonarr_state_sync_loop():
                                     status=JobStatus.MOVIE_MISSING,
                                     monitored=True
                                 )
+                                air_date_utc = ep.get("airDateUtc")
+                                if air_date_utc:
+                                    from datetime import datetime
+                                    try:
+                                        new_job.release_date = datetime.fromisoformat(air_date_utc.replace("Z", "+00:00")).replace(tzinfo=None)
+                                    except: pass
+                                    
                                 session.add(new_job)
                                 job_map[job_key] = new_job
                                 added_count += 1
@@ -618,6 +647,16 @@ async def sonarr_state_sync_loop():
                             if job.monitored != monitored:
                                 job.monitored = monitored
                                 session.add(job)
+                                
+                            air_date_utc = ep.get("airDateUtc")
+                            if air_date_utc:
+                                from datetime import datetime
+                                try:
+                                    air_dt = datetime.fromisoformat(air_date_utc.replace("Z", "+00:00")).replace(tzinfo=None)
+                                    if job.release_date != air_dt:
+                                        job.release_date = air_dt
+                                        session.add(job)
+                                except: pass
                                 
                             if has_file:
                                 if job.status != JobStatus.DONE:

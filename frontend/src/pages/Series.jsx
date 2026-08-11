@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { api } from '../api'
-import { formatETA } from '../components/ui'
+import { StatusBadge, ProgressBar, timeAgo, formatBytes, formatETA, formatAirDate } from '../components/ui'
 import TriggerModal from '../components/TriggerModal'
 
 const STATUS_COLOR = {
@@ -179,6 +179,11 @@ function SeriesModal({ series, onClose, onTrigger, onDelete, onToggleMonitor, on
                                         </div>
                                         
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                            {ep.release_date && (
+                                                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginRight: 12, minWidth: 80, textAlign: 'right' }}>
+                                                    {formatAirDate(ep.release_date)}
+                                                </div>
+                                            )}
                                             {ep.status === 'movie_missing' && (
                                                 <div style={{ display: 'flex', gap: 4, marginRight: 8 }}>
                                                     <input 

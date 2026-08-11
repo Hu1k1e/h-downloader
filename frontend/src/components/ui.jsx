@@ -63,3 +63,28 @@ export function formatETA(seconds) {
     const remHours = hours % 24;
     return `${days}d ${remHours}h left`;
 }
+
+export function formatAirDate(dateStr) {
+    if (!dateStr) return null;
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return null;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const checkDate = new Date(date);
+    checkDate.setHours(0, 0, 0, 0);
+
+    const diffTime = checkDate - today;
+    const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 0) return 'Today';
+    if (diffDays === -1) return 'Yesterday';
+    if (diffDays === 1) return 'Tomorrow';
+
+    if (diffDays > 1 && diffDays < 7) {
+        return checkDate.toLocaleDateString('en-US', { weekday: 'long' });
+    }
+
+    return checkDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}

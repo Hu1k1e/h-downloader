@@ -82,6 +82,7 @@ class DownloadJob(SQLModel, table=True):
     source_indexer: Optional[str] = None      # e.g., '1tamilmv', 'einthusan'
     torrent_hash: Optional[str] = None        # qBittorrent info hash
     blacklisted_urls: Optional[str] = None    # comma separated skipped/failed hashes/urls
+    release_date: Optional[datetime] = None   # For TV: airDateUtc, For Movies: TMDB digital date
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow, sa_column_kwargs={"onupdate": datetime.utcnow})
 
@@ -109,6 +110,7 @@ class DownloadJobRead(SQLModel):
     monitored: bool
     poster_path: Optional[str]
     source_indexer: Optional[str]
+    release_date: Optional[datetime]
     torrent_hash: Optional[str]
     blacklisted_urls: Optional[str]
     created_at: datetime
