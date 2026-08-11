@@ -28,7 +28,7 @@ async def _call_llm_api(messages: list, settings: AppSettings) -> Optional[str]:
         url = f"{settings.llm_api_url.rstrip('/')}/chat/completions"
         logger.debug(f"Calling LLM API: {url} with model {payload['model']}")
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=120.0) as client:
             resp = await client.post(url, json=payload, headers=headers)
             resp.raise_for_status()
             data = resp.json()
@@ -38,7 +38,7 @@ async def _call_llm_api(messages: list, settings: AppSettings) -> Optional[str]:
                 return content
             return None
     except Exception as e:
-        logger.error(f"LLM API call failed: {e}")
+        logger.error(f"LLM API call failed: {e.__class__.__name__} {e}")
         return None
 
 async def parse_tracker_results_with_llm(
