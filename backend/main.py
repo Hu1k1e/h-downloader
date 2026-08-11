@@ -4,6 +4,9 @@ FastAPI application entry point.
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
+import logging
+
+logging.basicConfig(level=logging.INFO, format="%(levelname)s:\t  %(name)s - %(message)s")
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
