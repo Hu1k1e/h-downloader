@@ -93,25 +93,39 @@ async def generate_search_variants_with_llm(
             
         import json
         
-        # Clean markdown code blocks just in case
-        import re
-        result = re.sub(r'```json\s*', '', result)
-        result = re.sub(r'```\s*', '', result)
-        
-        # Try to find JSON object braces
-        start = result.find('{')
-        end = result.rfind('}')
-        if start != -1 and end != -1 and end > start:
-            json_str = result[start:end+1]
-            try:
-                data = json.loads(json_str)
-                if isinstance(data, dict) and "variants" in data and isinstance(data["variants"], list):
-                    return [str(v).lower() for v in data["variants"]]
-            except json.JSONDecodeError:
-                pass
+        # Try to find JSON array or object
+        try:
+            # Clean markdown code blocks just in case
+            import re
+            cleaned = re.sub(r'```(?:json)?\s*', '', result).strip()
+            
+            start = -1
+            for i, c in enumerate(cleaned):
+                if c in '{[':
+                    start = i
+                    break
+                    
+            if start != -1:
+                end = -1
+                for i in range(len(cleaned)-1, -1, -1):
+                    if cleaned[i] in '}]':
+                        end = i
+                        break
+                        
+                if end > start:
+                    json_str = cleaned[start:end+1]
+                    data = json.loads(json_str)
+                    
+                    if isinstance(data, dict) and "variants" in data and isinstance(data["variants"], list):
+                        return [str(v).lower() for v in data["variants"]]
+                    elif isinstance(data, list):
+                        return [str(v).lower() for v in data]
+        except Exception:
+            pass
                 
-        # Fallback if object parsing failed
-        logger.warning(f"LLM failed to return valid JSON object for search variants. Raw: {result}")
+        # Fallback if structured parsing failed
+        logger.warning(f"LLM failed to return valid JSON for search variants. Raw: {result}")
+        import re
         matches = re.findall(r'"([^"]+)"', result)
         if matches:
             # Filter out the key name itself and any long conversational strings
