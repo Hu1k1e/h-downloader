@@ -497,7 +497,7 @@ async def radarr_state_sync_loop():
                 all_radarr_movies = await radarr.get_all_movies(settings)
                 radarr_map = {m["tmdbId"]: m for m in all_radarr_movies if "tmdbId" in m}
                 
-                all_jobs = session.exec(select(DownloadJob)).all()
+                all_jobs = session.exec(select(DownloadJob).where(DownloadJob.media_type == "movie")).all()
                 job_map = {job.tmdb_id: job for job in all_jobs if job.tmdb_id}
                 
                 deleted_count = 0

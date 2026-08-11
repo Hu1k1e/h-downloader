@@ -154,14 +154,27 @@ function SeriesModal({ series, onClose, onTrigger, onDelete, onToggleMonitor, on
                                 Season {season}
                             </summary>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingLeft: 8 }}>
-                                {seasons[season].map(ep => (
+                                {seasons[season].map(ep => {
+                                    const isMissing = ep.status === 'movie_missing';
+                                    let displayLabel = STATUS_LABEL[(ep.status || '').toLowerCase()] || ep.status;
+                                    let displayColor = STATUS_COLOR[(ep.status || '').toLowerCase()] || 'var(--text-primary)';
+                                    
+                                    if (isMissing && ep.release_date) {
+                                        const rDate = new Date(ep.release_date + 'Z');
+                                        if (!isNaN(rDate) && rDate > new Date()) {
+                                            displayLabel = 'Not Aired';
+                                            displayColor = 'var(--text-muted)';
+                                        }
+                                    }
+                                    
+                                    return (
                                     <div key={ep.id} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12, padding: 12, background: 'var(--bg-tertiary)', borderRadius: 8 }}>
                                         <div style={{ fontWeight: 'bold', minWidth: 40 }}>
                                             E{String(ep.episode_number).padStart(2, '0')}
                                         </div>
                                         <div style={{ flex: 1 }}>
-                                            <div style={{ fontSize: 13, color: STATUS_COLOR[(ep.status || '').toLowerCase()] || 'var(--text-primary)' }}>
-                                                {STATUS_LABEL[(ep.status || '').toLowerCase()] || ep.status}
+                                            <div style={{ fontSize: 13, color: displayColor }}>
+                                                {displayLabel}
                                             </div>
                                             {ep.status === 'downloading' && (
                                                 <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
@@ -220,7 +233,8 @@ function SeriesModal({ series, onClose, onTrigger, onDelete, onToggleMonitor, on
                                             </button>
                                         </div>
                                     </div>
-                                ))}
+                                    )
+                                })}
                             </div>
                         </details>
                     ))}
