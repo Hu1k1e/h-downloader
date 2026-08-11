@@ -16,19 +16,24 @@ def _generate_date_variants(date_str: str) -> List[str]:
         return []
         
     try:
+        from datetime import timedelta
         dt = datetime.strptime(date_str, "%Y-%m-%d")
         
         def ordinal(n):
             return f"{n}{'tsnrhtdd'[(n//10%10!=1)*(n%10<4)*n%10::4]}"
             
-        return [
-            f"{ordinal(dt.day)} {dt.strftime('%B')} {dt.year}", # 9th August 2026
-            f"{dt.day:02d} {dt.strftime('%B')} {dt.year}",      # 09 August 2026
-            f"{dt.day} {dt.strftime('%B')} {dt.year}",          # 9 August 2026
-            f"{ordinal(dt.day)} {dt.strftime('%b')} {dt.year}", # 9th Aug 2026
-            f"{dt.day:02d}-{dt.month:02d}-{dt.year}",           # 09-08-2026
-            f"{dt.day}-{dt.month}-{dt.year}",                   # 9-8-2026
-        ]
+        variants = []
+        # Generate for exact date, +1 day, and -1 day (timezone differences)
+        for d in [dt, dt + timedelta(days=1), dt - timedelta(days=1)]:
+            variants.extend([
+                f"{ordinal(d.day)} {d.strftime('%B')} {d.year}", # 9th August 2026
+                f"{d.day:02d} {d.strftime('%B')} {d.year}",      # 09 August 2026
+                f"{d.day} {d.strftime('%B')} {d.year}",          # 9 August 2026
+                f"{ordinal(d.day)} {d.strftime('%b')} {d.year}", # 9th Aug 2026
+                f"{d.day:02d}-{d.month:02d}-{d.year}",           # 09-08-2026
+                f"{d.day}-{d.month}-{d.year}",                   # 9-8-2026
+            ])
+        return variants
     except Exception as e:
         logger.warning(f"Failed to generate date variants for {date_str}: {e}")
         return []

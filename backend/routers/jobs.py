@@ -545,8 +545,13 @@ async def sync_all_jobs(background_tasks: BackgroundTasks, session: Session = De
     deleted_count = 0
     
     for job in all_jobs:
-        if job.status in (JobStatus.SEARCHING, JobStatus.IMPORTING) or (job.status == JobStatus.DOWNLOADING and job.source_indexer != "radarr"):
+        if job.status == JobStatus.IMPORTING or (job.status == JobStatus.DOWNLOADING and job.source_indexer != "radarr"):
             continue
+        if job.status == JobStatus.SEARCHING:
+            # If it's been searching for less than 15 minutes, assume it's still running
+            from datetime import datetime, timezone
+            if (datetime.utcnow() - job.updated_at).total_seconds() < 900:
+                continue
             
         radarr_movie = radarr_map.get(job.tmdb_id)
         changed = False
@@ -570,7 +575,7 @@ async def sync_all_jobs(background_tasks: BackgroundTasks, session: Session = De
                     job.progress_pct = 100
                     job.file_path = path
                     changed = True
-            elif job.status in (JobStatus.DONE, JobStatus.NOT_IN_RADARR, JobStatus.NOT_FOUND):
+            elif job.status in (JobStatus.DONE, JobStatus.NOT_IN_RADARR, JobStatus.NOT_FOUND, JobStatus.SEARCHING):
                 job.status = JobStatus.MOVIE_MISSING
                 job.progress_pct = 0
                 job.file_path = None
@@ -798,8 +803,12 @@ async def sync_all_sonarr(background_tasks: BackgroundTasks, session: Session = 
     # Fetch episodes for series that have jobs
     series_episodes = {}
     for job in all_jobs:
-        if job.status in (JobStatus.SEARCHING, JobStatus.IMPORTING) or (job.status == JobStatus.DOWNLOADING and job.source_indexer != "sonarr"):
+        if job.status == JobStatus.IMPORTING or (job.status == JobStatus.DOWNLOADING and job.source_indexer != "sonarr"):
             continue
+        if job.status == JobStatus.SEARCHING:
+            from datetime import datetime, timezone
+            if (datetime.utcnow() - job.updated_at).total_seconds() < 900:
+                continue
 
         series = sonarr_map.get(job.tvdb_id) if job.tvdb_id else None
         if not series and job.title:
@@ -841,7 +850,7 @@ async def sync_all_sonarr(background_tasks: BackgroundTasks, session: Session = 
                         job.status = JobStatus.DONE
                         job.progress_pct = 100
                         changed = True
-                elif job.status in (JobStatus.DONE, JobStatus.NOT_IN_RADARR, JobStatus.NOT_FOUND):
+                elif job.status in (JobStatus.DONE, JobStatus.NOT_IN_RADARR, JobStatus.NOT_FOUND, JobStatus.SEARCHING):
                     job.status = JobStatus.MOVIE_MISSING
                     job.progress_pct = 0
                     job.file_path = None
