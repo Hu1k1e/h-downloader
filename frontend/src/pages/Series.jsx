@@ -119,6 +119,24 @@ function SeriesModal({ series, onClose, onTrigger, onDelete, onToggleMonitor, on
                             <button className="btn btn-secondary btn-sm" onClick={() => onSync(series.episodes[0]?.id)}>
                                 ↻ Force Sync Sonarr
                             </button>
+                            {settings?.tv_download_sources_priority?.includes('1tamilmv') && (
+                                <a 
+                                    className="btn btn-secondary btn-sm" 
+                                    href={`https://www.1tamilmv.fi/index.php?/search/&q=${encodeURIComponent(series.title)}&search_and_or=and`}
+                                    target="_blank" rel="noopener noreferrer"
+                                >
+                                    Search 1TamilMV
+                                </a>
+                            )}
+                            {settings?.tv_download_sources_priority?.includes('bollyzone') && (
+                                <a 
+                                    className="btn btn-secondary btn-sm" 
+                                    href={`https://www.bollyzone.to/?s=${encodeURIComponent(series.title)}`}
+                                    target="_blank" rel="noopener noreferrer"
+                                >
+                                    Search BollyZone
+                                </a>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -131,11 +149,11 @@ function SeriesModal({ series, onClose, onTrigger, onDelete, onToggleMonitor, on
 
                 <div>
                     {seasonKeys.map(season => (
-                        <div key={season} style={{ marginBottom: 24 }}>
-                            <h3 style={{ borderBottom: '1px solid var(--border)', paddingBottom: 8, marginBottom: 12 }}>
+                        <details key={season} style={{ marginBottom: 16 }} open={seasonKeys.length === 1 || season === seasonKeys[0]}>
+                            <summary style={{ fontSize: 18, fontWeight: 'bold', borderBottom: '1px solid var(--border)', paddingBottom: 8, marginBottom: 12, cursor: 'pointer' }}>
                                 Season {season}
-                            </h3>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            </summary>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingLeft: 8 }}>
                                 {seasons[season].map(ep => (
                                     <div key={ep.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 12, background: 'var(--bg-tertiary)', borderRadius: 8 }}>
                                         <div style={{ fontWeight: 'bold', width: 40 }}>
@@ -199,7 +217,7 @@ function SeriesModal({ series, onClose, onTrigger, onDelete, onToggleMonitor, on
                                     </div>
                                 ))}
                             </div>
-                        </div>
+                        </details>
                     ))}
                 </div>
             </div>

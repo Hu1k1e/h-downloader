@@ -311,11 +311,8 @@ async def _run_tv_pipeline(session: Session, job: DownloadJob, settings: AppSett
             try:
                 # We need the air_date of the episode. We can get it from TMDB if tmdb_id exists, or from Sonarr episode data directly!
                 air_date = ep.get("airDate") # YYYY-MM-DD
-                if not air_date:
-                    logger.warning(f"No air date for episode {job.title}")
-                    continue
-                    
-                episode_url = await bollyzone.search_series(series.get("title", ""), air_date)
+                
+                episode_url = await bollyzone.search_series(series.get("title", ""), air_date, job.season_number, job.episode_number)
                 if episode_url:
                     if auto_download:
                         extracted = await bollyzone.extract_url(episode_url)

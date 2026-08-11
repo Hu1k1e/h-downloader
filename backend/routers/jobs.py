@@ -736,7 +736,7 @@ async def trigger_import_sonarr(background_tasks: BackgroundTasks, session: Sess
 
             if existing_job:
                 updated = False
-                if existing_job.status == JobStatus.PENDING and not has_file:
+                if existing_job.status in (JobStatus.PENDING, JobStatus.NOT_IN_RADARR, JobStatus.NOT_FOUND) and not has_file:
                     existing_job.status = JobStatus.MOVIE_MISSING
                     updated = True
                 if poster_path and not existing_job.poster_path:
@@ -789,6 +789,7 @@ async def sync_all_sonarr(background_tasks: BackgroundTasks, session: Session = 
         raise HTTPException(status_code=502, detail=f"Failed to fetch series from Sonarr: {e}")
 
     sonarr_map = {s["tvdbId"]: s for s in all_sonarr_series if "tvdbId" in s}
+    sonarr_map_by_title = {s.get("title", "").lower(): s for s in all_sonarr_series}
     all_jobs = session.exec(select(DownloadJob).where(DownloadJob.media_type == "tv")).all()
 
     updated_count = 0
@@ -800,7 +801,11 @@ async def sync_all_sonarr(background_tasks: BackgroundTasks, session: Session = 
         if job.status in (JobStatus.SEARCHING, JobStatus.IMPORTING) or (job.status == JobStatus.DOWNLOADING and job.source_indexer != "sonarr"):
             continue
 
-        series = sonarr_map.get(job.tvdb_id)
+        series = sonarr_map.get(job.tvdb_id) if job.tvdb_id else None
+        if not series and job.title:
+            series_title = job.title.split(" S")[0].lower()
+            series = sonarr_map_by_title.get(series_title)
+
         changed = False
 
         if not series:

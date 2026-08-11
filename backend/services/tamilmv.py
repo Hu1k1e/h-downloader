@@ -24,34 +24,21 @@ BAD_KEYWORDS = ['predvd', 'cam', 'hdts', 'hd-ts', 'hdcam', 'hd-cam', 'pdvd', 'sc
 async def search_movie(title: str, year: int, domain: str, langs: list[str] = None, radarr_resolution: str = None) -> str:
     """Searches for a movie and returns the best forum thread URL, or None."""
     try:
-        search_url = f"{domain}/search/api/search.php"
-        params = {"q": f"{title} {year}"}
-        headers = {"User-Agent": "Mozilla/5.0"}
+        search_url = f"{domain}/index.php?/search/&q={title} {year}&search_and_or=and"
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
         
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            response = await client.get(search_url, params=params, headers=headers)
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            response = await client.get(search_url, headers=headers)
             response.raise_for_status()
             
-            try:
-                data = response.json()
-                results = data.get("results", [])
-            except ValueError:
-                logger.error(f"1TamilMV search returned non-JSON response: {response.text[:200]}...")
-                return None
+            soup = BeautifulSoup(response.text, 'html.parser')
+            # 1TamilMV search results usually have class 'ipsStreamItem_title' or similar, containing a link
+            results = soup.select('.ipsStreamItem_title a[href*="/forums/topic/"]')
             
             valid_links = []
-            for item in results:
-                tid = item.get("tid")
-                item_title = item.get("title", "")
-                if not tid:
-                    continue
-                    
-                link_text = item_title.lower()
-                
-                # Build thread URL using slugify logic from site JS
-                base = re.sub(r'[^a-z0-9\s-]+', ' ', link_text).strip()
-                slug = re.sub(r'\s+', '-', base)[:80] or 't'
-                href = f"{domain}/index.php?/forums/topic/{tid}-{slug}/"
+            for a_tag in results:
+                href = a_tag.get('href')
+                link_text = a_tag.text.lower()
                 
                 # Title and year check
                 if not re.search(r'\b' + re.escape(title.lower()) + r'\b', link_text):

@@ -17,7 +17,7 @@ WORKDIR /app
 
 # System deps for lxml / httpx
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc libxml2-dev libxslt-dev curl \
+    gcc libxml2-dev libxslt-dev curl ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Python deps

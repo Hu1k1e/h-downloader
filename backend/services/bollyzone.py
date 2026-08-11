@@ -73,7 +73,7 @@ def unpack_juicy(payload: str) -> str:
         return ""
 
 
-async def search_series(title: str, air_date: str) -> Optional[str]:
+async def search_series(title: str, air_date: str, season: int = None, episode: int = None) -> Optional[str]:
     """
     Search BollyZone for a TV series episode matching the title and air date.
     Returns the episode URL if found.
@@ -82,6 +82,20 @@ async def search_series(title: str, air_date: str) -> Optional[str]:
     headers = {"User-Agent": USER_AGENT}
     
     date_variants = _generate_date_variants(air_date)
+    
+    # Fallback variants
+    fallback_variants = []
+    if episode is not None:
+        if season is not None:
+            fallback_variants.extend([
+                f"season {season} episode {episode}",
+                f"s{season:02d}e{episode:02d}",
+                f"s{season}e{episode}"
+            ])
+        fallback_variants.extend([
+            f"episode {episode}",
+            f"ep {episode}"
+        ])
     
     try:
         async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
@@ -96,11 +110,20 @@ async def search_series(title: str, air_date: str) -> Optional[str]:
                     text = a_tag.get_text().strip().lower()
                     href_lower = href.lower()
                     
+                    # 1. Match by Date
                     for variant in date_variants:
                         variant_lower = variant.lower()
                         # Match variant in either the link text or the URL slug itself
                         if variant_lower in text or variant_lower.replace(" ", "-") in href_lower:
                             return href
+                            
+                    # 2. Match by Fallback Variants (Season/Episode)
+                    for variant in fallback_variants:
+                        variant_lower = variant.lower()
+                        if variant_lower in text or variant_lower.replace(" ", "-") in href_lower:
+                            # Verify title also loosely matches to avoid false positives
+                            if any(word.lower() in text for word in title.split()):
+                                return href
                             
             return None
     except Exception as e:
