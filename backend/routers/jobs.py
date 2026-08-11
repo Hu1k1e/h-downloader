@@ -94,7 +94,7 @@ def get_job(job_id: int, session: Session = Depends(get_session)):
 
 
 @router.delete("/jobs/{job_id}")
-def delete_job(job_id: int, session: Session = Depends(get_session)):
+async def delete_job(job_id: int, session: Session = Depends(get_session)):
     from backend.services.downloader import cancel_download
     job = session.get(DownloadJob, job_id)
     if not job:
@@ -102,7 +102,27 @@ def delete_job(job_id: int, session: Session = Depends(get_session)):
         
     cancel_download(job_id)
     
-    job.status = JobStatus.MISSING
+    settings = get_settings(session)
+    if job.media_type == "tv" and job.tvdb_id:
+        try:
+            series = await sonarr_svc.is_series_in_sonarr(job.tvdb_id, settings)
+            if series:
+                ep = await sonarr_svc.get_episode(series["id"], job.season_number, job.episode_number, settings)
+                if ep and ep.get("episodeFileId"):
+                    await sonarr_svc.delete_episode_file(ep["episodeFileId"], settings)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Failed to delete episode from Sonarr: {e}")
+    elif job.media_type == "movie" and job.tmdb_id:
+        try:
+            movie = await radarr_svc.is_movie_in_radarr(job.tmdb_id, settings)
+            if movie and movie.get("movieFile") and movie["movieFile"].get("id"):
+                await radarr_svc.delete_movie_file(movie["movieFile"]["id"], settings)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Failed to delete movie from Radarr: {e}")
+            
+    job.status = JobStatus.MOVIE_MISSING
     job.progress_pct = 0
     job.downloaded_bytes = 0
     job.total_bytes = 0
@@ -122,7 +142,7 @@ def cancel_job(job_id: int, session: Session = Depends(get_session)):
     
     cancel_download(job_id)
     
-    job.status = JobStatus.MISSING
+    job.status = JobStatus.MOVIE_MISSING
     job.progress_pct = 0
     job.downloaded_bytes = 0
     job.total_bytes = 0

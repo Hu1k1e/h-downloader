@@ -167,3 +167,9 @@ async def test_connection(settings: AppSettings) -> Dict[str, Any]:
         resp = await client.get(_url(settings, "/system/status"), headers=_headers(settings))
         resp.raise_for_status()
         return resp.json()
+
+async def delete_episode_file(episode_file_id: int, settings: AppSettings) -> bool:
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.delete(_url(settings, f"/episodefile/{episode_file_id}"), headers=_headers(settings))
+        resp.raise_for_status()
+        return True
