@@ -109,23 +109,8 @@ async def search_series(title: str, air_date: str, season: int = None, episode: 
             resp.raise_for_status()
             
             soup = BeautifulSoup(resp.text, "html.parser")
-            
-                # 1. Match by Date (Prioritize exact date, then offsets)
-                for day_variants in date_variants:
-                    for a_tag in soup.find_all("a", href=True):
-                        href = a_tag["href"]
-                        text = a_tag.get_text().strip().lower()
-                        href_lower = href.lower()
-                        
-                        if "/category/" in href_lower or "/tag/" in href_lower or "/page/" in href_lower:
-                            continue
-                            
-                        for variant in day_variants:
-                            variant_lower = variant.lower()
-                            if variant_lower in text or variant_lower.replace(" ", "-") in href_lower:
-                                return href
-                                
-                # 2. Match by Fallback Variants (Season/Episode)
+            # 1. Match by Date (Prioritize exact date, then offsets)
+            for day_variants in date_variants:
                 for a_tag in soup.find_all("a", href=True):
                     href = a_tag["href"]
                     text = a_tag.get_text().strip().lower()
@@ -134,7 +119,21 @@ async def search_series(title: str, air_date: str, season: int = None, episode: 
                     if "/category/" in href_lower or "/tag/" in href_lower or "/page/" in href_lower:
                         continue
                         
-                    for variant in fallback_variants:
+                    for variant in day_variants:
+                        variant_lower = variant.lower()
+                        if variant_lower in text or variant_lower.replace(" ", "-") in href_lower:
+                            return href
+                            
+            # 2. Match by Fallback Variants (Season/Episode)
+            for a_tag in soup.find_all("a", href=True):
+                href = a_tag["href"]
+                text = a_tag.get_text().strip().lower()
+                href_lower = href.lower()
+                
+                if "/category/" in href_lower or "/tag/" in href_lower or "/page/" in href_lower:
+                    continue
+                    
+                for variant in fallback_variants:
                     variant_lower = variant.lower()
                     if variant_lower in text or variant_lower.replace(" ", "-") in href_lower:
                         # Verify title also loosely matches to avoid false positives
