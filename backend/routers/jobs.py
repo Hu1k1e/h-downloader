@@ -865,6 +865,7 @@ async def sync_all_sonarr(background_tasks: BackgroundTasks, session: Session = 
                 new_job = DownloadJob(
                     title=f"{series.get('title')} S{s_num:02d}E{e_num:02d}",
                     tvdb_id=tvdb_id,
+                    tmdb_id=0,  # Fallback to prevent NOT NULL constraint error
                     media_type="tv",
                     season_number=s_num,
                     episode_number=e_num,
