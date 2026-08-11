@@ -35,6 +35,22 @@ async def search_movie(title: str, year: int, domain: str, langs: list[str] = No
             # 1TamilMV search results usually have class 'ipsStreamItem_title' or similar, containing a link
             results = soup.select('.ipsStreamItem_title a[href*="/forums/topic/"]')
             
+            raw_links = []
+            for a_tag in results:
+                raw_links.append((a_tag.get('href'), a_tag.text.strip()))
+                
+            if raw_links:
+                from backend.services.llm import parse_tracker_results_with_llm
+                llm_url = await parse_tracker_results_with_llm(
+                    links=raw_links,
+                    target_title=title,
+                    target_year=year,
+                    target_resolution=radarr_resolution
+                )
+                if llm_url:
+                    logger.info(f"LLM successfully matched 1TamilMV URL: {llm_url}")
+                    return llm_url
+            
             valid_links = []
             for a_tag in results:
                 href = a_tag.get('href')

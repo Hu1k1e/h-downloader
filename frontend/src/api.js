@@ -67,5 +67,6 @@ export const api = {
     importRadarr: () => request('/api/jobs/import-radarr', { method: 'POST' }),
     importSonarr: () => request('/api/jobs/import-sonarr', { method: 'POST' }),
     testQbittorrent: (data) => request('/api/settings/test-qbittorrent', { method: 'POST', body: data }),
+    testLlm: (data) => request('/api/settings/test-llm', { method: 'POST', body: data }),
     importUrl: (jobId, url) => request(`/api/jobs/${jobId}/import-url`, { method: 'POST', body: { url } }),
 }

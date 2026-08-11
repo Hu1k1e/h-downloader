@@ -109,6 +109,28 @@ async def search_series(title: str, air_date: str, season: int = None, episode: 
             resp.raise_for_status()
             
             soup = BeautifulSoup(resp.text, "html.parser")
+            
+            raw_links = []
+            for a_tag in soup.find_all("a", href=True):
+                href = a_tag["href"]
+                text = a_tag.get_text().strip()
+                if "/category/" in href.lower() or "/tag/" in href.lower() or "/page/" in href.lower():
+                    continue
+                if text:
+                    raw_links.append((href, text))
+                    
+            if raw_links:
+                from backend.services.llm import parse_tracker_results_with_llm
+                llm_url = await parse_tracker_results_with_llm(
+                    links=raw_links,
+                    target_title=title,
+                    target_year=None,
+                    target_resolution=f"Season {season} Episode {episode}" if season and episode else f"Episode {episode}" if episode else air_date
+                )
+                if llm_url:
+                    logger.info(f"LLM successfully matched BollyZone URL: {llm_url}")
+                    return llm_url
+            
             # 1. Match by Date (Prioritize exact date, then offsets)
             for day_variants in date_variants:
                 for a_tag in soup.find_all("a", href=True):

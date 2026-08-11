@@ -47,6 +47,10 @@ def get_current_settings(session: Session = Depends(get_session)):
         enable_jellyseerr_auto_request=settings.enable_jellyseerr_auto_request,
         enable_radarr_auto_search=settings.enable_radarr_auto_search,
         enable_sonarr_auto_search=settings.enable_sonarr_auto_search,
+        llm_enabled=settings.llm_enabled,
+        llm_api_url=settings.llm_api_url,
+        llm_api_key_set=bool(settings.llm_api_key),
+        llm_model=settings.llm_model,
     )
 
 
@@ -125,6 +129,15 @@ def update_settings(update_data: AppSettingsUpdate, session: Session = Depends(g
     if update_data.enable_sonarr_auto_search is not None:
         settings.enable_sonarr_auto_search = update_data.enable_sonarr_auto_search
         
+    if update_data.llm_enabled is not None:
+        settings.llm_enabled = update_data.llm_enabled
+    if update_data.llm_api_url is not None:
+        settings.llm_api_url = update_data.llm_api_url
+    if update_data.llm_api_key is not None and update_data.llm_api_key != "":
+        settings.llm_api_key = update_data.llm_api_key
+    if update_data.llm_model is not None:
+        settings.llm_model = update_data.llm_model
+        
     session.add(settings)
     session.commit()
     session.refresh(settings)
@@ -151,5 +164,33 @@ def test_qbittorrent_connection(req: QbittorrentTestRequest):
         categories = qbt_client.torrents_categories()
         cat_names = list(categories.keys())
         return {"status": "ok", "categories": cat_names}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+class LlmTestRequest(BaseModel):
+    url: str
+    key: str
+    model: str
+
+@router.post("/test-llm")
+async def test_llm_connection(req: LlmTestRequest):
+    import httpx
+    try:
+        headers = {
+            "Authorization": f"Bearer {req.key}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": req.model,
+            "messages": [{"role": "user", "content": "Reply exactly with the word 'Connected'."}],
+            "max_tokens": 10
+        }
+        
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(f"{req.url.rstrip('/')}/chat/completions", json=payload, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+            reply = data["choices"][0]["message"]["content"].strip()
+            return {"status": "ok", "message": reply}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

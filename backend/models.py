@@ -166,6 +166,12 @@ class AppSettings(SQLModel, table=True):
     enable_radarr_auto_search: bool = Field(default=True)
     enable_sonarr_auto_search: bool = Field(default=True)
 
+    # LLM Settings
+    llm_enabled: bool = Field(default=False)
+    llm_api_url: str = Field(default="https://api.freellmapi.com/v1")
+    llm_api_key: str = Field(default="")
+    llm_model: str = Field(default="gpt-3.5-turbo")
+
 class AppSettingsRead(SQLModel):
     radarr_url: str
     radarr_root_folder: str
@@ -199,6 +205,11 @@ class AppSettingsRead(SQLModel):
     enable_jellyseerr_auto_request: bool
     enable_radarr_auto_search: bool
     enable_sonarr_auto_search: bool
+    
+    llm_enabled: bool
+    llm_api_url: str
+    llm_api_key_set: bool
+    llm_model: str
 
 
 class AppSettingsUpdate(SQLModel):
@@ -237,4 +248,9 @@ class AppSettingsUpdate(SQLModel):
     enable_jellyseerr_auto_request: Optional[bool] = None
     enable_radarr_auto_search: Optional[bool] = None
     enable_sonarr_auto_search: Optional[bool] = None
+
+    llm_enabled: Optional[bool] = None
+    llm_api_url: Optional[str] = None
+    llm_api_key: Optional[str] = None
+    llm_model: Optional[str] = None
 

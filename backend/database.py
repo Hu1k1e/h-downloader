@@ -57,6 +57,11 @@ def init_db():
                 conn.execute(text("ALTER TABLE appsettings ADD COLUMN enable_sonarr_auto_search BOOLEAN NOT NULL DEFAULT 1"))
             if result and "new_release_grace_hours" not in columns:
                 conn.execute(text("ALTER TABLE appsettings ADD COLUMN new_release_grace_hours INTEGER NOT NULL DEFAULT 48"))
+            if result and "llm_enabled" not in columns:
+                conn.execute(text("ALTER TABLE appsettings ADD COLUMN llm_enabled BOOLEAN NOT NULL DEFAULT 0"))
+                conn.execute(text("ALTER TABLE appsettings ADD COLUMN llm_api_url VARCHAR NOT NULL DEFAULT 'https://api.freellmapi.com/v1'"))
+                conn.execute(text("ALTER TABLE appsettings ADD COLUMN llm_api_key VARCHAR NOT NULL DEFAULT ''"))
+                conn.execute(text("ALTER TABLE appsettings ADD COLUMN llm_model VARCHAR NOT NULL DEFAULT 'gpt-3.5-turbo'"))
             
             # Auto-migrate DownloadJob table
             dj_result = conn.execute(text("PRAGMA table_info(downloadjob)")).fetchall()
