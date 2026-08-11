@@ -151,14 +151,58 @@ async def download_m3u8(
         )
         
         try:
-            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=3600) # 1 hour timeout
-        except asyncio.TimeoutError:
+            # We will read stderr line by line to track progress
+            import time
+            from backend.db_logger import log_action
+            
+            last_log_time = time.time()
+            stderr_output = []
+            
+            while True:
+                try:
+                    line_bytes = await asyncio.wait_for(process.stderr.readline(), timeout=3600)
+                except asyncio.TimeoutError:
+                    process.kill()
+                    logger.error(f"ffmpeg timed out reading stderr after 1 hour for Job {job_id}")
+                    raise Exception("FFMPEG download timed out")
+                    
+                if not line_bytes:
+                    break
+                    
+                line = line_bytes.decode('utf-8', errors='ignore').strip()
+                stderr_output.append(line)
+                
+                # ffmpeg progress lines usually start with 'frame=' or 'size='
+                if line.startswith("frame=") or line.startswith("size="):
+                    current_time = time.time()
+                    # Log to database every 30 seconds to prevent spam, but give user tracking
+                    if current_time - last_log_time > 30:
+                        # Extract time=... if present to give a readable progress
+                        import re
+                        time_match = re.search(r"time=(\d{2}:\d{2}:\d{2})", line)
+                        size_match = re.search(r"size=\s*(\d+kB)", line)
+                        
+                        prog_str = []
+                        if time_match: prog_str.append(f"Time: {time_match.group(1)}")
+                        if size_match: prog_str.append(f"Size: {size_match.group(1)}")
+                        
+                        if prog_str:
+                            log_action(
+                                action="download_progress", 
+                                message=f"FFmpeg downloading: {', '.join(prog_str)}",
+                                job_id=job_id
+                            )
+                        last_log_time = current_time
+
+            await process.wait()
+            stderr_text = "\n".join(stderr_output)
+            
+        except Exception as e:
             process.kill()
-            logger.error(f"ffmpeg timed out after 1 hour for Job {job_id}")
-            raise Exception("FFMPEG download timed out")
+            raise e
             
         if process.returncode != 0:
-            logger.error(f"ffmpeg failed with code {process.returncode}: {stderr.decode('utf-8', errors='ignore')}")
+            logger.error(f"ffmpeg failed with code {process.returncode}: {stderr_text}")
             raise Exception("FFMPEG download failed")
             
         logger.info(f"Finished m3u8 download for Job {job_id}")
