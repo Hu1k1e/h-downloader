@@ -132,6 +132,7 @@ async def download_m3u8(
             "-y", # Overwrite output files
             "-allowed_extensions", "ALL,juicycodes",
             "-allowed_segment_extensions", "ALL,juicycodes",
+            "-extension_picky", "0",
             "-headers", headers_arg,
             "-i", url,
             "-c", "copy",
