@@ -147,6 +147,7 @@ class AppSettings(SQLModel, table=True):
     search_delay_seconds: int = Field(default=120)
     missing_search_interval_hours: int = Field(default=24)
     missing_search_batch_size: int = Field(default=50)
+    new_release_grace_hours: int = Field(default=48)
     
     movie_download_sources_priority: str = Field(default="einthusan,1tamilmv")
     tv_download_sources_priority: str = Field(default="1tamilmv,bollyzone")
@@ -180,6 +181,7 @@ class AppSettingsRead(SQLModel):
     search_delay_seconds: int
     missing_search_interval_hours: int
     missing_search_batch_size: int
+    new_release_grace_hours: int
     app_version: str
     webhook_url_hint: str
     movie_download_sources_priority: List[str]
@@ -218,6 +220,7 @@ class AppSettingsUpdate(SQLModel):
     search_delay_seconds: Optional[int] = None
     missing_search_interval_hours: Optional[int] = None
     missing_search_batch_size: Optional[int] = None
+    new_release_grace_hours: Optional[int] = None
     movie_download_sources_priority: Optional[List[str]] = None
     tv_download_sources_priority: Optional[List[str]] = None
     

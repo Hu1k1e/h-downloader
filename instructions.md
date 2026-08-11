@@ -4,8 +4,8 @@ This document defines how the AI agent must operate when modifying or building t
 
 The agent must always follow both:
 
-- instructions.md → defines how the system should operate
-- project_specs.md → defines what the project is
+- instructions.md â†’ defines how the system should operate
+- project_specs.md â†’ defines what the project is
 
 The agent must read both files before taking action.
 
@@ -127,11 +127,11 @@ The frontend is a Vite web application responsible for:
 The system follows a layered architecture:
 
 Frontend  
-↓  
+â†“  
 Routers (API Layer)  
-↓  
+â†“  
 Services (Business Logic)  
-↓  
+â†“  
 Database / External Systems
 
 The agent must preserve this architecture.
@@ -140,7 +140,7 @@ The agent must preserve this architecture.
 
 # 4. Development Rules
 
-## Rule 1 — Read First
+## Rule 1 â€” Read First
 
 Before modifying code, always read:
 
@@ -150,7 +150,7 @@ Before modifying code, always read:
 
 ---
 
-## Rule 2 — Do Not Mix Responsibilities
+## Rule 2 â€” Do Not Mix Responsibilities
 
 Routers must never contain:
 
@@ -162,7 +162,7 @@ These belong in the services layer.
 
 ---
 
-## Rule 3 — Modify the Smallest Scope
+## Rule 3 â€” Modify the Smallest Scope
 
 When implementing changes:
 
@@ -174,7 +174,7 @@ Avoid unnecessary rewrites.
 
 ---
 
-## Rule 4 — Build in Small Steps
+## Rule 4 â€” Build in Small Steps
 
 Never implement multiple major systems at once.
 
@@ -187,7 +187,7 @@ Instead:
 
 ---
 
-## Rule 5 — Configuration Handling
+## Rule 5 â€” Configuration Handling
 
 All configuration must come from:
 
@@ -198,7 +198,7 @@ Secrets must never be hardcoded.
 
 ---
 
-## Rule 6 — Logging
+## Rule 6 â€” Logging
 
 Errors must never fail silently.
 
@@ -244,7 +244,7 @@ Never apply superficial fixes.
 When responding, always follow this format.
 
 Plan  
-(3–7 bullet points explaining the approach)
+(3â€“7 bullet points explaining the approach)
 
 What I need from you  
 (only if something is required)
@@ -271,7 +271,7 @@ Build reliable systems.
 
 ---
 
-# 9. Push to GitHub — Rules
+# 9. Push to GitHub â€” Rules
 
 Before pushing to GitHub, the agent must always:
 
@@ -300,9 +300,34 @@ The GitHub Actions workflow at `.github/workflows/docker.yml` automatically buil
 
 ---
 
+# 10. Background Architecture
+
+The system runs 4 concurrent background loops launched at startup in `main.py`:
+
+1. **`active_job_tracker_loop()`** — Every 5s. Tracks qBittorrent and Radarr/Sonarr native download progress. Triggers fallback if Radarr downloads fail.
+2. **`discovery_tracker_loop()`** — Every `missing_search_interval_hours` (default 24h). Retries searching for MOVIE_MISSING/SKIPPED/NOT_FOUND/FAILED jobs via `run_discovery_batch()`.
+3. **`radarr_state_sync_loop()`** — Every 60s. Full state reconciliation with Radarr. Creates, updates, or removes jobs based on Radarr's current library.
+4. **`sonarr_state_sync_loop()`** — Every 60s. Full state reconciliation with Sonarr for TV episodes.
+
+## New Release Grace Period
+
+The `new_release_grace_hours` setting (default 48h) defers recently-released movies/episodes from the discovery loop, giving Radarr/Sonarr time to find quality releases through their indexers before H-Downloader grabs whatever is available on custom sources. Set to 0 to disable.
+
+## Download Sources
+
+- **Einthusan** (`services/einthusan.py`) — Direct MP4/M3U8 downloads for movies
+- **1TamilMV** (`services/tamilmv.py`) — Magnet links → qBittorrent for movies and TV
+- **BollyZone** (`services/bollyzone.py`) — Magnet links → qBittorrent for TV
+
+Priority order is configurable via `movie_download_sources_priority` and `tv_download_sources_priority`.
+
+## Delayed Search
+
+When a movie/show arrives via webhook, `delayed_search()` waits `search_delay_seconds` (default 120s) polling Radarr every 10s. If Radarr grabs natively, H-Downloader defers. If not, it triggers custom source search.
+
 ---
 
-## 2026-05-17 � Radarr Status Sync Fix
+## 2026-05-17 — Radarr Status Sync Fix
 
 **Problem diagnosed:**
 - The `Sync Requests` button called `POST /api/jobs/sync` which enqueues `sync_jellyseerr_requests()` as a FastAPI `BackgroundTask`.
@@ -331,7 +356,7 @@ The GitHub Actions workflow at `.github/workflows/docker.yml` automatically buil
 4. Updated `frontend/src/pages/Movies.jsx` `syncJellyseerr()` function:
    - Now calls `await api.syncRadarrStatus()` first (synchronous, result immediately in DB)
    - Then fires `api.syncJellyseerr()` in the background (no await) for Jellyseerr new request pickup
-   - Then calls `await fetchMovies()` � sees correct statuses immediately
+   - Then calls `await fetchMovies()` — sees correct statuses immediately
    - Removed 1-second arbitrary `setTimeout` delay
 
 **Files changed:**

@@ -55,6 +55,8 @@ def init_db():
                 conn.execute(text("ALTER TABLE appsettings ADD COLUMN sonarr_quality_profile_id INTEGER NOT NULL DEFAULT 1"))
             if result and "enable_sonarr_auto_search" not in columns:
                 conn.execute(text("ALTER TABLE appsettings ADD COLUMN enable_sonarr_auto_search BOOLEAN NOT NULL DEFAULT 1"))
+            if result and "new_release_grace_hours" not in columns:
+                conn.execute(text("ALTER TABLE appsettings ADD COLUMN new_release_grace_hours INTEGER NOT NULL DEFAULT 48"))
             
             # Auto-migrate DownloadJob table
             dj_result = conn.execute(text("PRAGMA table_info(downloadjob)")).fetchall()

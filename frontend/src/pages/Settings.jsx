@@ -599,6 +599,21 @@ export default function Settings() {
                     </div>
                 </div>
                 <div className="form-row">
+                    <span className="form-label">New Release Grace</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <input
+                            className="form-input"
+                            type="number"
+                            name="new_release_grace_hours"
+                            value={formData.new_release_grace_hours}
+                            onChange={handleChange}
+                            min={0}
+                            style={{ maxWidth: 80 }}
+                        />
+                        <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>hours — defer new releases to let Radarr/Sonarr grab quality first (0 = disabled)</span>
+                    </div>
+                </div>
+                <div className="form-row">
                     <span className="form-label">Manual Trigger</span>
                     <div className="connection-test-row">
                         <button className="btn btn-secondary btn-sm" onClick={triggerDiscoveryBatch} disabled={triggeringDiscovery}>

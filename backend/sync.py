@@ -406,42 +406,43 @@ async def active_job_tracker_loop():
         await asyncio.sleep(5)
 
 async def run_discovery_batch(batch_size: int) -> int:
-    """Runs a single batch of discovery searches and returns the number of movies triggered."""
+    """Runs a single batch of discovery searches and returns the number of movies triggered.
+    
+    New Release Grace Period: Jobs with a release_date within the last 
+    `new_release_grace_hours` are EXCLUDED from the discovery loop, giving 
+    Radarr/Sonarr time to find quality releases before H-Downloader grabs 
+    whatever is available first on custom sources.
+    """
     from backend.orchestrator import process_request
     from backend.db_logger import log_action
     
     with Session(engine) as session:
         from datetime import timedelta
+        settings = get_settings(session)
         now = datetime.utcnow()
-        start_date = now - timedelta(days=2)
-        end_date = now + timedelta(days=1)
         
-        # 1. Fetch priority jobs (released in the last 2 days or airing today)
-        priority_jobs = session.exec(
-            select(DownloadJob)
-            .where(DownloadJob.status.in_([JobStatus.MOVIE_MISSING, JobStatus.SKIPPED, JobStatus.NOT_FOUND, JobStatus.FAILED]))
-            .where(DownloadJob.release_date != None)
-            .where(DownloadJob.release_date >= start_date)
-            .where(DownloadJob.release_date <= end_date)
-            .order_by(DownloadJob.updated_at.asc())
-            .limit(batch_size)
-        ).all()
+        grace_hours = settings.new_release_grace_hours
+        grace_cutoff = now - timedelta(hours=grace_hours) if grace_hours > 0 else None
         
-        jobs = list(priority_jobs)
+        # Build the base query for eligible jobs
+        query = select(DownloadJob).where(
+            DownloadJob.status.in_([JobStatus.MOVIE_MISSING, JobStatus.SKIPPED, JobStatus.NOT_FOUND, JobStatus.FAILED])
+        )
         
-        # 2. Backfill with standard queue
-        if len(jobs) < batch_size:
-            priority_ids = [j.id for j in jobs]
-            query = select(DownloadJob).where(DownloadJob.status.in_([JobStatus.MOVIE_MISSING, JobStatus.SKIPPED, JobStatus.NOT_FOUND, JobStatus.FAILED]))
-            if priority_ids:
-                query = query.where(DownloadJob.id.not_in(priority_ids))
-            query = query.order_by(DownloadJob.updated_at.asc()).limit(batch_size - len(jobs))
-            
-            normal_jobs = session.exec(query).all()
-            jobs.extend(normal_jobs)
+        # Exclude jobs within the new release grace period
+        # A job is deferred if it has a release_date AND that date is more recent than the grace cutoff
+        if grace_cutoff:
+            query = query.where(
+                # Include jobs with no release_date (can't determine recency, so don't defer)
+                # OR jobs whose release_date is older than the grace cutoff (grace period expired)
+                (DownloadJob.release_date == None) | (DownloadJob.release_date <= grace_cutoff)
+            )
+        
+        query = query.order_by(DownloadJob.updated_at.asc()).limit(batch_size)
+        jobs = list(session.exec(query).all())
             
         if jobs:
-            log_action("Discovery", f"Triggering discovery search for {len(jobs)} movies")
+            log_action("Discovery", f"Triggering discovery search for {len(jobs)} jobs (grace period: {grace_hours}h)")
             for job in jobs:
                 # Update the updated_at timestamp immediately so it goes to the back of the queue
                 job.updated_at = datetime.utcnow()
