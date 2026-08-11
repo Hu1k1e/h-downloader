@@ -114,7 +114,7 @@ async def search_series(title: str, air_date: str, season: int = None, episode: 
             for a_tag in soup.find_all("a", href=True):
                 href = a_tag["href"]
                 text = a_tag.get_text().strip()
-                if "/category/" in href.lower() or "/tag/" in href.lower() or "/page/" in href.lower():
+                if "/category/" in href.lower() or "/tag/" in href.lower() or "/page/" in href.lower() or "/series/" in href.lower():
                     continue
                 if text:
                     raw_links.append((href, text))
@@ -138,7 +138,7 @@ async def search_series(title: str, air_date: str, season: int = None, episode: 
                     text = a_tag.get_text().strip().lower()
                     href_lower = href.lower()
                     
-                    if "/category/" in href_lower or "/tag/" in href_lower or "/page/" in href_lower:
+                    if "/category/" in href_lower or "/tag/" in href_lower or "/page/" in href_lower or "/series/" in href_lower:
                         continue
                         
                     for variant in day_variants:
@@ -152,7 +152,7 @@ async def search_series(title: str, air_date: str, season: int = None, episode: 
                 text = a_tag.get_text().strip().lower()
                 href_lower = href.lower()
                 
-                if "/category/" in href_lower or "/tag/" in href_lower or "/page/" in href_lower:
+                if "/category/" in href_lower or "/tag/" in href_lower or "/page/" in href_lower or "/series/" in href_lower:
                     continue
                     
                 for variant in fallback_variants:

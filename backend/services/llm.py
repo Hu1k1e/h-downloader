@@ -7,7 +7,7 @@ from backend.models import AppSettings
 
 logger = logging.getLogger(__name__)
 
-async def _call_llm_api(prompt: str, settings: AppSettings) -> Optional[str]:
+async def _call_llm_api(messages: list, settings: AppSettings) -> Optional[str]:
     """Internal helper to make the API call to the configured LLM endpoint."""
     if not settings.llm_enabled or not settings.llm_api_url:
         return None
@@ -20,7 +20,7 @@ async def _call_llm_api(prompt: str, settings: AppSettings) -> Optional[str]:
             headers["Authorization"] = f"Bearer {settings.llm_api_key}"
         payload = {
             "model": settings.llm_model or "gpt-3.5-turbo",
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": messages,
             "temperature": 0.0,
             "max_tokens": 150
         }
@@ -67,30 +67,40 @@ async def parse_tracker_results_with_llm(
         formatted_links = "\n".join([f"- URL: {href}\n  Title: {text}" for href, text in links])
         
         prompt = (
-            f"You are a strict, intelligent movie/TV parser. Your job is to select the exact URL of the best matching release.\n"
             f"Target Media: {target_title} ({target_year or 'Unknown Year'})\n"
         )
         if target_resolution:
             prompt += f"Preferred Resolution: {target_resolution}\n"
             
         prompt += (
-            "Rules:\n"
-            "1. You must exclude any CAM, HDTS, PRE-DVD, or strictly low-quality theatrical recordings.\n"
-            "2. If multiple valid options exist, pick the highest quality one that matches the requested resolution.\n"
-            "3. If no links seem like a good, genuine match for the requested media, reply ONLY with the word NONE.\n"
-            "4. Your entire response must be ONLY the exact URL. Do not include any explanations, formatting, or extra text.\n\n"
-            f"Available Results:\n{formatted_links}"
+            f"\nAvailable Results:\n{formatted_links}"
         )
         
-        result = await _call_llm_api(prompt, settings)
-        if not result or result.upper().strip() == "NONE":
+        system_prompt = (
+            "You are a strict, intelligent movie/TV parser. Your job is to select the exact URL of the best matching release from the provided list.\n"
+            "Rules:\n"
+            "1. Exclude any CAM, HDTS, PRE-DVD, or strictly low-quality theatrical recordings.\n"
+            "2. If multiple valid options exist, pick the highest quality one that matches the requested resolution/episode.\n"
+            "3. If no links seem like a good, genuine match, reply ONLY with the word NONE.\n"
+            "4. Your entire response must be ONLY the exact URL (or NONE). Do not include any explanations, reasoning, formatting, or extra text."
+        )
+        
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt}
+        ]
+        
+        result = await _call_llm_api(messages, settings)
+        if not result or "NONE" in result.upper():
             return None
             
-        # Basic validation: ensure the LLM returned one of the URLs provided
-        result = result.strip('\'"')
-        for href, _ in links:
-            if href in result or result in href:
-                return href
+        import re
+        url_match = re.search(r'(https?://[^\s\'"]+)', result)
+        if url_match:
+            extracted_url = url_match.group(1)
+            for href, _ in links:
+                if href in extracted_url or extracted_url in href:
+                    return href
                 
         logger.warning(f"LLM returned an invalid URL or formatted it weirdly: {result}")
         return None
