@@ -149,8 +149,8 @@ class AppSettings(SQLModel, table=True):
     missing_search_batch_size: int = Field(default=50)
     new_release_grace_hours: int = Field(default=48)
     
-    movie_download_sources_priority: str = Field(default="einthusan,1tamilmv")
-    tv_download_sources_priority: str = Field(default="1tamilmv,bollyzone")
+    movie_download_sources_priority: str = Field(default="einthusan,1tamilmv,fmovies")
+    tv_download_sources_priority: str = Field(default="1tamilmv,bollyzone,fmovies")
     
     qbittorrent_url: str = Field(default="http://localhost:8080")
     qbittorrent_username: str = Field(default="admin")

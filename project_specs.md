@@ -1446,3 +1446,18 @@ When a movie is added via webhook, the system uses `delayed_search()` to give Ra
 - `frontend/src/pages/Series.jsx`
 - `instructions.md`
 - `project_specs.md`
+
+---
+
+## [2026-08-14] FMovies Playwright Architecture Change
+
+**Changes made:**
+- **Headless Browser Integration:** The initial FMovies integration using static `httpx` scraping failed due to `embos.top`'s heavy WASM/JavaScript encryption (XSalsa20/AES). The only reliable way to decrypt the `.m3u8` is in a real browser context. 
+- Added `playwright` to `requirements.txt` and `playwright install --with-deps chromium` to `Dockerfile`.
+- Rewrote `backend/services/fmovies.py:extract_stream_url` to launch a headless Chromium browser using `playwright.async_api`.
+- The browser intercepts the raw `.m3u8` network request locally on the server without needing to decrypt the payload in Python, effectively bypassing the obfuscation, and passing the raw URL back to `ffmpeg` for standard downloading.
+
+**Files changed:**
+- `Dockerfile`
+- `requirements.txt`
+- `backend/services/fmovies.py`

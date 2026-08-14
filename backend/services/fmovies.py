@@ -15,6 +15,8 @@ from rapidfuzz import fuzz
 
 from backend.services.llm import generate_search_variants_with_llm
 from backend.services.bollyzone import unpack_juicy
+import asyncio
+from playwright.async_api import async_playwright
 
 logger = logging.getLogger(__name__)
 
@@ -149,72 +151,70 @@ async def _search_fmovies(base_url: str, query_str: str, year: Optional[int], tm
 
 async def extract_stream_url(watch_url: str, settings) -> Optional[Tuple[str, str, str]]:
     """
-    Extract the actual m3u8 stream from an FMovies watch page.
-    Follows iframe redirects and parses embed pages.
+    Extract the actual m3u8 stream from an FMovies watch page using Playwright.
+    This bypasses JavaScript obfuscation and waits for the m3u8 network request.
     """
-    async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
-        try:
-            resp = await client.get(watch_url, headers=_HEADERS)
-            resp.raise_for_status()
-        except Exception as e:
-            logger.error(f"FMovies failed to fetch watch page {watch_url}: {e}")
-            return None
+    logger.info(f"FMovies launching Playwright for {watch_url}")
+    
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox'])
+            context = await browser.new_context(
+                user_agent=_HEADERS["User-Agent"],
+                viewport={'width': 1280, 'height': 720}
+            )
+            page = await context.new_page()
+            
+            m3u8_url = None
+            referer = watch_url
 
-        soup = BeautifulSoup(resp.text, "lxml")
-        
-        # 1. Find iframe embed
-        iframe = soup.find("iframe")
-        if not iframe or not iframe.get("src"):
-            # Try to find a player div with data-src
-            player_div = soup.find("div", {"id": "player"})
-            if player_div and player_div.get("data-src"):
-                embed_url = player_div["data-src"]
+            async def handle_request(request):
+                nonlocal m3u8_url, referer
+                if request.resource_type in ["xhr", "fetch", "other"]:
+                    url = request.url
+                    if ".m3u8" in url and not m3u8_url:
+                        m3u8_url = url
+                        req_headers = request.headers
+                        if "referer" in req_headers:
+                            referer = req_headers["referer"]
+
+            page.on("request", handle_request)
+
+            try:
+                await page.goto(watch_url, wait_until="domcontentloaded", timeout=20000)
+                
+                for _ in range(150):
+                    if m3u8_url:
+                        break
+                    await asyncio.sleep(0.1)
+                    
+                if not m3u8_url:
+                    frames = page.frames
+                    for frame in frames:
+                        if "embos.top" in frame.url or "vidsrc" in frame.url or "vidlink" in frame.url or "embed" in frame.url:
+                            logger.info(f"Found player frame: {frame.url}")
+                            try:
+                                await frame.click("body", timeout=2000, force=True)
+                            except Exception:
+                                pass
+                                
+                    for _ in range(50):
+                        if m3u8_url:
+                            break
+                        await asyncio.sleep(0.1)
+
+            except Exception as e:
+                logger.error(f"Playwright navigation error on {watch_url}: {e}")
+            finally:
+                await browser.close()
+                
+            if m3u8_url:
+                logger.info(f"FMovies successfully extracted m3u8 via Playwright: {m3u8_url[:50]}...")
+                return m3u8_url, referer, _HEADERS["User-Agent"]
             else:
-                logger.error("FMovies no iframe or player found on watch page")
+                logger.error(f"FMovies failed to intercept m3u8 via Playwright from {watch_url}")
                 return None
-        else:
-            embed_url = iframe["src"]
-            
-        if embed_url.startswith("//"):
-            embed_url = "https:" + embed_url
-        elif embed_url.startswith("/"):
-            base = "/".join(watch_url.split("/")[:3])
-            embed_url = base + embed_url
-
-        logger.info(f"FMovies found embed URL: {embed_url}")
-
-        # 2. Fetch embed page
-        try:
-            embed_resp = await client.get(embed_url, headers={"Referer": watch_url, **_HEADERS})
-            embed_resp.raise_for_status()
-            html = embed_resp.text
-        except Exception as e:
-            logger.error(f"FMovies failed to fetch embed page {embed_url}: {e}")
-            return None
-
-        # 3. Look for JuicyCodes or direct m3u8
-        m3u8_url = None
-        
-        # Check for unpacked m3u8
-        m3u8_match = re.search(r'file:\s*["\'](https?://[^"\']+\.m3u8[^"\']*)["\']', html)
-        if m3u8_match:
-            m3u8_url = m3u8_match.group(1)
-        else:
-            # Check for juicycodes packing
-            packed_match = re.search(r"eval\((function\(p,a,c,k,e,d\).*?)\)", html)
-            if packed_match:
-                packed_code = packed_match.group(1)
-                unpacked = unpack_juicy(packed_code)
-                if unpacked:
-                    src_match = re.search(r'src["\']\s*:\s*["\'](https?://[^"\']+\.m3u8[^"\']*)["\']', unpacked)
-                    if src_match:
-                        m3u8_url = src_match.group(1)
-                        
-        if m3u8_url:
-            if m3u8_url.startswith("//"):
-                m3u8_url = "https:" + m3u8_url
-            logger.info(f"FMovies successfully extracted m3u8: {m3u8_url[:50]}...")
-            return m3u8_url, embed_url, _HEADERS["User-Agent"]
-            
-        logger.error(f"FMovies failed to extract m3u8 from {embed_url}")
+                
+    except Exception as e:
+        logger.error(f"FMovies Playwright launch error: {e}")
         return None

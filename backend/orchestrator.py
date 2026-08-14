@@ -164,7 +164,7 @@ async def _run_movie_pipeline(session: Session, job: DownloadJob, settings: AppS
 
     _update_job(session, job, status=JobStatus.SEARCHING)
     sources = [s.strip() for s in settings.movie_download_sources_priority.split(",") if s.strip()]
-    if not sources: sources = ["einthusan", "1tamilmv"]
+    if not sources: sources = ["einthusan", "1tamilmv", "fmovies"]
         
     if indexer:
         sources = [indexer]
@@ -325,7 +325,7 @@ async def _run_tv_pipeline(session: Session, job: DownloadJob, settings: AppSett
 
     _update_job(session, job, status=JobStatus.SEARCHING)
     sources = [s.strip() for s in settings.tv_download_sources_priority.split(",") if s.strip()]
-    if not sources: sources = ["1tamilmv", "bollyzone"]
+    if not sources: sources = ["1tamilmv", "bollyzone", "fmovies"]
         
     if indexer:
         sources = [indexer]

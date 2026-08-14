@@ -370,3 +370,26 @@ When a movie/show arrives via webhook, `delayed_search()` waits `search_delay_se
 - `frontend/src/api.js`
 - `frontend/src/pages/Movies.jsx`
 - `instructions.md`
+
+---
+
+## 2026-08-13 — FMovies Playwright Integration
+
+**Problem diagnosed:**
+- The previously implemented static regex scraping for `f-movies.org` failed on real-world test cases (e.g. TMDB 572151).
+- `f-movies.org` relies on `embos.top` or similar aggregators which load heavily obfuscated WASM/JavaScript and encrypt the stream URL (XSalsa20/AES).
+- Static scraping using `httpx` and `BeautifulSoup` cannot intercept or decrypt the dynamically loaded `.m3u8` video source.
+
+**Fix implemented:**
+1. Integrated **Playwright** via Dockerfile (`playwright install --with-deps chromium`) and `requirements.txt`.
+2. Rewrote `extract_stream_url` in `backend/services/fmovies.py` to use `playwright.async_api`.
+   - The system spins up a headless Chromium browser instance on-demand.
+   - It navigates to the embed page and actively listens to network traffic via `page.on("request")`.
+   - It intercepts the raw `.m3u8` network request made by the player to bypass the javascript obfuscation entirely.
+   - The browser is closed and the raw `.m3u8` is passed back to the `ffmpeg` pipeline for downloading.
+
+**Files changed:**
+- `Dockerfile`
+- `requirements.txt`
+- `backend/services/fmovies.py`
+- `instructions.md`
