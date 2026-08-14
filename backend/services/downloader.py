@@ -143,8 +143,6 @@ async def download_m3u8(
             "-reconnect_on_network_error", "1",
             "-reconnect_on_http_error", "4xx,5xx",
             "-reconnect_delay_max", "5",
-            "-allowed_extensions", "ALL",
-            "-allowed_segment_extensions", "ALL",
             "-headers", headers_arg,
             "-i", url,
             "-c", "copy",
