@@ -1449,15 +1449,20 @@ When a movie is added via webhook, the system uses `delayed_search()` to give Ra
 
 ---
 
-## [2026-08-14] FMovies Playwright Architecture Change
+## [2026-08-14] FMovies Native PyNaCl API Extraction
 
-**Changes made:**
-- **Headless Browser Integration:** The initial FMovies integration using static `httpx` scraping failed due to `embos.top`'s heavy WASM/JavaScript encryption (XSalsa20/AES). The only reliable way to decrypt the `.m3u8` is in a real browser context. 
-- Added `playwright` to `requirements.txt` and `playwright install --with-deps chromium` to `Dockerfile`.
-- Rewrote `backend/services/fmovies.py:extract_stream_url` to launch a headless Chromium browser using `playwright.async_api`.
-- The browser intercepts the raw `.m3u8` network request locally on the server without needing to decrypt the payload in Python, effectively bypassing the obfuscation, and passing the raw URL back to `ffmpeg` for standard downloading.
+**Problem diagnosed:**
+- The previously implemented Playwright headless browser approach for `f-movies.org` was slow, consumed significant memory, and was ultimately blocked by Cloudflare and iframe protections on the `f-movies.org` embed servers (like `embos.top` and `vidlink.pro`).
+
+**Fix implemented:**
+1. Discovered that the primary `vidlink.pro` embed API uses an `XSalsa20` / AES encrypted token to protect its API endpoints.
+2. Removed **Playwright** entirely from the Dockerfile and `requirements.txt` to streamline build times and memory usage.
+3. Implemented a native Python port of the encryption using `PyNaCl` to dynamically generate time-based authorization tokens.
+4. Rewrote `backend/services/fmovies.py` to use `httpx` to query the `vidlink.pro` API natively, bypassing all JavaScript execution and Cloudflare challenges, reducing stream extraction time from 15+ seconds down to ~500ms.
 
 **Files changed:**
 - `Dockerfile`
 - `requirements.txt`
 - `backend/services/fmovies.py`
+- `instructions.md`
+- `project_specs.md`

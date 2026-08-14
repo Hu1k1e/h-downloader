@@ -3,7 +3,7 @@ import { api } from '../api'
 import { StatusBadge, ProgressBar, formatBytes, timeAgo } from '../components/ui'
 import TriggerModal from '../components/TriggerModal'
 
-const ALL_LANGS = ['malayalam', 'tamil', 'telugu', 'hindi', 'kannada', 'bengali', 'marathi', 'punjabi']
+const ALL_LANGS = ['malayalam', 'tamil', 'telugu', 'hindi', 'kannada', 'bengali', 'marathi', 'punjabi', 'korean']
 
 export default function Jobs() {
     const [jobs, setJobs] = useState([])

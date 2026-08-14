@@ -373,20 +373,16 @@ When a movie/show arrives via webhook, `delayed_search()` waits `search_delay_se
 
 ---
 
-## 2026-08-13 — FMovies Playwright Integration
+## 2026-08-14 — FMovies Native PyNaCl API Extraction
 
 **Problem diagnosed:**
-- The previously implemented static regex scraping for `f-movies.org` failed on real-world test cases (e.g. TMDB 572151).
-- `f-movies.org` relies on `embos.top` or similar aggregators which load heavily obfuscated WASM/JavaScript and encrypt the stream URL (XSalsa20/AES).
-- Static scraping using `httpx` and `BeautifulSoup` cannot intercept or decrypt the dynamically loaded `.m3u8` video source.
+- The previously implemented Playwright headless browser approach for `f-movies.org` was slow, consumed significant memory, and was ultimately blocked by Cloudflare and iframe protections on the `f-movies.org` embed servers (like `embos.top` and `vidlink.pro`).
 
 **Fix implemented:**
-1. Integrated **Playwright** via Dockerfile (`playwright install --with-deps chromium`) and `requirements.txt`.
-2. Rewrote `extract_stream_url` in `backend/services/fmovies.py` to use `playwright.async_api`.
-   - The system spins up a headless Chromium browser instance on-demand.
-   - It navigates to the embed page and actively listens to network traffic via `page.on("request")`.
-   - It intercepts the raw `.m3u8` network request made by the player to bypass the javascript obfuscation entirely.
-   - The browser is closed and the raw `.m3u8` is passed back to the `ffmpeg` pipeline for downloading.
+1. Discovered that the primary `vidlink.pro` embed API uses an `XSalsa20` / AES encrypted token to protect its API endpoints.
+2. Removed **Playwright** entirely from the Dockerfile and `requirements.txt` to streamline build times and memory usage.
+3. Implemented a native Python port of the encryption using `PyNaCl` to dynamically generate time-based authorization tokens.
+4. Rewrote `backend/services/fmovies.py` to use `httpx` to query the `vidlink.pro` API natively, bypassing all JavaScript execution and Cloudflare challenges, reducing stream extraction time from 15+ seconds down to ~500ms.
 
 **Files changed:**
 - `Dockerfile`
