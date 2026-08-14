@@ -171,6 +171,9 @@ class AppSettings(SQLModel, table=True):
     llm_api_url: str = Field(default="https://api.freellmapi.com/v1")
     llm_api_key: str = Field(default="")
     llm_model: str = Field(default="gpt-3.5-turbo")
+    
+    # FMovies Settings
+    fmovies_base_url: str = Field(default="https://www.f-movies.org")
 
 class AppSettingsRead(SQLModel):
     radarr_url: str
@@ -210,6 +213,7 @@ class AppSettingsRead(SQLModel):
     llm_api_url: str
     llm_api_key_set: bool
     llm_model: str
+    fmovies_base_url: str
 
 
 class AppSettingsUpdate(SQLModel):
@@ -253,4 +257,5 @@ class AppSettingsUpdate(SQLModel):
     llm_api_url: Optional[str] = None
     llm_api_key: Optional[str] = None
     llm_model: Optional[str] = None
+    fmovies_base_url: Optional[str] = None
 

@@ -62,6 +62,8 @@ def init_db():
                 conn.execute(text("ALTER TABLE appsettings ADD COLUMN llm_api_url VARCHAR NOT NULL DEFAULT 'https://api.freellmapi.com/v1'"))
                 conn.execute(text("ALTER TABLE appsettings ADD COLUMN llm_api_key VARCHAR NOT NULL DEFAULT ''"))
                 conn.execute(text("ALTER TABLE appsettings ADD COLUMN llm_model VARCHAR NOT NULL DEFAULT 'gpt-3.5-turbo'"))
+            if result and "fmovies_base_url" not in columns:
+                conn.execute(text("ALTER TABLE appsettings ADD COLUMN fmovies_base_url VARCHAR NOT NULL DEFAULT 'https://www.f-movies.org'"))
             
             # Auto-migrate DownloadJob table
             dj_result = conn.execute(text("PRAGMA table_info(downloadjob)")).fetchall()

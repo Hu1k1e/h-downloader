@@ -1419,5 +1419,30 @@ When a movie is added via webhook, the system uses `delayed_search()` to give Ra
 
 1. Wait `search_delay_seconds` (default 120s), polling every 10s
 2. During wait, check if Radarr has started a native download
-3. If Radarr is actively downloading → mark as DOWNLOADING (source: radarr), stop
 4. If delay expires with no Radarr activity → trigger `process_request()` for custom source search
+
+---
+
+## [2026-08-14] Add FMovies and Korean Language Support
+
+**Changes made:**
+- **Korean Language Support:** Added `korean` (and TMDB language code `ko`) to `config.LANGUAGE_SLUG_MAP` and `config.TMDB_LANG_TO_EINTHUSAN`. Added `korean` to frontend `ALL_LANGS` in `Settings.jsx`.
+- **FMovies Source Integration:** Created `backend/services/fmovies.py` to search FMovies/clones using TMDB ID and LLM title variants, and extract m3u8 streams by resolving iframe embeds.
+- **Orchestrator Integration:** Updated `backend/orchestrator.py` to handle the `fmovies` source for both Movies and TV Shows. Uses the existing `download_m3u8` from `downloader.py`.
+- **Settings Configuration:** Added `fmovies_base_url` to `backend/models.py` `AppSettings`, auto-migrated via `backend/database.py`, and exposed via `backend/routers/settings.py`. Added configuration UI in `Settings.jsx`.
+- **URL Import and Force Search:** Updated `backend/routers/jobs.py` to parse FMovies watch URLs in the `import-url` flow. Updated frontend `Movies.jsx` and `Series.jsx` with FMovies search links and Force Search buttons.
+- **Rules Documentation:** Added rule to `instructions.md` ensuring `instructions.md` and `project_specs.md` are updated with implementation changes.
+
+**Files changed:**
+- `backend/config.py`
+- `backend/services/fmovies.py` (NEW)
+- `backend/orchestrator.py`
+- `backend/models.py`
+- `backend/routers/settings.py`
+- `backend/database.py`
+- `backend/routers/jobs.py`
+- `frontend/src/pages/Settings.jsx`
+- `frontend/src/pages/Movies.jsx`
+- `frontend/src/pages/Series.jsx`
+- `instructions.md`
+- `project_specs.md`

@@ -137,6 +137,15 @@ function SeriesModal({ series, onClose, onTrigger, onDelete, onCancel, onToggleM
                                     Search BollyZone
                                 </a>
                             )}
+                            {settings?.tv_download_sources_priority?.includes('fmovies') && (
+                                <a 
+                                    className="btn btn-secondary btn-sm" 
+                                    href={`${settings?.fmovies_base_url || 'https://www.f-movies.org'}/search/${encodeURIComponent(series.title)}`}
+                                    target="_blank" rel="noopener noreferrer"
+                                >
+                                    Search FMovies
+                                </a>
+                            )}
                         </div>
                     </div>
                 </div>

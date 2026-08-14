@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 
-const ALL_LANGS = ['malayalam', 'tamil', 'telugu', 'hindi', 'kannada', 'bengali', 'marathi', 'punjabi']
+const ALL_LANGS = ['malayalam', 'tamil', 'telugu', 'hindi', 'kannada', 'bengali', 'marathi', 'punjabi', 'korean']
 
 const Tooltip = ({ text }) => (
     <span className="setting-tooltip-icon" data-tooltip={text}>?</span>
@@ -59,8 +59,9 @@ export default function Settings() {
                 missing_search_interval_hours: data.missing_search_interval_hours ?? 24,
                 missing_search_batch_size: data.missing_search_batch_size ?? 10,
                 search_delay_seconds: data.search_delay_seconds ?? 120,
-                movie_download_sources_priority: data.movie_download_sources_priority || ['einthusan', '1tamilmv'],
-                tv_download_sources_priority: data.tv_download_sources_priority || ['1tamilmv', 'bollyzone'],
+                movie_download_sources_priority: data.movie_download_sources_priority || ['einthusan', '1tamilmv', 'fmovies'],
+                tv_download_sources_priority: data.tv_download_sources_priority || ['1tamilmv', 'bollyzone', 'fmovies'],
+                fmovies_base_url: data.fmovies_base_url || 'https://www.f-movies.org',
                 qbittorrent_url: data.qbittorrent_url || '',
                 qbittorrent_username: data.qbittorrent_username || '',
                 qbittorrent_password: '',
@@ -413,7 +414,7 @@ export default function Settings() {
                         <div style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 8 }}>
                             Check to enable. Drag arrows to set search priority.
                         </div>
-                        {['1tamilmv', 'einthusan']
+                        {['1tamilmv', 'einthusan', 'fmovies']
                             .sort((a, b) => {
                                 const aIdx = (formData.movie_download_sources_priority || []).indexOf(a);
                                 const bIdx = (formData.movie_download_sources_priority || []).indexOf(b);
@@ -434,7 +435,7 @@ export default function Settings() {
                                             style={{ cursor: 'pointer' }}
                                         />
                                         <span style={{ fontWeight: 'bold', minWidth: 20 }}>{isEnabled ? `${idx + 1}.` : '-'}</span>
-                                        <span style={{ flex: 1 }}>{source === '1tamilmv' ? '1TamilMV' : source === 'einthusan' ? 'Einthusan' : source}</span>
+                                        <span style={{ flex: 1 }}>{source === '1tamilmv' ? '1TamilMV' : source === 'einthusan' ? 'Einthusan' : source === 'fmovies' ? 'FMovies' : source}</span>
                                         {isEnabled && (
                                             <>
                                                 <button className="btn btn-secondary btn-sm" onClick={() => moveSource(idx, 'up', 'movie')} disabled={idx === 0}>↑</button>
@@ -454,7 +455,7 @@ export default function Settings() {
                         <div style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 8 }}>
                             Check to enable. Drag arrows to set search priority.
                         </div>
-                        {['1tamilmv', 'bollyzone']
+                        {['1tamilmv', 'bollyzone', 'fmovies']
                             .sort((a, b) => {
                                 const aIdx = (formData.tv_download_sources_priority || []).indexOf(a);
                                 const bIdx = (formData.tv_download_sources_priority || []).indexOf(b);
@@ -475,7 +476,7 @@ export default function Settings() {
                                             style={{ cursor: 'pointer' }}
                                         />
                                         <span style={{ fontWeight: 'bold', minWidth: 20 }}>{isEnabled ? `${idx + 1}.` : '-'}</span>
-                                        <span style={{ flex: 1 }}>{source === '1tamilmv' ? '1TamilMV' : source === 'bollyzone' ? 'Bollyzone' : source}</span>
+                                        <span style={{ flex: 1 }}>{source === '1tamilmv' ? '1TamilMV' : source === 'bollyzone' ? 'Bollyzone' : source === 'fmovies' ? 'FMovies' : source}</span>
                                         {isEnabled && (
                                             <>
                                                 <button className="btn btn-secondary btn-sm" onClick={() => moveSource(idx, 'up', 'tv')} disabled={idx === 0}>↑</button>
@@ -486,6 +487,11 @@ export default function Settings() {
                                 )
                             })}
                     </div>
+                </div>
+                <div className="settings-section-title" style={{ marginTop: 24 }}>FMovies Settings</div>
+                <div className="form-row">
+                    <span className="form-label">Base URL <Tooltip text="The domain for FMovies or its clones (e.g. https://www.f-movies.org)" /></span>
+                    <input className="form-input" name="fmovies_base_url" value={formData.fmovies_base_url || ''} onChange={handleChange} placeholder="https://www.f-movies.org" />
                 </div>
             </div>
 
@@ -683,9 +689,9 @@ export default function Settings() {
                 </div>
             </div>
 
-            {/* Einthusan Languages */}
+            {/* Monitored Languages */}
             <div className="card settings-section" style={{ marginBottom: 16 }}>
-                <div className="settings-section-title">Einthusan Languages</div>
+                <div className="settings-section-title">Monitored Languages</div>
                 <div className="form-row">
                     <span className="form-label">Monitored Languages <Tooltip text="Only movies in these languages will be downloaded or imported" /></span>
                     <div className="lang-grid">

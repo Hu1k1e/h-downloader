@@ -51,6 +51,7 @@ LANGUAGE_SLUG_MAP = {
     "bengali": "bengali",
     "marathi": "marathi",
     "punjabi": "punjabi",
+    "korean": "korean",
 }
 
 # TMDB spoken language codes → Einthusan language slug
@@ -63,4 +64,5 @@ TMDB_LANG_TO_EINTHUSAN = {
     "bn": "bengali",
     "mr": "marathi",
     "pa": "punjabi",
+    "ko": "korean",
 }

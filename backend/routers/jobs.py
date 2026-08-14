@@ -263,7 +263,8 @@ async def import_url_for_job(job_id: int, req: ImportUrlRequest, session: Sessio
     import asyncio
     from backend.services import einthusan
     from backend.services import tamilmv
-    from backend.services.downloader import get_movie_file_path, download_movie
+    from backend.services import fmovies
+    from backend.services.downloader import get_movie_file_path, download_movie, download_m3u8
     from backend.database import engine
 
     job = session.get(DownloadJob, job_id)
@@ -279,11 +280,12 @@ async def import_url_for_job(job_id: int, req: ImportUrlRequest, session: Sessio
     # ── Detect provider from URL ──────────────────────────────────────────
     is_einthusan = bool(re.search(r'einthusan\.tv/movie/watch/', url, re.IGNORECASE))
     is_tamilmv = bool(re.search(r'1tamilmv\.\w+/', url, re.IGNORECASE))
+    is_fmovies = bool(re.search(r'f-movies\.\w+/', url, re.IGNORECASE))
 
-    if not is_einthusan and not is_tamilmv:
+    if not is_einthusan and not is_tamilmv and not is_fmovies:
         raise HTTPException(
             status_code=400,
-            detail="URL not recognised. Must be an Einthusan watch page or 1TamilMV thread URL."
+            detail="URL not recognised. Must be an Einthusan, 1TamilMV, or FMovies URL."
         )
 
     if is_einthusan:
@@ -354,6 +356,57 @@ async def import_url_for_job(job_id: int, req: ImportUrlRequest, session: Sessio
 
         log_action("Manual", f"Manual URL import: added 1TamilMV magnet for '{job.title}'. Hash: {torrent_hash}", tmdb_id=job.tmdb_id, job_id=job.id)
         return {"status": "started", "type": "1tamilmv", "hash": torrent_hash}
+
+    elif is_fmovies:
+        extracted = await fmovies.extract_stream_url(url, settings)
+        if not extracted:
+            raise HTTPException(status_code=404, detail="Could not extract m3u8 stream from FMovies URL.")
+            
+        m3u8_url, referer, user_agent = extracted
+        
+        if job.media_type == "tv":
+            from backend.services import sonarr as sonarr_svc
+            from backend.services.downloader import get_episode_file_path
+            series = await sonarr_svc.ensure_series_added(job.tvdb_id, job.title, settings)
+            folder_path = series.get("path")
+            file_path = get_episode_file_path(folder_path, job.title, job.season_number, job.episode_number)
+        else:
+            folder_path = await radarr_svc.get_movie_folder(job.tmdb_id, job.title, job.year or 0, settings)
+            file_path = get_movie_file_path(folder_path, job.title, job.year)
+            
+        job.status = JobStatus.DOWNLOADING
+        job.error_msg = None
+        job.source_indexer = "fmovies"
+        session.add(job)
+        session.commit()
+        
+        log_action("Manual", f"Manual URL import: starting FMovies download for '{job.title}'", tmdb_id=job.tmdb_id, job_id=job.id)
+        
+        async def _run_fmovies_dl(jid, stream_url, ref, fp):
+            with Session(engine) as sess:
+                dl_success = await download_m3u8(jid, stream_url, ref, fp, sess)
+                if dl_success:
+                    sess_job = sess.get(DownloadJob, jid)
+                    if sess_job:
+                        if sess_job.media_type == "tv":
+                            from backend.services import sonarr as sonarr_svc
+                            series_data = await sonarr_svc.ensure_series_added(sess_job.tvdb_id, sess_job.title, settings)
+                            await sonarr_svc.trigger_rescan(series_data["id"], settings)
+                        else:
+                            movie_data = await radarr_svc.is_movie_in_radarr(sess_job.tmdb_id, settings)
+                            if movie_data and "id" in movie_data:
+                                await radarr_svc.trigger_rescan(movie_data["id"], settings)
+                                
+                        sess_job.status = JobStatus.DONE
+                        sess_job.progress_pct = 100
+                        sess_job.monitored = False
+                        sess_job.error_msg = None
+                        sess.add(sess_job)
+                        sess.commit()
+                        
+        asyncio.create_task(_run_fmovies_dl(job.id, m3u8_url, referer, file_path))
+        return {"status": "started", "type": "fmovies", "url": url}
+
 
 
 # ── Stats ────────────────────────────────────────────────────────────────────

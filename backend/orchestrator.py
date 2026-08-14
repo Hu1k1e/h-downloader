@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 from backend import config
 from backend.database import engine, get_settings
 from backend.models import DownloadJob, JobStatus, AppSettings, LogLevel
-from backend.services import einthusan, radarr, tmdb, tamilmv, qbittorrent, sonarr, bollyzone
+from backend.services import einthusan, radarr, tmdb, tamilmv, qbittorrent, sonarr, bollyzone, fmovies
 from backend.services.downloader import download_movie, download_m3u8, get_movie_file_path
 from backend.db_logger import log_action
 

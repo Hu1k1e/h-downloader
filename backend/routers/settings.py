@@ -51,6 +51,7 @@ def get_current_settings(session: Session = Depends(get_session)):
         llm_api_url=settings.llm_api_url,
         llm_api_key_set=bool(settings.llm_api_key),
         llm_model=settings.llm_model,
+        fmovies_base_url=settings.fmovies_base_url,
     )
 
 
@@ -137,6 +138,8 @@ def update_settings(update_data: AppSettingsUpdate, session: Session = Depends(g
         settings.llm_api_key = update_data.llm_api_key
     if update_data.llm_model is not None:
         settings.llm_model = update_data.llm_model
+    if update_data.fmovies_base_url is not None:
+        settings.fmovies_base_url = update_data.fmovies_base_url
         
     session.add(settings)
     session.commit()

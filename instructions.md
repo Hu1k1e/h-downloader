@@ -263,6 +263,11 @@ Understand before building.
 
 Change the smallest possible scope.
 
+- Never assume file structures.
+- **Always update `instructions.md` and `project_specs.md` with implementation changes and updates. This should always happen with implementation history and architecture changes.**
+
+### Architecture & Patterns.
+
 Keep architecture clean.
 
 Prevent silent failures.

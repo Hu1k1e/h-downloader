@@ -98,6 +98,16 @@ function MovieModal({ movie, onClose, onTrigger, onDelete, onCancel, onToggleMon
             provider: '1tamilmv'
         })
     }
+    
+    if (activeSources.includes('fmovies')) {
+        const q = encodeURIComponent(`${movie.title} ${movie.year || ''}`.trim())
+        const fmoviesUrl = settings?.fmovies_base_url || 'https://www.f-movies.org'
+        searchLinks.push({
+            label: 'FMovies',
+            url: `${fmoviesUrl}/search/${q}`,
+            provider: 'fmovies'
+        })
+    }
 
     const handleImportUrl = async () => {
         if (!importUrl.trim()) return
@@ -147,7 +157,7 @@ function MovieModal({ movie, onClose, onTrigger, onDelete, onCancel, onToggleMon
                 )}
                 {movie.source_indexer && (
                     <div style={{marginBottom: 16}}>
-                        <strong>Source:</strong> {movie.source_indexer === '1tamilmv' ? '1TamilMV' : movie.source_indexer === 'einthusan' ? 'Einthusan' : movie.source_indexer === 'radarr' ? 'Radarr' : movie.source_indexer}
+                        <strong>Source:</strong> {movie.source_indexer === '1tamilmv' ? '1TamilMV' : movie.source_indexer === 'einthusan' ? 'Einthusan' : movie.source_indexer === 'fmovies' ? 'FMovies' : movie.source_indexer === 'radarr' ? 'Radarr' : movie.source_indexer}
                     </div>
                 )}
                 {movie.file_path && (
@@ -196,7 +206,7 @@ function MovieModal({ movie, onClose, onTrigger, onDelete, onCancel, onToggleMon
                         Import from URL
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
-                        Paste an Einthusan watch page or 1TamilMV thread URL
+                        Paste an Einthusan, 1TamilMV, or FMovies watch page URL
                     </div>
                     <div style={{ display: 'flex', gap: 8 }}>
                         <input
@@ -230,6 +240,9 @@ function MovieModal({ movie, onClose, onTrigger, onDelete, onCancel, onToggleMon
                     </button>
                     <button className="btn btn-secondary btn-sm" onClick={() => onTrigger(movie, '1tamilmv')}>
                         Force Search 1TamilMV
+                    </button>
+                    <button className="btn btn-secondary btn-sm" onClick={() => onTrigger(movie, 'fmovies')}>
+                        Force Search FMovies
                     </button>
                     <button className="btn btn-secondary btn-sm" onClick={() => onSync(movie.id)} style={{ marginLeft: 'auto' }}>
                         ↻ Sync with Radarr
