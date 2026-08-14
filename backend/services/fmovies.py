@@ -76,7 +76,7 @@ async def search_tv(tmdb_id: int, title: str, season: int, episode: int, setting
             
     return None
 
-async def extract_stream_url(watch_url_or_id: str, settings) -> Optional[Tuple[str, str, str]]:
+async def extract_stream_url(watch_url_or_id: str, settings, target_resolution: Optional[str] = None) -> Optional[Tuple[str, str, str]]:
     """
     Extract the actual m3u8/mp4 stream from the vidlink API.
     Since we return the TMDB ID from search_*, watch_url_or_id is just the ID or 'id/season/episode'.
@@ -109,16 +109,24 @@ async def extract_stream_url(watch_url_or_id: str, settings) -> Optional[Tuple[s
                 logger.error(f"FMovies (vidlink) returned no qualities for {watch_url_or_id}")
                 return None
                 
-            # Pick highest quality (1080p > 720p > 480p > 360p)
             best_quality = None
             best_resolution = 0
             
-            for q_str, q_data in qualities.items():
-                if q_str.isdigit():
-                    res = int(q_str)
-                    if res > best_resolution:
-                        best_resolution = res
-                        best_quality = q_data
+            # If target_resolution is specified (e.g. "1080p", "720p"), try to find an exact match first
+            if target_resolution:
+                target_res_str = target_resolution.replace("p", "").replace("P", "")
+                if target_res_str in qualities:
+                    best_quality = qualities[target_res_str]
+                    best_resolution = int(target_res_str) if target_res_str.isdigit() else 0
+                    
+            # Fallback to the highest available quality if target is not found or not provided
+            if not best_quality:
+                for q_str, q_data in qualities.items():
+                    if q_str.isdigit():
+                        res = int(q_str)
+                        if res > best_resolution:
+                            best_resolution = res
+                            best_quality = q_data
             
             if best_quality and "url" in best_quality:
                 stream_url = best_quality["url"]

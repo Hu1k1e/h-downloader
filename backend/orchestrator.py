@@ -221,7 +221,7 @@ async def _run_movie_pipeline(session: Session, job: DownloadJob, settings: AppS
                         if auto_download:
                             _update_job(session, job, direct_url=direct_url)
                             folder_path = await radarr.get_movie_folder(tmdb_id, title, year or 0, settings)
-                            file_path = get_movie_file_path(folder_path, title, year)
+                            file_path = get_movie_file_path(folder_path, title, year, radarr_resolution or "720p")
                             
                             _update_job(session, job, file_path=file_path, status=JobStatus.DOWNLOADING, source_indexer="einthusan", error_msg=None)
                             dl_success = await download_movie(job_id, direct_url, file_path, session)
@@ -244,12 +244,12 @@ async def _run_movie_pipeline(session: Session, job: DownloadJob, settings: AppS
                 watch_url = await fmovies.search_movie(tmdb_id, title, year, settings)
                 if watch_url:
                     if auto_download:
-                        extracted = await fmovies.extract_stream_url(watch_url, settings)
+                        extracted = await fmovies.extract_stream_url(watch_url, settings, radarr_resolution)
                         if extracted:
                             m3u8_url, referer, u_a = extracted
                             folder_path = await radarr.get_movie_folder(tmdb_id, title, year or 0, settings)
                             from backend.services.downloader import get_movie_file_path, download_m3u8
-                            file_path = get_movie_file_path(folder_path, title, year)
+                            file_path = get_movie_file_path(folder_path, title, year, radarr_resolution or "720p")
                             
                             _update_job(session, job, status=JobStatus.DOWNLOADING, source_indexer="fmovies", error_msg=None)
                             dl_success = await download_m3u8(job_id, m3u8_url, referer, file_path, session)
@@ -404,7 +404,7 @@ async def _run_tv_pipeline(session: Session, job: DownloadJob, settings: AppSett
                 watch_url = await fmovies.search_tv(tvdb_id, title, job.season_number, job.episode_number, settings)
                 if watch_url:
                     if auto_download:
-                        extracted = await fmovies.extract_stream_url(watch_url, settings)
+                        extracted = await fmovies.extract_stream_url(watch_url, settings, sonarr_resolution)
                         if extracted:
                             m3u8_url, referer, u_a = extracted
                             folder_path = await sonarr.get_series_folder(tvdb_id, series.get("title", ""), settings)

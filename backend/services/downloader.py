@@ -31,16 +31,15 @@ def _safe_name(s: str) -> str:
     return re.sub(r'[<>:"/\\|?*]', "", s).strip()
 
 
-def get_movie_file_path(folder: str, title: str, year: Optional[int]) -> str:
+def get_movie_file_path(folder: str, title: str, year: Optional[int], resolution: str = "720p") -> str:
     """Return the full file path where the movie should be saved.
 
-    The filename includes "720p" so that Radarr parses this as a 720p release
+    The filename includes the resolution so that Radarr parses it correctly
     when it rescans after download. This lets Radarr upgrade the file to a
     better quality release grabbed from a proper indexer later.
     """
     folder_name = _safe_name(f"{title} ({year})" if year else title)
-    # Tag as 720p so Radarr treats this as upgradeable quality
-    filename = f"{folder_name} - 720p.mp4"
+    filename = f"{folder_name} - {resolution}.mp4"
     return os.path.join(folder, filename)
 
 
