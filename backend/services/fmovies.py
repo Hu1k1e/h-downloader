@@ -31,16 +31,23 @@ async def search_movie(tmdb_id: int, title: str, year: Optional[int], settings) 
     """Search for a movie on FMovies."""
     base_url = getattr(settings, "fmovies_base_url", "https://www.f-movies.org").rstrip("/")
     
-    # Method 1: Try direct TMDB ID routing (common on VidSrc wrappers)
-    direct_url = f"{base_url}/movie/{tmdb_id}"
+    # Method 1: Try direct TMDB ID routing
+    # FMovies clones often use the format /movie/{slug}-{tmdb_id}
+    slug = re.sub(r'[^a-z0-9]+', '-', title.lower()).strip('-')
+    direct_urls = [
+        f"{base_url}/movie/{slug}-{tmdb_id}",
+        f"{base_url}/movie/{tmdb_id}"
+    ]
+    
     async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
-        try:
-            resp = await client.get(direct_url, headers=_HEADERS)
-            if resp.status_code == 200 and "iframe" in resp.text.lower():
-                logger.info(f"FMovies direct TMDB match: {direct_url}")
-                return direct_url
-        except Exception:
-            pass
+        for url in direct_urls:
+            try:
+                resp = await client.get(url, headers=_HEADERS)
+                if resp.status_code == 200 and "iframe" in resp.text.lower():
+                    logger.info(f"FMovies direct TMDB match: {url}")
+                    return url
+            except Exception:
+                pass
 
     # Method 2: Search by title variants
     variants = [title]
@@ -66,15 +73,22 @@ async def search_tv(tmdb_id: int, title: str, season: int, episode: int, setting
     base_url = getattr(settings, "fmovies_base_url", "https://www.f-movies.org").rstrip("/")
     
     # Method 1: Direct TMDB ID
-    direct_url = f"{base_url}/tv/{tmdb_id}/{season}/{episode}"
+    slug = re.sub(r'[^a-z0-9]+', '-', title.lower()).strip('-')
+    direct_urls = [
+        f"{base_url}/tv/{slug}-{tmdb_id}?season={season}&episode={episode}",
+        f"{base_url}/tv/{slug}-{tmdb_id}/{season}/{episode}",
+        f"{base_url}/tv/{tmdb_id}/{season}/{episode}"
+    ]
+    
     async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
-        try:
-            resp = await client.get(direct_url, headers=_HEADERS)
-            if resp.status_code == 200 and "iframe" in resp.text.lower():
-                logger.info(f"FMovies direct TMDB TV match: {direct_url}")
-                return direct_url
-        except Exception:
-            pass
+        for url in direct_urls:
+            try:
+                resp = await client.get(url, headers=_HEADERS)
+                if resp.status_code == 200 and "iframe" in resp.text.lower():
+                    logger.info(f"FMovies direct TMDB TV match: {url}")
+                    return url
+            except Exception:
+                pass
 
     variants = [title]
     for variant in variants:
