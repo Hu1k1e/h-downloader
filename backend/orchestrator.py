@@ -238,6 +238,34 @@ async def _run_movie_pipeline(session: Session, job: DownloadJob, settings: AppS
                             break
                 except Exception as e:
                     logger.error(f"Einthusan download failed: {e}")
+                    
+        elif source == "fmovies":
+            try:
+                watch_url = await fmovies.search_movie(tmdb_id, title, year, settings)
+                if watch_url:
+                    if auto_download:
+                        extracted = await fmovies.extract_stream_url(watch_url, settings)
+                        if extracted:
+                            m3u8_url, referer, u_a = extracted
+                            folder_path = await radarr.get_movie_folder(tmdb_id, title, year or 0, settings)
+                            from backend.services.downloader import get_movie_file_path, download_m3u8
+                            file_path = get_movie_file_path(folder_path, title, year)
+                            
+                            _update_job(session, job, status=JobStatus.DOWNLOADING, source_indexer="fmovies", error_msg=None)
+                            dl_success = await download_m3u8(job_id, m3u8_url, referer, file_path, session)
+                            if dl_success:
+                                success_source = "fmovies"
+                                movie_data = await radarr.is_movie_in_radarr(tmdb_id, settings)
+                                if movie_data and "id" in movie_data:
+                                    await radarr.trigger_rescan(movie_data["id"], settings)
+                                _update_job(session, job, status=JobStatus.DONE, progress_pct=100, monitored=False, file_path=file_path, error_msg=None)
+                                break
+                    else:
+                        success_source = "fmovies"
+                        _update_job(session, job, status=JobStatus.DISCOVERED, error_msg=None, discovered_source="fmovies", discovered_url=watch_url)
+                        break
+            except Exception as e:
+                logger.error(f"FMovies search/download failed: {e}")
 
     if not success_source:
         msg = f"'{title}' not found on all configured sources ({', '.join(sources)})"
@@ -370,6 +398,33 @@ async def _run_tv_pipeline(session: Session, job: DownloadJob, settings: AppSett
                         break
             except Exception as e:
                 logger.error(f"Bollyzone search failed: {e}")
+                
+        elif source == "fmovies":
+            try:
+                watch_url = await fmovies.search_tv(tvdb_id, title, job.season_number, job.episode_number, settings)
+                if watch_url:
+                    if auto_download:
+                        extracted = await fmovies.extract_stream_url(watch_url, settings)
+                        if extracted:
+                            m3u8_url, referer, u_a = extracted
+                            folder_path = await sonarr.get_series_folder(tvdb_id, series.get("title", ""), settings)
+                            safe_title = "".join(c for c in series.get("title", "") if c.isalnum() or c in " -_.").strip()
+                            file_path = f"{folder_path}/{safe_title} - S{job.season_number:02d}E{job.episode_number:02d} - {sonarr_resolution or '720p'}.mp4"
+                            
+                            _update_job(session, job, status=JobStatus.DOWNLOADING, source_indexer="fmovies", error_msg=None, discovered_url=watch_url)
+                            from backend.services.downloader import download_m3u8
+                            dl_success = await download_m3u8(job_id, m3u8_url, referer, file_path, session)
+                            if dl_success:
+                                success_source = "fmovies"
+                                await sonarr.trigger_rescan(series_id, settings)
+                                _update_job(session, job, status=JobStatus.DONE, progress_pct=100, monitored=False, file_path=file_path, error_msg=None)
+                                break
+                    else:
+                        success_source = "fmovies"
+                        _update_job(session, job, status=JobStatus.DISCOVERED, error_msg=None, discovered_source="fmovies", discovered_url=watch_url)
+                        break
+            except Exception as e:
+                logger.error(f"FMovies TV search/download failed: {e}")
 
     if not success_source:
         msg = f"'{title}' not found on all configured sources ({', '.join(sources)})"
