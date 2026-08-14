@@ -13,7 +13,7 @@ import httpx
 from bs4 import BeautifulSoup
 from rapidfuzz import fuzz
 
-from backend.services.llm import generate_search_variants
+from backend.services.llm import generate_search_variants_with_llm
 from backend.services.bollyzone import unpack_juicy
 
 logger = logging.getLogger(__name__)
@@ -46,8 +46,8 @@ async def search_movie(tmdb_id: int, title: str, year: Optional[int], settings) 
     variants = [title]
     if settings.llm_enabled and settings.llm_api_key:
         try:
-            from backend.services.llm import generate_search_variants
-            llm_vars = await generate_search_variants(title, "movie", settings)
+            from backend.services.llm import generate_search_variants_with_llm
+            llm_vars = await generate_search_variants_with_llm(title, year)
             for v in llm_vars:
                 if v and v.lower() not in [x.lower() for x in variants]:
                     variants.append(v)
