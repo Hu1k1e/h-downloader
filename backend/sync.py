@@ -184,6 +184,13 @@ async def active_job_tracker_loop():
                                     job.file_path = radarr_movie.get("movieFile", {}).get("path")
                                     session.add(job)
                                 else:
+                                    # Grace period: if the job was just updated (e.g. grabbed) within the last 60 seconds, don't immediately fail it.
+                                    # It might take a moment for Radarr to populate its queue.
+                                    import datetime
+                                    if job.updated_at and (datetime.datetime.utcnow() - job.updated_at).total_seconds() < 60:
+                                        logger.info(f"Radarr queue missing item for '{job.title}', but job was just updated. Waiting for queue to populate.")
+                                        continue
+                                        
                                     logger.warning(f"Radarr native download removed without file for '{job.title}'. Triggering fallback.")
                                     job.status = JobStatus.MOVIE_MISSING
                                     session.add(job)
@@ -240,6 +247,12 @@ async def active_job_tracker_loop():
                                     job.progress_pct = 100
                                     session.add(job)
                                 else:
+                                    import datetime
+                                    if job.updated_at and (datetime.datetime.utcnow() - job.updated_at).total_seconds() < 60:
+                                        logger.info(f"Sonarr queue missing item for '{job.title}', but job was just updated. Waiting for queue to populate.")
+                                        continue
+                                        
+                                    logger.warning(f"Sonarr native download removed without file for '{job.title}'. Triggering fallback.")
                                     job.status = JobStatus.MOVIE_MISSING
                                     session.add(job)
                                     session.commit()

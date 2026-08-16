@@ -1466,3 +1466,21 @@ When a movie is added via webhook, the system uses `delayed_search()` to give Ra
 - `backend/services/fmovies.py`
 - `instructions.md`
 - `project_specs.md`
+
+---
+
+## 2026-08-15 — Fix Radarr API Delay Causing False Fallback Triggers
+
+**Problem diagnosed:**
+- When Radarr/Sonarr grabs a download, it sometimes takes a few seconds to appear in its API queue.
+- The `active_job_tracker_loop` observed the missing queue item and immediately triggered the fallback pipeline for custom sources (logging it as missing).
+- The pipeline then queried the Radarr queue a few seconds later, found the newly grabbed torrent was present and healthy, and aborted the fallback to respect Radarr's download.
+- This caused a 11-second race condition loop resulting in continuous "Re-synced stalled Radarr native download" log spam whenever Radarr silently replaced a stalled download.
+
+**Fix implemented:**
+- Added a 60-second grace period in `active_job_tracker_loop` for both Radarr and Sonarr missing queue checks.
+- If `job.updated_at` is within the last 60 seconds, the loop will log an info message and wait for the queue to populate instead of triggering an immediate fallback.
+
+**Files changed:**
+- `backend/sync.py`
+- `project_specs.md`
