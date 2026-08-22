@@ -254,7 +254,6 @@ async def _run_movie_pipeline(session: Session, job: DownloadJob, settings: AppS
                         if extracted:
                             m3u8_url, referer, u_a = extracted
                             folder_path = await radarr.get_movie_folder(tmdb_id, title, year or 0, settings)
-                            from backend.services.downloader import get_movie_file_path, download_m3u8
                             file_path = get_movie_file_path(folder_path, title, year, radarr_resolution or "720p")
                             
                             _update_job(session, job, status=JobStatus.DOWNLOADING, source_indexer="fmovies", error_msg=None)
@@ -418,7 +417,6 @@ async def _run_tv_pipeline(session: Session, job: DownloadJob, settings: AppSett
                             file_path = f"{folder_path}/{safe_title} - S{job.season_number:02d}E{job.episode_number:02d} - {sonarr_resolution or '720p'}.mp4"
                             
                             _update_job(session, job, status=JobStatus.DOWNLOADING, source_indexer="fmovies", error_msg=None, discovered_url=watch_url)
-                            from backend.services.downloader import download_m3u8
                             dl_success = await download_m3u8(job_id, m3u8_url, referer, file_path, session)
                             if dl_success:
                                 success_source = "fmovies"
