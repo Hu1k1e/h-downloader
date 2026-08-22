@@ -217,6 +217,10 @@ async def _run_movie_pipeline(session: Session, job: DownloadJob, settings: AppS
 
             if watch_url:
                 _update_job(session, job, einthusan_url=watch_url, language=found_lang)
+            else:
+                log_action("search_failed", f"Einthusan search returned no match for '{title}' (langs={langs_to_try})", tmdb_id=tmdb_id, job_id=job_id)
+
+            if watch_url:
                 try:
                     direct_url = await einthusan.extract_mp4_url(watch_url)
                     if direct_url:

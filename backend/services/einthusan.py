@@ -89,6 +89,8 @@ async def search(title: str, year: Optional[int], lang: str) -> Optional[str]:
 
 async def _search_with_query(title: str, year: Optional[int], lang: str, query_override: Optional[str] = None) -> Optional[str]:
     """Internal search function that performs a single Einthusan query and scores results."""
+    from backend.db_logger import log_action
+
     query_str = query_override or title
     query = quote_plus(query_str)
     search_url = f"{EINTHUSAN_BASE}/movie/results/?lang={lang}&query={query}"
@@ -96,22 +98,45 @@ async def _search_with_query(title: str, year: Optional[int], lang: str, query_o
     async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
         resp = await client.get(search_url, headers=_HEADERS)
         resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "lxml")
+        html_text = resp.text
 
-    # Select all watch-link anchors that have class="title"
-    # This is the canonical selector for the movie title links on Einthusan search pages.
+    logger.info(
+        f"Einthusan HTTP OK: query={query_str!r} lang={lang!r} "
+        f"status={resp.status_code} url={resp.url} len={len(html_text)}"
+    )
+
+    # Try lxml first, then fall back to html.parser if lxml yields zero anchors.
+    # Docker's lxml can behave differently from local installs on some HTML.
+    soup = BeautifulSoup(html_text, "lxml")
     title_anchors = soup.select("a.title[href*='/movie/watch/']")
 
     if not title_anchors:
-        # Fallback: any link pointing to /movie/watch/
         title_anchors = soup.find_all("a", href=re.compile(r"/movie/watch/"))
 
-    logger.debug(
-        f"Einthusan search: lang={lang!r} title={title!r} → {len(title_anchors)} candidates"
+    # Fallback: re-parse with html.parser if lxml found nothing
+    if not title_anchors:
+        logger.info(f"lxml found 0 anchors for '{query_str}' — retrying with html.parser")
+        soup = BeautifulSoup(html_text, "html.parser")
+        title_anchors = soup.select("a.title[href*='/movie/watch/']")
+        if not title_anchors:
+            title_anchors = soup.find_all("a", href=re.compile(r"/movie/watch/"))
+
+    if not title_anchors:
+        # Log a snippet of the response so we can diagnose what Einthusan returned
+        snippet = html_text[:500].replace('\n', ' ').replace('\r', '')
+        logger.warning(
+            f"Einthusan returned 0 movie anchors for '{query_str}' (lang={lang}). "
+            f"Response snippet: {snippet}"
+        )
+        return None
+
+    logger.info(
+        f"Einthusan search: query={query_str!r} lang={lang!r} -> {len(title_anchors)} candidates"
     )
 
     best_score = 0
     best_url: Optional[str] = None
+    best_card_title: Optional[str] = None
 
     for anchor in title_anchors:
         href = anchor.get("href", "")
@@ -194,10 +219,11 @@ async def _search_with_query(title: str, year: Optional[int], lang: str, query_o
             if years_in_card and any(abs(y - year) <= 2 for y in years_in_card):
                 score += 15  # Confirmed year match — boost confidence
 
-        logger.debug(f"  candidate: {card_title!r} href={href!r} score={score}")
+        logger.info(f"  candidate: {card_title!r} href={href!r} score={score}")
 
         if score > best_score:
             best_score = score
+            best_card_title = card_title
             if href.startswith("http"):
                 best_url = href
             else:
@@ -211,9 +237,9 @@ async def _search_with_query(title: str, year: Optional[int], lang: str, query_o
         logger.info(f"Einthusan match: '{best_url}' (score={best_score}) for '{title}' (year={year})")
         return best_url
 
-    logger.debug(
+    logger.info(
         f"No valid Einthusan match for '{title}' in this query "
-        f"(year={year}, lang={lang!r}, best_score={best_score})"
+        f"(year={year}, lang={lang!r}, best_score={best_score}, best_card={best_card_title!r})"
     )
     return None
 
