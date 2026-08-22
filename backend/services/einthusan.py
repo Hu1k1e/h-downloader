@@ -95,7 +95,8 @@ async def _search_with_query(title: str, year: Optional[int], lang: str, query_o
     query = quote_plus(query_str)
     search_url = f"{EINTHUSAN_BASE}/movie/results/?lang={lang}&query={query}"
 
-    async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+    from curl_cffi import requests as cffi_requests
+    async with cffi_requests.AsyncSession(impersonate="chrome", timeout=20) as client:
         resp = await client.get(search_url, headers=_HEADERS)
         resp.raise_for_status()
         html_text = resp.text
@@ -258,7 +259,8 @@ async def extract_mp4_url(watch_url: str) -> Optional[str]:
         return None
     movie_id = movie_id_match.group(1)
 
-    async with httpx.AsyncClient(timeout=30, follow_redirects=True, headers=_HEADERS) as client:
+    from curl_cffi import requests as cffi_requests
+    async with cffi_requests.AsyncSession(impersonate="chrome", timeout=30, headers=_HEADERS) as client:
         # Step 1: Request the watch page to get CSRF token and player parameters
         try:
             resp = await client.get(watch_url)
