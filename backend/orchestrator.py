@@ -211,7 +211,9 @@ async def _run_movie_pipeline(session: Session, job: DownloadJob, settings: AppS
                         watch_url = url
                         found_lang = lang
                         break
-                except: continue
+                except Exception as e:
+                    logger.error(f"Einthusan search failed for '{title}' (lang={lang}): {e}")
+                    continue
 
             if watch_url:
                 _update_job(session, job, einthusan_url=watch_url, language=found_lang)
