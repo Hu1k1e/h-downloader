@@ -89,44 +89,24 @@ Routers must not contain reconciliation logic directly.
 
 ---
 
-### Services
+### Services and orchestration
 
-Location:
+Location: `backend/` (orchestration, sync, config, database, models) and `backend/services/` (integrations).
 
-backend/services/
+Core modules:
 
-This layer contains the core application logic.
-
-Modules include:
-
-config.py  
-database.py  
-models.py  
-orchestrator.py  
-sync.py  
-
-This layer may also include or be extended to include:
-
-- Radarr API client service
-- movie reconciliation service
-- monitored toggle service
-- queue / download-state inspection service
-- status derivation logic
+- `orchestrator.py` — per-job search/download pipeline for movies and TV; one pipeline per job at a time
+- `sync.py` — background loops, startup recovery, manual sync-all / single sync, Radarr/Sonarr imports
+- `services/reconcile.py` — pure rules turning Radarr/Sonarr facts into a job state (see "Reconciliation rules")
+- `services/radarr.py`, `sonarr.py`, `tmdb.py`, `qbittorrent.py`, `downloader.py` and the source scrapers
+- `config.py`, `database.py`, `models.py`, `db_logger.py`
 
 Responsibilities:
 
-- configuration management
-- job orchestration
-- database operations
-- synchronization logic
-- system workflows
+- configuration management, database operations, migrations
+- job orchestration and download decision logic
+- Radarr/Sonarr state reconciliation, monitored state synchronization, status derivation
 - content matching and validation
-- download decision logic
-- Radarr state reconciliation
-- monitored state synchronization
-- movie status derivation
-
----
 
 ### Application Entry Point
 
@@ -260,7 +240,7 @@ The system must check whether the movie still exists in Radarr.
 If the movie has been deleted from Radarr:
 
 - the application must detect that during sync
-- the movieâ€™s local state must be updated accordingly
+- the movie’s local state must be updated accordingly
 - the frontend must no longer incorrectly show stale availability/downloading state
 - the movie should be marked in a way that clearly indicates it is no longer present in Radarr
 
@@ -368,6 +348,26 @@ Database access must be centralized in the services layer.
 Routers must never access the database directly.
 
 The database must not be treated as the ultimate source of truth for Radarr-managed state.
+
+---
+
+# Reconciliation rules (authoritative)
+
+`reconcile_job(job, item, queue_item, source=...)` in `services/reconcile.py` is the only place that decides a
+job's state from Radarr/Sonarr data. First match wins, for an item that exists in the *arr:
+
+1. our own pipeline owns the job (SEARCHING < 15 min, or DOWNLOADING from another source) → status untouched
+2. *arr reports a file → `done` (progress 100, file path stored)
+3. job is `importing` → unchanged (the tracker waits for the import, rescans, times out after 2h)
+4. healthy queue item → `downloading` (source = radarr/sonarr) with progress/ETA from the queue
+5. completed queue item, no file yet → `importing`
+6. a native download we were tracking failed or vanished (60s grace for the queue to populate) → `movie_missing` and a fallback search
+7. `done` but the file is gone (10 min rescan grace) → `movie_missing`
+8. `not_in_radarr` / `pending` / orphaned `searching` with no file → `movie_missing`
+
+Item no longer in Radarr/Sonarr → `not_in_radarr` (shown as "Deleted in Radarr/Sonarr"), unmonitored, `in_arr=false`.
+`monitored` always follows the *arr, except that a local change made *after* the data snapshot was taken is not
+overwritten by that older snapshot. Per-job metadata: `arr_id`, `in_arr`, `has_file`, `last_synced_at`, `sync_error`.
 
 ---
 
@@ -569,11 +569,11 @@ The agent must read this section before starting any work to understand what was
 
 ---
 
-## 2026-02-22 â€” Deployment Simplification
+## 2026-02-22 — Deployment Simplification
 
 **Changes made:**
-- Removed `env_file: .env` from `docker-compose.yml` â€” replaced with inline `environment:` block to fix Portainer compatibility
-- Removed external `media-network` requirement from `docker-compose.yml` â€” Docker will use default network automatically
+- Removed `env_file: .env` from `docker-compose.yml` — replaced with inline `environment:` block to fix Portainer compatibility
+- Removed external `media-network` requirement from `docker-compose.yml` — Docker will use default network automatically
 - Updated `README.md` Quick Start section to embed the docker-compose template and `.env` block directly so users can deploy without cloning the repo
 - Removed GHCR authentication requirement from README (repo and package are now public)
 
@@ -583,11 +583,11 @@ The agent must read this section before starting any work to understand what was
 
 ---
 
-## 2026-02-22 â€” MOVIE_MISSING Status and UI Polish
+## 2026-02-22 — MOVIE_MISSING Status and UI Polish
 
 **Changes made:**
 - Added `MOVIE_MISSING` status to `JobStatus` enum in `backend/models.py`
-- Modified `sync.py` to detect when a `DONE` job's file is deleted from disk â†’ marks as `MOVIE_MISSING`, unmonitored
+- Modified `sync.py` to detect when a `DONE` job's file is deleted from disk → marks as `MOVIE_MISSING`, unmonitored
 - Added red dot indicator to movie poster cards for `MOVIE_MISSING` state in `Movies.jsx`
 - Added CSS `.poster-monitored-dot--missing` class for red glow in `index.css`
 - Removed emoji icons from sidebar navigation items in `Sidebar.jsx`
@@ -601,13 +601,13 @@ The agent must read this section before starting any work to understand what was
 
 ---
 
-## 2026-02-26 â€” Einthusan Search Accuracy Improvement
+## 2026-02-26 — Einthusan Search Accuracy Improvement
 
 **Changes made:**
 - Replaced `fuzz.partial_ratio` with `fuzz.token_set_ratio` for title matching in `einthusan.py`
 - Raised the minimum match score threshold from 55 to 85
 - Added proper year extraction using regex from card text
-- Year matches within Â±1 year receive a +15 score bonus; wrong years receive a -40 penalty
+- Year matches within ±1 year receive a +15 score bonus; wrong years receive a -40 penalty
 - Used `isinstance(year, int)` to safely handle `Optional[int]` year parameter
 
 **Files changed:**
@@ -615,7 +615,7 @@ The agent must read this section before starting any work to understand what was
 
 ---
 
-## 2026-02-26 â€” Radarr RescanMovie Trigger
+## 2026-02-26 — Radarr RescanMovie Trigger
 
 **Changes made:**
 - Replaced `DownloadedMoviesScan` command with `RescanMovie` command in `radarr.py`
@@ -629,7 +629,7 @@ The agent must read this section before starting any work to understand what was
 
 ---
 
-## 2026-02-26 â€” Sync Grace Period + Jobs Path Column
+## 2026-02-26 — Sync Grace Period + Jobs Path Column
 
 **Changes made:**
 - Added a 2-hour grace period in `sync.py` before marking a `DONE` job as `MOVIE_MISSING`
@@ -643,7 +643,7 @@ The agent must read this section before starting any work to understand what was
 
 ---
 
-## 2026-03-07 â€” Instructions Update
+## 2026-03-07 — Instructions Update
 
 **Changes made:**
 - Added Section 9 (Push to GitHub Rules) to `instructions.md`
@@ -656,16 +656,16 @@ The agent must read this section before starting any work to understand what was
 
 ---
 
-## 2026-03-07 â€” Search Fix + Frontend Revamp
+## 2026-03-07 — Search Fix + Frontend Revamp
 
 **Backend:**
-- Removed `-40` year mismatch penalty in `einthusan.py` â€” was falsely rejecting valid movies (e.g. Guppy 2015 Malayalam)
+- Removed `-40` year mismatch penalty in `einthusan.py` — was falsely rejecting valid movies (e.g. Guppy 2015 Malayalam)
 - Year mismatch no longer penalises; only correct year receives +15 bonus
 - Added 6 additional fallback card selectors for Einthusan layout variations
 - Added DEBUG-level logging for all candidate cards and match scores
 
 **Frontend:**
-- `ui.jsx`: Added `movie_missing` â†’ 'File Missing' badge; removed emojis from all badge labels; fixed null safety on `ProgressBar`
+- `ui.jsx`: Added `movie_missing` → 'File Missing' badge; removed emojis from all badge labels; fixed null safety on `ProgressBar`
 - `Dashboard.jsx`: Trigger button in header; language badge on active downloads; accent colour for active count; `movie_missing` coloured red in activity log
 - `Jobs.jsx`: Path column shows filename only; `movie_missing` jobs can be retried
 - `Settings.jsx`: Removed emojis from all section titles
@@ -682,20 +682,20 @@ The agent must read this section before starting any work to understand what was
 
 ---
 
-## 2026-03-07 â€” Guppy Not Found Root Cause Fix
+## 2026-03-07 — Guppy Not Found Root Cause Fix
 
 **Root cause diagnosed:**
 - Einthusan's `<a class="title">` anchor contains the movie title in an `<h3>` AND a badge (e.g. 'Must Watch') in a sibling `<span>`
 - Calling `anchor.get_text()` concatenates both into "GuppyMust Watch"
-- `fuzz.token_set_ratio('guppy', 'guppymust watch')` â‰ˆ 67 â†’ fails the 85 threshold â†’ movie rejected
+- `fuzz.token_set_ratio('guppy', 'guppymust watch')` ≈ 67 → fails the 85 threshold → movie rejected
 - This affected any movie with a 'Must Watch', 'Dubbed', 'Recommended', or similar badge
 
 **Fix applied to `einthusan.py`:**
-- Changed selector to `a.title[href*='/movie/watch/']` â€” the canonical Einthusan anchor
+- Changed selector to `a.title[href*='/movie/watch/']` — the canonical Einthusan anchor
 - Title is now extracted from `anchor.find('h3').get_text()` instead of `anchor.get_text()`
 - Fallback strips known badge strings (Must Watch, Recommended, Dubbed, Subtitle, New, Premium) before matching
 - Added `_BADGE_STRINGS` constant for maintainability
-- `token_set_ratio('guppy', 'guppy')` = 100 â†’ well above 85 threshold
+- `token_set_ratio('guppy', 'guppy')` = 100 → well above 85 threshold
 - Year matching unchanged: bonus-only, walks up DOM to parent li for year extraction
 
 **Files changed:**
@@ -703,205 +703,10 @@ The agent must read this section before starting any work to understand what was
 
 ---
 
-## 2026-03-12 â€” Documentation Restructured
+## 2026-03-12 — Documentation Restructured
 
 **Changes made:**
-- Removed implementation history from `instructions.md` â€” it now contains only operating rules
-- Moved full implementation history to `project_specs.md` (this section)
-- Updated Section 9 of `instructions.md` to reference `project_specs.md` for history
-
-**Files changed:**
-- `instructions.md`
-- `project_specs.md`
-
----
-
-## [2026-05-02] Fix Edge Cases for Search & Downloading
-
-**Changes made:**
-- **Search Accuracy:** Modified `backend/services/einthusan.py` to add strict penalty for standalone number mismatches. This prevents false positive matches like querying "Aadu" and downloading the sequel "Aadu 2".
-- **Release Date Fallback:** Modified `backend/orchestrator.py` to allow the search to proceed if the digital release date is unknown (`None`), preventing movies like "Bokshi" from being skipped unnecessarily.
-- **Retry Logic (Refind):** Modified `backend/routers/jobs.py` to reset the job status to `PENDING` when the user clicks Retry. This resolves the bug where pressing the button on a `DONE` or `FAILED` job did nothing because the orchestrator guard immediately rejected it.
-
-**Files changed:**
-- `backend/services/einthusan.py`
-- `backend/orchestrator.py`
-- `backend/routers/jobs.py`
-
----
-
-## [2026-05-02] Fix Stale Errors & Unmonitored Sync
-
-**Changes made:**
-- **Clear Error on Success:** Modified `backend/orchestrator.py` to clear `error_msg` when a job finishes successfully. Previously, an old error (like "Release date not yet passed") would persist even after the movie was successfully downloaded on a later sync.
-- **Sync Unmonitored Jobs:** Modified `backend/sync.py` so the background sync scheduler checks Radarr for *all* unmonitored jobs, not just `DONE` jobs. This ensures movies marked as `MOVIE_MISSING` or `SKIPPED` are updated to `DONE` if the user downloaded them manually via another indexer.
-
-**Files changed:**
-- `backend/orchestrator.py`
-- `backend/sync.py`
-
----
-
-## [2026-05-08] Two-Way Monitored Sync and Radarr Import
-
-**Changes made:**
-- **Two-Way Sync for Monitored Status:**
-  - Radarr to App: Modified `backend/sync.py` to compare and fetch the Radarr `monitored` status for both monitored and unmonitored local jobs during the standard background sync loop.
-  - App to Radarr: Updated `backend/routers/jobs.py` (`PUT /jobs/{job_id}/monitor`) to instantly push local UI monitored toggles directly to Radarr.
-- **Import Regional Movies Feature:**
-  - Added `POST /jobs/import-radarr` endpoint in `backend/routers/jobs.py` that fetches all movies from Radarr, checks if their `originalLanguage` matches configured Einthusan languages, and populates them into the database.
-  - Added an "Import Regional Movies" UI button inside the `Settings.jsx` Radarr configuration section to trigger this API endpoint.
-
-**Files changed:**
-- `backend/services/radarr.py`
-- `backend/routers/jobs.py`
-- `backend/sync.py`
-- `frontend/src/api.js`
-- `frontend/src/pages/Settings.jsx`
-
----
-
-## [2026-05-08] Import Radarr Bugfixes
-
-**Changes made:**
-- **Missing Movies Status Fix:** Modified `backend/routers/jobs.py` so that movies imported from Radarr without files are given the `MOVIE_MISSING` status instead of `PENDING`. This fixes the issue where missing or unreleased movies incorrectly displayed "Downloading on Radarr". Since they are monitored, the background sync will accurately check their status, and trigger the Einthusan fallback search if they are not actively downloading.
-- **Import Posters Fix:** Updated the import logic to parse and save the TMDB `poster_path` from the Radarr `images` array (by parsing `remoteUrl`) so that newly imported movies display their posters correctly.
-
-**Files changed:**
-- `backend/routers/jobs.py`
-
----
-
-## [2026-05-08] Auto-Import Regional Movies in Sync & Import Bugfixes
-
-**Changes made:**
-- **Auto-Import in Sync Loop:** Added a mechanism to `backend/sync.py` that automatically queries Radarr for all movies on every sync interval. It filters for the configured regional languages and imports any new movies directly into the database. If they don't have files and Radarr isn't actively downloading them, the Einthusan fallback search will automatically trigger.
-- **Import Bugfix (Early Exit):** Discovered and removed an old code snippet in `backend/routers/jobs.py` that caused the manual import endpoint to prematurely exit when it encountered existing database entries, which was entirely bypassing the newly added "healing" logic for posters and `MOVIE_MISSING` statuses. The manual import now properly heals and updates existing database records.
-
-**Files changed:**
-- `backend/routers/jobs.py`
-- `backend/sync.py`
-
----
-
-## [2026-05-08] Movies UI Action Buttons
-
-**Changes made:**
-- **Trigger Missing Button:** Added a `POST /jobs/trigger-missing` endpoint and corresponding UI button to trigger the orchestrator search pipeline specifically for all movies with the `MOVIE_MISSING` status.
-- **Trigger Monitored Button:** Renamed and refactored the old "Trigger All" endpoint to `POST /jobs/trigger-monitored` and updated the UI button to "Trigger Monitored", explicitly targeting jobs where `monitored == True`.
-
-**Files changed:**
-- `backend/routers/jobs.py`
-- `frontend/src/api.js`
-- `frontend/src/pages/Movies.jsx`
-
----
-
-## [2026-05-08] Fix Database Connection Exhaustion
-
-**Changes made:**
-- **Database Engine Config:** Replaced the default SQLAlchemy `SingletonThreadPool` (which has a limit of 5 connections) with `NullPool` for SQLite. Since SQLite handles concurrent tasks by waiting on file locks, using a connection pool is unnecessary and was causing `QueuePool limit of size 5 overflow 10 reached` timeout errors when triggering dozens of concurrent downloads using the new "Trigger Monitored" or "Trigger Missing" buttons. Added a 30-second timeout and disabled thread checking to allow high concurrency without crashing the app.
-
-**Files changed:**
-- `backend/database.py`
-
----
-
-## [2026-05-08] Fix TMDB Rate Limiting and Duplicate Failed Jobs
-
-**Changes made:**
-- **TMDB API Backoff:** Added an exponential backoff and retry mechanism (`_fetch_with_retry`) in `backend/services/tmdb.py` to properly handle `429 Too Many Requests` responses from the TMDB API. This prevents lookups from immediately failing when triggering large batches of downloads concurrently.
-- **Duplicate Job Fix:** Modified the orchestrator (`backend/orchestrator.py`) so that if a TMDB lookup *does* fail, it first checks if the job already exists in the database and updates its status to `FAILED`. Previously, it was blindly creating a duplicate "TMDB:xxxxxx" fallback job every time the lookup failed.
-
-**Files changed:**
-- `backend/orchestrator.py`
-- `backend/services/tmdb.py`
-
----
-
-## [2026-05-08] Fix MP4 Extraction JSON Parsing Error
-
-**Changes made:**
-- **Decrypted JSON Safety:** Added type checking to the decrypted `EJLinks` JSON response in `backend/services/einthusan.py`. Sometimes the Einthusan API returns a top-level string (or double-encoded JSON) instead of a dictionary, causing the app to crash with an unhandled `'str' object has no attribute 'get'` error when trying to extract the MP4 link. The function now correctly checks the type and parses it properly, or raises a descriptive exception containing the actual Einthusan API error message (e.g. if the IP was blocked).
-
-**Files changed:**
-- `backend/services/einthusan.py`
-
-
----
-
-## [2026-05-17] Tag Einthusan Downloads as 720p for Radarr Upgrade Compatibility
-
-**Problem:**
-Files downloaded from Einthusan were saved without a quality tag in the filename (e.g. `Guppy (2015).mp4`).
-When Radarr rescanned the file, it had no quality information to parse, so it treated the file as `Unknown` quality.
-This prevented Radarr from upgrading the file when a proper higher-quality release became available on an indexer.
-
-**Fix:**
-Modified `get_movie_file_path()` in `backend/services/downloader.py` to append `- 720p` to every filename.
-Example: `Guppy (2015) - 720p.mp4`
-
-Radarr's filename parser recognises the `720p` token when it performs a `RescanMovie` after download.
-It records the file as 720p quality in its database.
-If the configured quality profile has upgrading enabled (e.g. 720p -> 1080p), Radarr will replace this file
-when it later grabs a 1080p release from a proper indexer.
-
-**Why 720p specifically:**
-Einthusan streams are typically 720p resolution web streams. Tagging them as 720p is accurate.
-It ensures Radarr does not keep the Einthusan copy permanently when a proper Blu-ray or 1080p WEB release becomes available.
-
-**Files changed:**
-- `backend/services/downloader.py`
-
----
-
-## [2026-06-01] Fix Language Filtering and Job Cleanup
-
-**Problem:**
-The database contained legacy Hollywood movies from a reverted update, and the app was displaying them. Radarr import and sync processes were not actively removing jobs that no longer matched the configured languages in settings.
-
-**Changes made:**
-- **UI Filtering:** Updated `GET /api/jobs` in `backend/routers/jobs.py` to strictly filter returned jobs by the languages currently ticked in settings (unless specifically querying a single language). This immediately hides any irrelevant legacy movies from the UI.
-- **Active Cleanup on Import:** Modified the `POST /jobs/import-radarr` endpoint to proactively delete any existing jobs from the database whose language does not match the configured languages.
-- **Active Cleanup on Sync:** Modified both `sync_radarr_status` and `sync_jellyseerr_requests` in `backend/sync.py` to identify and delete any jobs from the database that no longer match the configured languages.
-
-**Files changed:**
-- `backend/routers/jobs.py`
-- `backend/sync.py`
-
----
-
-## [2026-06-02] Fix CPU Utilization and N+1 API Spam
-
-**Problem:**
-The background sync loop (sync_jellyseerr_requests) was executing an N+1 API call pattern. For every single monitored and unmonitored job in the database, it was calling is_movie_in_radarr and get_movie_queue_status. Each of these functions made an HTTP GET request to Radarr that fetched the *entire* movie library or queue. This resulted in hundreds of heavy HTTP requests every 30 seconds, maxing out CPU utilization to ~70% and causing extreme UI latency. 
-Additionally, the previous language cleanup loop was missing a session.commit(), which meant legacy jobs were deleted from memory but never permanently removed from the SQLite database.
-
-**Changes made:**
-- **N+1 Optimization:** Completely rewrote the `sync_jellyseerr_requests` loop. It now fetches the Radarr movie list and Radarr queue exactly ONCE at the start of the loop and converts them into constant-time dictionaries (`radarr_by_tmdb` and `queue_by_movie_id`).
-- **Eliminated HTTP Spam:** Replaced all iterative `is_movie_in_radarr` and `get_movie_queue_status` calls with instant dictionary lookups.
-- **Fixed DB Cleanup:** Added the missing `session.commit()` inside the auto-cleanup block so that Hollywood movies are permanently purged from the database.
-- **Refactored Radarr Client:** Added `get_full_queue` to `backend/services/radarr.py` to support bulk queue fetching.
-
-**Files changed:**
-- `backend/sync.py`
-- `backend/services/radarr.py`
-
----
-
-## [2026-06-02] Fix Pagination Limits for Large Collections
-
-- Year matching unchanged: bonus-only, walks up DOM to parent li for year extraction
-
-**Files changed:**
-- `backend/services/einthusan.py`
-
----
-
-## 2026-03-12 â€” Documentation Restructured
-
-**Changes made:**
-- Removed implementation history from `instructions.md` â€” it now contains only operating rules
+- Removed implementation history from `instructions.md` — it now contains only operating rules
 - Moved full implementation history to `project_specs.md` (this section)
 - Updated Section 9 of `instructions.md` to reference `project_specs.md` for history
 
@@ -1102,7 +907,7 @@ The API default `limit` for fetching movies was 100, which caused the frontend t
 The app would either immediately query qBittorrent and execute searches, leading to double-searches before Radarr had a chance to import and stall them. It also lacked a way to cleanly space out background searches for movies that were stuck in the `MOVIE_MISSING` status without tying it to the frequent Jellyseerr sync loop.
 
 **Changes made:**
-- **Delayed Search Execution:** Implemented a `delayed_search()` async function in `backend/sync.py`. When a new missing movie is synced from Radarr or Jellyseerr, it is delayed by 2 minutes. The system then queries Radarr directlyâ€”if Radarr is actively downloading it (e.g. from a different list sync), the fallback Einthusan/1TamilMV search is skipped entirely.
+- **Delayed Search Execution:** Implemented a `delayed_search()` async function in `backend/sync.py`. When a new missing movie is synced from Radarr or Jellyseerr, it is delayed by 2 minutes. The system then queries Radarr directly—if Radarr is actively downloading it (e.g. from a different list sync), the fallback Einthusan/1TamilMV search is skipped entirely.
 - **Configurable Background Loop:** Added a separate `sync_missing_movies()` async loop specifically for retrying `MOVIE_MISSING` jobs. Configured a brand new `missing_search_interval_hours` and `missing_search_batch_size` parameter in `backend/models.py`. Exposed these to the user in the `Settings` UI page, parsing them accurately in the frontend.
 - **Generalize Torrent Checks:** Removed hardcoded `"1tamilmv"` string checks across the app where it attempted to monitor torrent hashes. The system now evaluates progress for ANY download source that populates `job.torrent_hash`, providing future-proof compatibility with apps like `cleanuparr`.
 
@@ -1157,7 +962,8 @@ The app lacked detailed logs for searches and background tasks, making it diffic
 ## 2026-06-04 — Settings API Fix & Automation Toggles
 
 **Backend:**
-- Fixed a bug in outers/settings.py where new fields were missing from the AppSettingsRead schema, causing the /api/settings endpoint to crash (500 error) during validation.
+- Fixed a bug in 
+outers/settings.py where new fields were missing from the AppSettingsRead schema, causing the /api/settings endpoint to crash (500 error) during validation.
 - Added enable_jellyseerr_auto_request and enable_radarr_auto_search boolean columns to the SQLite ppsettings table via auto-migration in database.py.
 - Updated ackend/sync.py to respect the new automation toggles before fetching from Jellyseerr or importing from Radarr.
 
@@ -1305,44 +1111,18 @@ This section documents the complete system architecture including all background
 
 ## Background Loop Architecture
 
-The application runs 4 concurrent background loops launched at startup in `backend/main.py`:
+`backend/main.py` runs startup recovery and then 4 concurrent loops (all in `sync.py`):
 
-### 1. `active_job_tracker_loop()` (sync.py)
-- **Interval:** Every 5 seconds
-- **Purpose:** Rapidly tracks active downloads in qBittorrent AND Radarr/Sonarr native queues
-- **Responsibilities:**
-  - Updates progress_pct, downloaded_bytes, total_bytes, eta_seconds for downloading jobs
-  - Detects Radarr native downloads completing (marks DONE) or failing (triggers fallback search)
-  - Detects Sonarr native downloads completing or failing
-  - Tracks qBittorrent torrents: progress, completion, import into Radarr/Sonarr
-  - Re-syncs stalled Radarr native downloads into active job tracking
-  - Backfills missing TMDB metadata (poster, year) for jobs that lack it
+1. **`active_job_tracker_loop()`** (5s) — progress/completion tracking for Radarr/Sonarr-native downloads and
+   qBittorrent torrents; `importing` → `done`; fallback search when a download fails or disappears; adopts untracked
+   Radarr grabs every ~30s.
+2. **`discovery_tracker_loop()`** (`missing_search_interval_hours`, default 24h) — retries monitored
+   MOVIE_MISSING/SKIPPED/NOT_FOUND/FAILED jobs; respects `new_release_grace_hours` and the auto-search toggles.
+3. **`radarr_state_sync_loop()`** (60s) — full Radarr reconciliation; creates jobs for monitored, file-less movies in a
+   configured language that we don't know yet.
+4. **`sonarr_state_sync_loop()`** (60s) — full Sonarr reconciliation (episodes fetched concurrently).
 
-### 2. `discovery_tracker_loop()` (sync.py)
-- **Interval:** Configurable via `missing_search_interval_hours` (default 24h)
-- **Purpose:** Periodically retries searching for MOVIE_MISSING, SKIPPED, NOT_FOUND, and FAILED jobs
-- **Calls:** `run_discovery_batch(batch_size)` which triggers `process_request()` for eligible jobs
-- **Grace Period:** Jobs with a release_date within `new_release_grace_hours` are deferred to let Radarr/Sonarr grab quality releases first
-
-### 3. `radarr_state_sync_loop()` (sync.py)
-- **Interval:** Every 60 seconds
-- **Purpose:** Full state reconciliation with Radarr
-- **Responsibilities:**
-  - Creates MOVIE_MISSING jobs for monitored Radarr movies not in DB
-  - Marks jobs NOT_IN_RADARR if movie deleted from Radarr
-  - Syncs monitored state from Radarr
-  - Updates DONE status when Radarr has file
-  - Reverts DONE to MOVIE_MISSING if file deleted in Radarr
-  - Backfills TMDB metadata for newly created jobs
-
-### 4. `sonarr_state_sync_loop()` (sync.py)
-- **Interval:** Every 60 seconds
-- **Purpose:** Full state reconciliation with Sonarr for TV shows
-- **Responsibilities:**
-  - Creates MOVIE_MISSING jobs for monitored, un-downloaded episodes
-  - Tracks air dates from Sonarr episode data
-  - Syncs monitored state
-  - Updates DONE status when Sonarr has episode file
+All use `reconcile_job()`; every cycle stamps `last_synced_at`, and failures surface via `/api/sync/status`.
 
 ---
 
@@ -1397,19 +1177,19 @@ The system supports both movies and TV shows:
 
 ## Webhook Events
 
-### Radarr Webhooks (`POST /webhook/radarr`)
-- `MovieAdded` → Creates job, triggers delayed search
-- `MovieDeleted` → Marks NOT_IN_RADARR
-- `Download` → Marks DONE
-- `MovieFileDeleted` → Marks MOVIE_MISSING, triggers fallback
-- `Grab` → Marks DOWNLOADING (native Radarr download)
-- `DownloadFailed` / `ManualInteractionRequired` → Immediate fallback search
+### Radarr (`POST /webhook/radarr`, optional `WEBHOOK_TOKEN`)
+- `MovieAdded` → create job (language-filtered via TMDB), delayed search if auto-search is on
+- `MovieDeleted` → `not_in_radarr`
+- `Download` → `done` (monitored is left to Radarr)
+- `MovieFileDeleted` → `movie_missing`, delayed search
+- `Grab` → `downloading` (native)
+- `DownloadFailed` / `ManualInteractionRequired` → immediate fallback search
 
-### Sonarr Webhooks (`POST /webhook/sonarr`)
-- All events logged; actual job management delegated to `sonarr_state_sync_loop`
+### Sonarr (`POST /webhook/sonarr`, optional `WEBHOOK_TOKEN`)
+- Events are logged; episode jobs are created/updated by `sonarr_state_sync_loop`
 
-### Jellyseerr Webhooks (`POST /webhook/jellyseerr`)
-- Request approved → Creates job, triggers delayed search
+### Jellyseerr (`POST /webhook/jellyseerr`, optional HMAC via `webhook_secret`)
+- Movie approved → create job (language-filtered), delayed search if `enable_jellyseerr_auto_request`
 
 ---
 
@@ -1484,3 +1264,68 @@ When a movie is added via webhook, the system uses `delayed_search()` to give Ra
 **Files changed:**
 - `backend/sync.py`
 - `project_specs.md`
+
+---
+
+## 2026-10-06 — Reliability, Reconciliation, Security and Test Overhaul
+
+A full review found functional bugs, spec gaps and security/perf issues; all were fixed and covered by a new
+pytest suite (`tests/`, 67 tests, also run by CI before the image is published).
+
+**Bugs fixed**
+- TV torrents never started: `add_magnet_to_qbittorrent(..., is_tv=True)` raised `TypeError`; the series category setting is now used.
+- Sonarr fallback crashed (`process_request` called with wrong arguments); fallbacks now use job ids and the source they fell back from.
+- FMovies for TV used the TVDB id where vidlink needs the series' TMDB id (now taken from Sonarr); manual FMovies URL import passed the raw URL as the id.
+- `GET /api/logs/csv` always failed (`error_detail` does not exist); cells are now formula-neutralised.
+- "Download discovered" raised `NameError` (`engine`); import-url for TV FMovies imported a function that did not exist.
+- Jobs stuck in `importing` (rescan used the TMDB id instead of the Radarr/Sonarr id, and nothing ever resolved the state) and in `searching` after a crash/restart.
+- Torrent ETA/size were always 0; an qBittorrent outage was treated as "torrent removed" and triggered duplicate downloads; a just-added magnet triggered a false fallback.
+- `filter_torrent_files`, the size limits and `auto_delete_failed_torrents_hours` were never used; they now run (size limits only for movies).
+- Jellyseerr webhook crashed without `media_type`, and created jobs for non-configured languages.
+- Monitored toggle: now pushed to Radarr **or Sonarr (TV was local-only and reverted)**, the Radarr-confirmed value is stored, a missing movie is an error instead of a silent local change, and `Download` webhooks / orchestrator no longer set `monitored=false` locally (which the next sync flipped back).
+- `DELETE /api/jobs/{id}` called a non-existent `delete_movie_file`, so movie files were never deleted; it now deletes the file via Radarr (as it already did for Sonarr) and removes the torrent. The UI confirm says so.
+- Cancelling a download left its torrent running, and a cancelled direct download was re-marked `failed` (then retried by discovery).
+- Series page called a non-existent `api.triggerMonitoredTV`; dead `syncRadarrStatus`/`syncJellyseerr` client calls removed.
+- A finished download no longer becomes `not_found` if the Radarr rescan call fails; the SPA no longer answers unknown `/api/...` URLs with HTML.
+- ffmpeg downloads never exited at the end of a stream on some servers (`-reconnect_at_eof` removed; `progress=end` honoured).
+- Quality profiles without a resolution (e.g. "Any") leaked the profile name into filenames (`... - any.mp4`); now falls back to 720p.
+
+**Reconciliation (spec stage)**: new `services/reconcile.py` rule set (above) used by both loops, the tracker, the webhooks' follow-up
+and the manual endpoints; per-card **Sync** button and **Sync All** now return a change summary shown as a toast, failures are
+shown (toast + red banner) instead of `console.error`, and `GET /api/sync/status` exposes sync health. New job columns:
+`arr_id`, `in_arr`, `has_file`, `last_synced_at`, `sync_error`.
+
+**Architecture**: sync/import logic moved out of `routers/jobs.py` into `sync.py`; manual download tasks into `orchestrator.py`; duplicate
+pipeline guard + crash guard; bulk triggers are staggered (`process_many`); `trigger-monitored` skips done/busy jobs and takes `?media_type=`;
+`enable_*_auto_search` / `enable_jellyseerr_auto_request` toggles are now honoured; discovery only searches monitored jobs.
+
+**Performance**: tracker fetches Radarr/Sonarr data once per cycle (no per-job library fetches), 30s cache for the library list,
+`/api/stats` uses SQL counts, `/api/jobs/active` makes one qBittorrent request, Sonarr episodes are fetched concurrently,
+the UI stops polling while its tab is hidden, LLM variants are only requested when plain matching found nothing (30s timeout).
+
+**Downloads**: written to `<file>.part` and renamed on success (Radarr can never import a partial file), size and disk-space checks,
+real ffmpeg progress, `MAX_CONCURRENT_DOWNLOADS` (default 3), startup removal of interrupted partials.
+
+**Security (all opt-in so existing deployments keep working)**: `API_AUTH_TOKEN` protects `/api/*` (UI prompts once),
+`WEBHOOK_TOKEN` protects the Radarr/Sonarr webhooks, CORS is same-origin unless `CORS_ORIGINS` is set, `httpx` request logging
+is silenced (it printed API keys passed as query parameters), `import-url` validates the URL host instead of substring-matching.
+
+**Database**: migrations are table-driven and per-column (a half-migrated DB heals itself).
+
+**Repo hygiene**: removed scratch files (error dumps, JS captures, fake "tests") and 4 unused dependencies; pinned qbittorrent-api/pynacl;
+added `requirements-dev.txt`, CI test job, de-duplicated and re-encoded these docs.
+
+**Files changed**: nearly all of `backend/`, `frontend/src/{api.js,hooks.js,App.jsx,components/ui.jsx,pages/*,index.css}`, `tests/`,
+`.github/workflows/docker.yml`, `requirements*.txt`, `docker-compose.yml`, `.env.example`, `README.md`, `instructions.md`, `project_specs.md`.
+
+**Known limitations / not changed on purpose**: API keys are stored in plaintext in SQLite (protect the `/app/data` volume);
+the container still runs as root (a non-root user would break existing bind-mounted data directories); SQLite WAL mode was not
+enabled (unsafe on network filesystems); 1TamilMV TV matching is still title-based.
+
+---
+
+## 2026-05-17 — Radarr Status Sync Fix (moved from instructions.md; superseded)
+
+Added a synchronous "sync Radarr status" path so the UI saw updated state immediately instead of after a background task.
+The endpoint/function named there (`sync_radarr_status`, `POST /api/jobs/sync-radarr`) were later replaced by `POST /api/jobs/sync-all`
+and, as of 2026-10-06, `sync.sync_all_movies()` built on `services/reconcile.py`.

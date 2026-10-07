@@ -4,8 +4,8 @@ This document defines how the AI agent must operate when modifying or building t
 
 The agent must always follow both:
 
-- instructions.md â†’ defines how the system should operate
-- project_specs.md â†’ defines what the project is
+- instructions.md → defines how the system should operate
+- project_specs.md → defines what the project is
 
 The agent must read both files before taking action.
 
@@ -36,29 +36,29 @@ The agent must never start coding blindly.
 
 The repository follows this structure:
 
+```
 backend/
+    main.py              FastAPI app, startup (migrations, orphan recovery, background loops), optional API auth
+    config.py            environment variables / constants
+    database.py          engine, table-driven migrations, settings accessor
+    models.py            SQLModel tables + API schemas (DownloadJob, AppSettings, LogEntry, JobStatus)
+    orchestrator.py      per-job search/download pipeline (movie + TV), duplicate-run guard
+    sync.py              background loops + manual sync/import logic (Radarr/Sonarr/qBittorrent reconciliation)
+    db_logger.py         log_action(): console + DB log entries
     routers/
-        jobs.py
-        settings.py
-        webhook.py
+        jobs.py          job CRUD, triggers, sync endpoints (thin: delegates to sync.py / orchestrator.py)
+        settings.py      settings read/write + connection tests
+        webhook.py       Jellyseerr / Radarr / Sonarr webhooks
+        logs.py          system log API
+    services/            one module per external system + pure rules
+        reconcile.py     PURE Radarr/Sonarr -> job state rules (the single source of status decisions)
+        radarr.py  sonarr.py  tmdb.py  qbittorrent.py  downloader.py
+        einthusan.py  tamilmv.py  bollyzone.py  fmovies.py  llm.py
 
-    services/
-        config.py
-        database.py
-        models.py
-        orchestrator.py
-        sync.py
-
-    main.py
-
-frontend/
-    src/
-    public/
-    dist/
-
-docker-compose.yml
-Dockerfile
-requirements.txt
+frontend/            Vite + React (src/pages, src/components, src/api.js, src/hooks.js)
+tests/               pytest suite (run with `pytest`; uses a throwaway data dir and fake services)
+docker-compose.yml  Dockerfile  requirements.txt  requirements-dev.txt
+```
 
 ---
 
@@ -127,11 +127,11 @@ The frontend is a Vite web application responsible for:
 The system follows a layered architecture:
 
 Frontend  
-â†“  
+↓  
 Routers (API Layer)  
-â†“  
+↓  
 Services (Business Logic)  
-â†“  
+↓  
 Database / External Systems
 
 The agent must preserve this architecture.
@@ -140,7 +140,7 @@ The agent must preserve this architecture.
 
 # 4. Development Rules
 
-## Rule 1 â€” Read First
+## Rule 1 — Read First
 
 Before modifying code, always read:
 
@@ -150,7 +150,7 @@ Before modifying code, always read:
 
 ---
 
-## Rule 2 â€” Do Not Mix Responsibilities
+## Rule 2 — Do Not Mix Responsibilities
 
 Routers must never contain:
 
@@ -162,7 +162,7 @@ These belong in the services layer.
 
 ---
 
-## Rule 3 â€” Modify the Smallest Scope
+## Rule 3 — Modify the Smallest Scope
 
 When implementing changes:
 
@@ -174,7 +174,7 @@ Avoid unnecessary rewrites.
 
 ---
 
-## Rule 4 â€” Build in Small Steps
+## Rule 4 — Build in Small Steps
 
 Never implement multiple major systems at once.
 
@@ -187,7 +187,7 @@ Instead:
 
 ---
 
-## Rule 5 â€” Configuration Handling
+## Rule 5 — Configuration Handling
 
 All configuration must come from:
 
@@ -198,7 +198,7 @@ Secrets must never be hardcoded.
 
 ---
 
-## Rule 6 â€” Logging
+## Rule 6 — Logging
 
 Errors must never fail silently.
 
@@ -208,6 +208,14 @@ Important operations should log:
 - job started
 - job completed
 - failure reason
+
+---
+
+## Rule 7 — Tests
+
+Run `pytest` before every push (CI runs it too and will not publish the image if it fails).
+Status decisions belong in `services/reconcile.py` and must be covered by `tests/test_reconcile.py`;
+never re-implement "what state is this movie in?" in a router, webhook or loop.
 
 ---
 
@@ -244,7 +252,7 @@ Never apply superficial fixes.
 When responding, always follow this format.
 
 Plan  
-(3â€“7 bullet points explaining the approach)
+(3–7 bullet points explaining the approach)
 
 What I need from you  
 (only if something is required)
@@ -276,7 +284,7 @@ Build reliable systems.
 
 ---
 
-# 9. Push to GitHub â€” Rules
+# 9. Push to GitHub — Rules
 
 Before pushing to GitHub, the agent must always:
 
@@ -307,12 +315,20 @@ The GitHub Actions workflow at `.github/workflows/docker.yml` automatically buil
 
 # 10. Background Architecture
 
-The system runs 4 concurrent background loops launched at startup in `main.py`:
+`main.py` runs a startup recovery (`recover_orphaned_jobs()`: nothing is running yet, so jobs left in
+`searching` or in one of our own direct downloads are reset) and then 4 concurrent background loops:
 
-1. **`active_job_tracker_loop()`** — Every 5s. Tracks qBittorrent and Radarr/Sonarr native download progress. Triggers fallback if Radarr downloads fail.
-2. **`discovery_tracker_loop()`** — Every `missing_search_interval_hours` (default 24h). Retries searching for MOVIE_MISSING/SKIPPED/NOT_FOUND/FAILED jobs via `run_discovery_batch()`.
-3. **`radarr_state_sync_loop()`** — Every 60s. Full state reconciliation with Radarr. Creates, updates, or removes jobs based on Radarr's current library.
-4. **`sonarr_state_sync_loop()`** — Every 60s. Full state reconciliation with Sonarr for TV episodes.
+1. **`active_job_tracker_loop()`** — Every 5s. For every `searching` / `downloading` / `importing` job: mirrors
+   Radarr/Sonarr queue progress, tracks qBittorrent torrents (progress, ETA, file filtering, stall removal,
+   completion → `importing`), resolves `importing` → `done`, and triggers a fallback search when a download died.
+   Every ~30s it also adopts Radarr grabs it doesn't know about yet.
+2. **`discovery_tracker_loop()`** — Every `missing_search_interval_hours` (default 24h). Retries *monitored*
+   MOVIE_MISSING/SKIPPED/NOT_FOUND/FAILED jobs via `run_discovery_batch()` (respects the auto-search toggles).
+3. **`radarr_state_sync_loop()`** — Every 60s. Full reconciliation with Radarr via `reconcile_job()`.
+4. **`sonarr_state_sync_loop()`** — Every 60s. Same for Sonarr episodes.
+
+Radarr/Sonarr are the source of truth for existence, monitored flag, file presence and queue state. A failed sync is
+recorded (`/api/sync/status`, `DownloadJob.sync_error`) and shown in the UI instead of silently leaving stale data.
 
 ## New Release Grace Period
 
@@ -332,60 +348,6 @@ When a movie/show arrives via webhook, `delayed_search()` waits `search_delay_se
 
 ---
 
-## 2026-05-17 — Radarr Status Sync Fix
-
-**Problem diagnosed:**
-- The `Sync Requests` button called `POST /api/jobs/sync` which enqueues `sync_jellyseerr_requests()` as a FastAPI `BackgroundTask`.
-- The endpoint returns `{"status": "sync_started"}` immediately. The frontend then waited 1 second and re-fetched.
-- The sync function runs asynchronously in the background (can take 10-30s+ for many jobs), so re-fetch always saw stale data.
-- Additionally, each `is_movie_in_radarr()` call fetches ALL Radarr movies via a separate HTTP request (N+1 problem).
-- The 2-hour grace period in Step 3 prevented a freshly-deleted movie from becoming `MOVIE_MISSING` for 2 hours.
-
-**Fix implemented:**
-1. Added `sync_radarr_status(session, settings)` to `backend/sync.py`:
-   - Makes ONE `GET /api/v3/movie` call to Radarr
-   - Builds a `tmdb_id -> movie` dict
-   - Iterates all local jobs and updates `DONE` / `MOVIE_MISSING` / `monitored` / deleted statuses inline
-   - No 2-hour grace period (user explicitly triggered sync)
-   - Does not trigger Einthusan downloads (that remains the scheduler's job)
-   - Returns `{"updated": N, "deleted": N, "unchanged": N}`
-
-2. Added `POST /api/jobs/sync-radarr` endpoint to `backend/routers/jobs.py`:
-   - Calls `sync_radarr_status()` inline (NOT as a background task)
-   - Awaits completion before responding
-   - UI sees fully-updated DB state the moment the request returns
-
-3. Updated `frontend/src/api.js`:
-   - Added `syncRadarrStatus()` -> `POST /api/jobs/sync-radarr`
-
-4. Updated `frontend/src/pages/Movies.jsx` `syncJellyseerr()` function:
-   - Now calls `await api.syncRadarrStatus()` first (synchronous, result immediately in DB)
-   - Then fires `api.syncJellyseerr()` in the background (no await) for Jellyseerr new request pickup
-   - Then calls `await fetchMovies()` — sees correct statuses immediately
-   - Removed 1-second arbitrary `setTimeout` delay
-
-**Files changed:**
-- `backend/sync.py`
-- `backend/routers/jobs.py`
-- `frontend/src/api.js`
-- `frontend/src/pages/Movies.jsx`
-- `instructions.md`
-
 ---
 
-## 2026-08-14 — FMovies Native PyNaCl API Extraction
-
-**Problem diagnosed:**
-- The previously implemented Playwright headless browser approach for `f-movies.org` was slow, consumed significant memory, and was ultimately blocked by Cloudflare and iframe protections on the `f-movies.org` embed servers (like `embos.top` and `vidlink.pro`).
-
-**Fix implemented:**
-1. Discovered that the primary `vidlink.pro` embed API uses an `XSalsa20` / AES encrypted token to protect its API endpoints.
-2. Removed **Playwright** entirely from the Dockerfile and `requirements.txt` to streamline build times and memory usage.
-3. Implemented a native Python port of the encryption using `PyNaCl` to dynamically generate time-based authorization tokens.
-4. Rewrote `backend/services/fmovies.py` to use `httpx` to query the `vidlink.pro` API natively, bypassing all JavaScript execution and Cloudflare challenges, reducing stream extraction time from 15+ seconds down to ~500ms.
-
-**Files changed:**
-- `Dockerfile`
-- `requirements.txt`
-- `backend/services/fmovies.py`
-- `instructions.md`
+Implementation history lives in `project_specs.md`.

@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { api } from '../api'
+import { usePolling } from '../hooks'
 import { StatusBadge, ProgressBar, formatBytes, timeAgo } from '../components/ui'
 import TriggerModal from '../components/TriggerModal'
 
@@ -25,11 +26,7 @@ export default function Jobs() {
         }
     }, [statusFilter, langFilter])
 
-    useEffect(() => {
-        load()
-        const t = setInterval(load, 5000)
-        return () => clearInterval(t)
-    }, [load])
+    usePolling(load, 5000, [load])
 
     async function handleDelete(id) {
         if (!confirm('Remove this job?')) return

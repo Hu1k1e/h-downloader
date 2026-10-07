@@ -40,7 +40,7 @@ class LogEntryRead(SQLModel):
 
 class JobStatus(str, Enum):
     PENDING = "pending"
-    CHECKING_RADARR = "checking_radarr"
+    CHECKING_RADARR = "checking_radarr"  # reserved / legacy
     SEARCHING = "searching"
     DOWNLOADING = "downloading"
     IMPORTING = "importing"
@@ -83,6 +83,12 @@ class DownloadJob(SQLModel, table=True):
     torrent_hash: Optional[str] = None        # qBittorrent info hash
     blacklisted_urls: Optional[str] = None    # comma separated skipped/failed hashes/urls
     release_date: Optional[datetime] = None   # For TV: airDateUtc, For Movies: TMDB digital date
+    # Radarr/Sonarr reconciliation metadata
+    arr_id: Optional[int] = None              # Radarr movie id / Sonarr episode id (last seen)
+    in_arr: bool = True                       # False once the item vanished from Radarr/Sonarr
+    has_file: bool = False                    # Radarr/Sonarr reports a file on disk
+    last_synced_at: Optional[datetime] = None # last successful reconciliation with Radarr/Sonarr
+    sync_error: Optional[str] = None          # last reconciliation failure (None = healthy)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow, sa_column_kwargs={"onupdate": datetime.utcnow})
 
@@ -113,6 +119,11 @@ class DownloadJobRead(SQLModel):
     release_date: Optional[datetime]
     torrent_hash: Optional[str]
     blacklisted_urls: Optional[str]
+    arr_id: Optional[int] = None
+    in_arr: bool = True
+    has_file: bool = False
+    last_synced_at: Optional[datetime] = None
+    sync_error: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

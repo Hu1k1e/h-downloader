@@ -1,24 +1,47 @@
 """
-Jobs API router — CRUD for download jobs and manual trigger.
+Jobs API router — CRUD for download jobs, manual triggers and sync controls.
+
+Business logic (reconciliation, imports, downloads) lives in backend/sync.py,
+backend/orchestrator.py and backend/services/*; this module validates input,
+calls them and shapes the response.
 """
+import asyncio
+import logging
 from typing import List, Optional
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlmodel import Session, select
 
 from backend.database import get_session, get_settings
-from backend.models import DownloadJob, DownloadJobRead, JobStatus, AppSettings
-from backend.orchestrator import process_request
+from backend.models import DownloadJob, DownloadJobRead, JobStatus
+from backend.orchestrator import (
+    process_request, process_many, run_movie_file_download, run_stream_download,
+)
 from backend.services import radarr as radarr_svc
 from backend.services import tmdb as tmdb_svc
 from backend import config
 from backend.services import qbittorrent
+from backend.services.qbittorrent import QbittorrentError
 from backend.services import sonarr as sonarr_svc
-from backend.sync import delayed_search
+from backend import sync as sync_svc
+from backend.services.downloader import (
+    cancel_download, get_movie_file_path, get_episode_file_path, is_direct_download_active,
+)
 from backend.db_logger import log_action
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api", tags=["jobs"])
+
+_BUSY = (JobStatus.DOWNLOADING, JobStatus.SEARCHING, JobStatus.IMPORTING)
+
+
+def _raise_sync(e: sync_svc.SyncError):
+    raise HTTPException(status_code=e.status_code, detail=e.message)
+
 
 # ── Jobs list & detail ───────────────────────────────────────────────────────
 
@@ -32,7 +55,7 @@ def list_jobs(
     session: Session = Depends(get_session),
 ):
     settings = get_settings(session)
-    configured_langs = [l.strip().lower() for l in settings.einthusan_languages_str.split(",") if l.strip().lower() in config.LANGUAGE_SLUG_MAP]
+    configured_langs = sync_svc.configured_languages(settings)
 
     query = select(DownloadJob).order_by(DownloadJob.created_at.desc())
     if status:
@@ -42,10 +65,10 @@ def list_jobs(
     elif configured_langs and media_type != "tv":
         # Only show languages that have been ticked in settings (for movies)
         query = query.where(DownloadJob.language.in_(configured_langs))
-        
+
     if media_type:
         query = query.where(DownloadJob.media_type == media_type)
-        
+
     query = query.offset(offset).limit(limit)
     return session.exec(query).all()
 
@@ -55,33 +78,43 @@ def get_active_jobs(session: Session = Depends(get_session)):
     """
     Returns jobs that are actively downloading or searching right now.
     For qBittorrent jobs, validates they are actually in an active state.
-    For Einthusan jobs, validates they are actively streaming.
+    For direct (Einthusan/stream) jobs, validates they are actively streaming.
     """
     settings = get_settings(session)
-    jobs = session.exec(select(DownloadJob).where(DownloadJob.status.in_([JobStatus.DOWNLOADING, JobStatus.SEARCHING, JobStatus.CHECKING_RADARR, JobStatus.IMPORTING]))).all()
-    
+    jobs = session.exec(select(DownloadJob).where(DownloadJob.status.in_(
+        [JobStatus.DOWNLOADING, JobStatus.SEARCHING, JobStatus.CHECKING_RADARR, JobStatus.IMPORTING]))).all()
+
+    # One qBittorrent request for all torrents instead of one login per job.
+    hashes = [j.torrent_hash for j in jobs if j.status == JobStatus.DOWNLOADING and j.torrent_hash]
+    torrents = None
+    if hashes:
+        try:
+            torrents = qbittorrent.get_torrents_info(hashes, settings)
+        except QbittorrentError as e:
+            logger.warning(f"qBittorrent unreachable while listing active jobs: {e}")
+
     active_jobs = []
-    from backend.services.downloader import is_direct_download_active
-    
     for job in jobs:
         if job.status == JobStatus.DOWNLOADING:
             if job.torrent_hash:
-                t_info = qbittorrent.get_torrent_info(job.torrent_hash, settings)
+                if torrents is None:
+                    active_jobs.append(job)  # qBittorrent unreachable: don't hide a possibly-running download
+                    continue
+                t_info = torrents.get(job.torrent_hash.lower())
                 if not t_info:
-                    continue # Not in qbittorrent anymore
+                    continue  # Not in qbittorrent anymore
                 state = t_info.get("state", "").lower()
                 if "pause" in state or "error" in state or "up" in state or state == "uploading":
-                    continue # paused, errored, or seeding
+                    continue  # paused, errored, or seeding
                 active_jobs.append(job)
-            elif job.source_indexer == "einthusan":
+            elif job.source_indexer in sync_svc.DIRECT_SOURCES:
                 if is_direct_download_active(job.id):
                     active_jobs.append(job)
             else:
                 active_jobs.append(job)
         else:
-            # direct downloads or searching
             active_jobs.append(job)
-            
+
     return active_jobs
 
 
@@ -93,16 +126,24 @@ def get_job(job_id: int, session: Session = Depends(get_session)):
     return job
 
 
+async def _drop_torrent(job: DownloadJob, settings) -> None:
+    """Remove the job's torrent (if any) so a cancelled/cleared download doesn't keep running."""
+    if job.torrent_hash:
+        await asyncio.to_thread(qbittorrent.delete_torrent, job.torrent_hash, settings)
+        job.torrent_hash = None
+
+
 @router.delete("/jobs/{job_id}")
 async def delete_job(job_id: int, session: Session = Depends(get_session)):
-    from backend.services.downloader import cancel_download
+    """Cancel any download, delete the media file from Radarr/Sonarr and reset the job to 'missing'."""
     job = session.get(DownloadJob, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-        
+
     cancel_download(job_id)
-    
+
     settings = get_settings(session)
+    await _drop_torrent(job, settings)
     if job.media_type == "tv" and job.tvdb_id:
         try:
             series = await sonarr_svc.is_series_in_sonarr(job.tvdb_id, settings)
@@ -111,37 +152,39 @@ async def delete_job(job_id: int, session: Session = Depends(get_session)):
                 if ep and ep.get("episodeFileId"):
                     await sonarr_svc.delete_episode_file(ep["episodeFileId"], settings)
         except Exception as e:
-            import logging
-            logging.getLogger(__name__).error(f"Failed to delete episode from Sonarr: {e}")
+            logger.error(f"Failed to delete episode from Sonarr: {e}")
     elif job.media_type == "movie" and job.tmdb_id:
         try:
             movie = await radarr_svc.is_movie_in_radarr(job.tmdb_id, settings)
             if movie and movie.get("movieFile") and movie["movieFile"].get("id"):
                 await radarr_svc.delete_movie_file(movie["movieFile"]["id"], settings)
         except Exception as e:
-            import logging
-            logging.getLogger(__name__).error(f"Failed to delete movie from Radarr: {e}")
-            
+            logger.error(f"Failed to delete movie from Radarr: {e}")
+
     job.status = JobStatus.MOVIE_MISSING
     job.progress_pct = 0
     job.downloaded_bytes = 0
     job.total_bytes = 0
     job.error_msg = None
     job.file_path = None
+    job.has_file = False
+    job.source_indexer = None
     session.add(job)
     session.commit()
     return {"status": "cleared"}
 
+
 @router.post("/jobs/{job_id}/cancel")
-def cancel_job(job_id: int, session: Session = Depends(get_session)):
-    from backend.services.downloader import cancel_download
+async def cancel_job(job_id: int, session: Session = Depends(get_session)):
     job = session.get(DownloadJob, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    
+
     cancel_download(job_id)
-    
+    await _drop_torrent(job, get_settings(session))
+
     job.status = JobStatus.MOVIE_MISSING
+    job.source_indexer = None
     job.progress_pct = 0
     job.downloaded_bytes = 0
     job.total_bytes = 0
@@ -154,31 +197,40 @@ def cancel_job(job_id: int, session: Session = Depends(get_session)):
 class MonitorUpdate(BaseModel):
     monitored: bool
 
+
 @router.put("/jobs/{job_id}/monitor")
 async def update_monitor_status(job_id: int, update: MonitorUpdate, session: Session = Depends(get_session)):
+    """Toggle monitored in Radarr/Sonarr and store the value *they* confirm (they are the source of truth)."""
     job = session.get(DownloadJob, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-        
+
     settings = get_settings(session)
-    
     try:
-        # Push update to Radarr
-        radarr_movie = await radarr_svc.is_movie_in_radarr(job.tmdb_id, settings)
-        if radarr_movie:
-            await radarr_svc.update_movie_monitored(radarr_movie["id"], update.monitored, settings)
+        if job.media_type == "tv":
+            series = await sonarr_svc.is_series_in_sonarr(job.tvdb_id, settings)
+            ep = await sonarr_svc.get_episode(series["id"], job.season_number, job.episode_number, settings) if series else None
+            if not ep:
+                raise HTTPException(status_code=404, detail="This episode no longer exists in Sonarr. Run a sync.")
+            confirmed = await sonarr_svc.update_episode_monitored(ep["id"], update.monitored, settings)
+        else:
+            movie = await radarr_svc.is_movie_in_radarr(job.tmdb_id, settings)
+            if not movie:
+                raise HTTPException(status_code=404, detail="This movie no longer exists in Radarr. Run a sync.")
+            confirmed = await radarr_svc.update_movie_monitored(movie["id"], update.monitored, settings)
+    except HTTPException:
+        raise
     except Exception as e:
-        # Log the error but still update local state if preferred, or fail.
-        # It's better to fail if Radarr is authoritative.
-        import logging
-        logging.getLogger(__name__).error(f"Failed to update monitored status in Radarr: {e}")
-        raise HTTPException(status_code=502, detail="Failed to update Radarr")
-        
-    job.monitored = update.monitored
+        logger.error(f"Failed to update monitored status in Radarr/Sonarr: {e}")
+        raise HTTPException(status_code=502, detail=f"Failed to update Radarr/Sonarr: {e}")
+
+    job.monitored = confirmed
+    job.in_arr = True
     session.add(job)
     session.commit()
     session.refresh(job)
     return {"status": "updated", "monitored": job.monitored}
+
 
 @router.post("/jobs/{job_id}/download")
 async def trigger_discovered_download(job_id: int, session: Session = Depends(get_session)):
@@ -187,85 +239,74 @@ async def trigger_discovered_download(job_id: int, session: Session = Depends(ge
         raise HTTPException(status_code=404, detail="Job not found")
     if job.status != JobStatus.DISCOVERED:
         raise HTTPException(status_code=400, detail=f"Job is in state {job.status}, not DISCOVERED")
-        
+
     settings = get_settings(session)
-    job.status = JobStatus.DOWNLOADING
-    job.error_msg = None
-    
-    # Check if it was discovered via magnet (1tamilmv) or direct URL (einthusan)
+
+    # Discovered via magnet (1TamilMV)
     if job.discovered_magnet:
-        import asyncio
-        torrent_hash = await asyncio.to_thread(qbittorrent.add_magnet_to_qbittorrent, job.discovered_magnet, settings)
-        if torrent_hash:
-            job.source_indexer = job.discovered_source
-            job.torrent_hash = torrent_hash
-            session.add(job)
-            session.commit()
-            
-            from backend.db_logger import log_action
-            log_action("search_success", f"Successfully started discovered magnet via {job.source_indexer}", tmdb_id=job.tmdb_id, job_id=job.id)
-            return {"status": "started", "hash": torrent_hash}
-        else:
+        torrent_hash = await asyncio.to_thread(
+            qbittorrent.add_magnet_to_qbittorrent, job.discovered_magnet, settings, job.media_type == "tv")
+        if not torrent_hash:
             job.status = JobStatus.FAILED
             job.error_msg = "Failed to add magnet to qBittorrent"
             session.add(job)
             session.commit()
             raise HTTPException(status_code=500, detail="Failed to add to qBittorrent")
-            
-    elif job.direct_url:
-        # Einthusan direct download
+        job.status = JobStatus.DOWNLOADING
+        job.error_msg = None
         job.source_indexer = job.discovered_source
-        
-        # We need the file_path
-        from backend.services.downloader import get_movie_file_path, download_movie
-        import asyncio
-        from backend.services import radarr
-        
-        folder_path = await radarr.get_movie_folder(job.tmdb_id, job.title, job.year or 0, settings)
+        job.torrent_hash = torrent_hash
+        session.add(job)
+        session.commit()
+        log_action("search_success", f"Successfully started discovered magnet via {job.source_indexer}", tmdb_id=job.tmdb_id, job_id=job.id)
+        return {"status": "started", "hash": torrent_hash}
+
+    # Discovered via direct URL (Einthusan)
+    if job.direct_url and job.media_type == "movie":
+        folder_path = await radarr_svc.get_movie_folder(job.tmdb_id, job.title, job.year or 0, settings)
         file_path = get_movie_file_path(folder_path, job.title, job.year)
+        job.status = JobStatus.DOWNLOADING
+        job.error_msg = None
+        job.source_indexer = job.discovered_source or "einthusan"
         job.file_path = file_path
         session.add(job)
         session.commit()
-        
-        # Fire async task
-        async def run_einthusan_dl(jid, direct_url, fp):
-            with Session(engine) as sess:
-                dl_success = await download_movie(jid, direct_url, fp, sess)
-                if dl_success:
-                    sess_job = sess.get(DownloadJob, jid)
-                    if sess_job:
-                        movie_data = await radarr.is_movie_in_radarr(sess_job.tmdb_id, settings)
-                        if movie_data and "id" in movie_data:
-                            await radarr.trigger_rescan(movie_data["id"], settings)
-                        sess_job.status = JobStatus.DONE
-                        sess_job.progress_pct = 100
-                        sess_job.monitored = False
-                        sess.add(sess_job)
-                        sess.commit()
-                        
-        asyncio.create_task(run_einthusan_dl(job.id, job.direct_url, file_path))
+        asyncio.create_task(run_movie_file_download(job.id, job.direct_url, file_path, settings))
         return {"status": "started", "type": "einthusan"}
-        
-    else:
-        raise HTTPException(status_code=400, detail="Discovered job missing both magnet and direct_url")
+
+    raise HTTPException(status_code=400, detail="Discovered job has no magnet or direct URL to download")
 
 
 class ImportUrlRequest(BaseModel):
     url: str
 
+
+def _classify_url(url: str) -> Optional[str]:
+    """Identify the provider from the URL's *host* (not a substring anywhere in the URL)."""
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return None
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        return None
+    host = parsed.hostname.lower()
+    if (host == "einthusan.tv" or host.endswith(".einthusan.tv")) and "/movie/watch/" in parsed.path:
+        return "einthusan"
+    labels = host.split(".")
+    if any(l == "1tamilmv" for l in labels):
+        return "1tamilmv"
+    if any(l == "f-movies" for l in labels):
+        return "fmovies"
+    return None
+
+
 @router.post("/jobs/{job_id}/import-url")
 async def import_url_for_job(job_id: int, req: ImportUrlRequest, session: Session = Depends(get_session)):
     """
-    Accept a provider URL (Einthusan watch page or 1TamilMV thread) and start the
+    Accept a provider URL (Einthusan watch page, 1TamilMV thread or FMovies page) and start the
     download pipeline for an existing job.
     """
-    import re
-    import asyncio
-    from backend.services import einthusan
-    from backend.services import tamilmv
-    from backend.services import fmovies
-    from backend.services.downloader import get_movie_file_path, download_movie, download_m3u8
-    from backend.database import engine
+    from backend.services import einthusan, tamilmv, fmovies
 
     job = session.get(DownloadJob, job_id)
     if not job:
@@ -273,32 +314,23 @@ async def import_url_for_job(job_id: int, req: ImportUrlRequest, session: Sessio
 
     settings = get_settings(session)
     url = req.url.strip()
-
     if not url:
         raise HTTPException(status_code=400, detail="URL is required")
 
-    # ── Detect provider from URL ──────────────────────────────────────────
-    is_einthusan = bool(re.search(r'einthusan\.tv/movie/watch/', url, re.IGNORECASE))
-    is_tamilmv = bool(re.search(r'1tamilmv\.\w+/', url, re.IGNORECASE))
-    is_fmovies = bool(re.search(r'f-movies\.\w+/', url, re.IGNORECASE))
+    provider = _classify_url(url)
+    if not provider:
+        raise HTTPException(status_code=400, detail="URL not recognised. Must be an Einthusan, 1TamilMV, or FMovies URL.")
 
-    if not is_einthusan and not is_tamilmv and not is_fmovies:
-        raise HTTPException(
-            status_code=400,
-            detail="URL not recognised. Must be an Einthusan, 1TamilMV, or FMovies URL."
-        )
-
-    if is_einthusan:
-        # Extract MP4 from Einthusan watch page
+    if provider == "einthusan":
+        if job.media_type != "movie":
+            raise HTTPException(status_code=400, detail="Einthusan URLs can only be imported for movies.")
         try:
             direct_url = await einthusan.extract_mp4_url(url)
         except Exception as e:
             raise HTTPException(status_code=502, detail=f"Failed to extract video from Einthusan: {e}")
-
         if not direct_url:
             raise HTTPException(status_code=404, detail="Could not extract video URL from this Einthusan page.")
 
-        # Get file path from Radarr
         folder_path = await radarr_svc.get_movie_folder(job.tmdb_id, job.title, job.year or 0, settings)
         file_path = get_movie_file_path(folder_path, job.title, job.year)
 
@@ -312,38 +344,19 @@ async def import_url_for_job(job_id: int, req: ImportUrlRequest, session: Sessio
         session.commit()
 
         log_action("Manual", f"Manual URL import: starting Einthusan download for '{job.title}'", tmdb_id=job.tmdb_id, job_id=job.id)
-
-        # Fire async download task
-        async def _run_dl(jid, dl_url, fp):
-            with Session(engine) as sess:
-                dl_success = await download_movie(jid, dl_url, fp, sess)
-                if dl_success:
-                    sess_job = sess.get(DownloadJob, jid)
-                    if sess_job:
-                        movie_data = await radarr_svc.is_movie_in_radarr(sess_job.tmdb_id, settings)
-                        if movie_data and "id" in movie_data:
-                            await radarr_svc.trigger_rescan(movie_data["id"], settings)
-                        sess_job.status = JobStatus.DONE
-                        sess_job.progress_pct = 100
-                        sess_job.monitored = False
-                        sess_job.error_msg = None
-                        sess.add(sess_job)
-                        sess.commit()
-
-        asyncio.create_task(_run_dl(job.id, direct_url, file_path))
+        asyncio.create_task(run_movie_file_download(job.id, direct_url, file_path, settings))
         return {"status": "started", "type": "einthusan", "url": url}
 
-    elif is_tamilmv:
-        # Extract magnet from 1TamilMV thread
+    if provider == "1tamilmv":
         try:
             magnet = await tamilmv.extract_magnet(url)
         except Exception as e:
             raise HTTPException(status_code=502, detail=f"Failed to extract magnet from 1TamilMV: {e}")
-
         if not magnet:
             raise HTTPException(status_code=404, detail="No magnet link found on this 1TamilMV page.")
 
-        torrent_hash = await asyncio.to_thread(qbittorrent.add_magnet_to_qbittorrent, magnet, settings)
+        torrent_hash = await asyncio.to_thread(
+            qbittorrent.add_magnet_to_qbittorrent, magnet, settings, job.media_type == "tv")
         if not torrent_hash:
             raise HTTPException(status_code=500, detail="Failed to add magnet to qBittorrent")
 
@@ -357,76 +370,62 @@ async def import_url_for_job(job_id: int, req: ImportUrlRequest, session: Sessio
         log_action("Manual", f"Manual URL import: added 1TamilMV magnet for '{job.title}'. Hash: {torrent_hash}", tmdb_id=job.tmdb_id, job_id=job.id)
         return {"status": "started", "type": "1tamilmv", "hash": torrent_hash}
 
-    elif is_fmovies:
-        extracted = await fmovies.extract_stream_url(url, settings)
-        if not extracted:
-            raise HTTPException(status_code=404, detail="Could not extract m3u8 stream from FMovies URL.")
-            
-        m3u8_url, referer, user_agent = extracted
-        
-        if job.media_type == "tv":
-            from backend.services import sonarr as sonarr_svc
-            from backend.services.downloader import get_episode_file_path
-            series = await sonarr_svc.ensure_series_added(job.tvdb_id, job.title, settings)
-            folder_path = series.get("path")
-            file_path = get_episode_file_path(folder_path, job.title, job.season_number, job.episode_number)
-        else:
-            folder_path = await radarr_svc.get_movie_folder(job.tmdb_id, job.title, job.year or 0, settings)
-            file_path = get_movie_file_path(folder_path, job.title, job.year)
-            
-        job.status = JobStatus.DOWNLOADING
-        job.error_msg = None
-        job.source_indexer = "fmovies"
-        session.add(job)
-        session.commit()
-        
-        log_action("Manual", f"Manual URL import: starting FMovies download for '{job.title}'", tmdb_id=job.tmdb_id, job_id=job.id)
-        
-        async def _run_fmovies_dl(jid, stream_url, ref, fp):
-            with Session(engine) as sess:
-                dl_success = await download_m3u8(jid, stream_url, ref, fp, sess)
-                if dl_success:
-                    sess_job = sess.get(DownloadJob, jid)
-                    if sess_job:
-                        if sess_job.media_type == "tv":
-                            from backend.services import sonarr as sonarr_svc
-                            series_data = await sonarr_svc.ensure_series_added(sess_job.tvdb_id, sess_job.title, settings)
-                            await sonarr_svc.trigger_rescan(series_data["id"], settings)
-                        else:
-                            movie_data = await radarr_svc.is_movie_in_radarr(sess_job.tmdb_id, settings)
-                            if movie_data and "id" in movie_data:
-                                await radarr_svc.trigger_rescan(movie_data["id"], settings)
-                                
-                        sess_job.status = JobStatus.DONE
-                        sess_job.progress_pct = 100
-                        sess_job.monitored = False
-                        sess_job.error_msg = None
-                        sess.add(sess_job)
-                        sess.commit()
-                        
-        asyncio.create_task(_run_fmovies_dl(job.id, m3u8_url, referer, file_path))
-        return {"status": "started", "type": "fmovies", "url": url}
+    # FMovies: the stream is looked up by TMDB id (vidlink), so the pasted URL only confirms the provider.
+    if job.media_type == "tv":
+        series = await sonarr_svc.ensure_series_added(job.tvdb_id, job.title, settings)
+        if not series.get("tmdbId"):
+            raise HTTPException(status_code=404, detail="Sonarr has no TMDB id for this series, so FMovies can't be used.")
+        watch_ref = f"{series['tmdbId']}/{job.season_number}/{job.episode_number}"
+    else:
+        watch_ref = str(job.tmdb_id)
 
+    extracted = await fmovies.extract_stream_url(watch_ref, settings)
+    if not extracted:
+        raise HTTPException(status_code=404, detail="Could not extract m3u8 stream from FMovies.")
+    m3u8_url, referer, _user_agent = extracted
+
+    if job.media_type == "tv":
+        folder_path = series.get("path") or await sonarr_svc.get_series_folder(job.tvdb_id, series.get("title", ""), settings)
+        file_path = get_episode_file_path(folder_path, series.get("title", job.title), job.season_number, job.episode_number)
+    else:
+        folder_path = await radarr_svc.get_movie_folder(job.tmdb_id, job.title, job.year or 0, settings)
+        file_path = get_movie_file_path(folder_path, job.title, job.year)
+
+    job.status = JobStatus.DOWNLOADING
+    job.error_msg = None
+    job.source_indexer = "fmovies"
+    job.file_path = file_path
+    session.add(job)
+    session.commit()
+
+    log_action("Manual", f"Manual URL import: starting FMovies download for '{job.title}'", tmdb_id=job.tmdb_id, job_id=job.id)
+    asyncio.create_task(run_stream_download(job.id, m3u8_url, referer, file_path, settings))
+    return {"status": "started", "type": "fmovies", "url": url}
 
 
 # ── Stats ────────────────────────────────────────────────────────────────────
 
 @router.get("/stats")
 def get_stats(session: Session = Depends(get_session)):
-    jobs = session.exec(select(DownloadJob)).all()
-    active_jobs = get_active_jobs(session)
+    rows = session.exec(select(DownloadJob.status, func.count()).group_by(DownloadJob.status)).all()
+    counts = {(s.value if hasattr(s, "value") else s): n for s, n in rows}
     return {
-        "total": len(jobs),
-        "active": len(active_jobs),
-        "completed": sum(1 for j in jobs if j.status == JobStatus.DONE),
-        "failed": sum(1 for j in jobs if j.status == JobStatus.FAILED),
-        "not_found": sum(1 for j in jobs if j.status == JobStatus.NOT_FOUND),
-        "skipped": sum(1 for j in jobs if j.status == JobStatus.SKIPPED),
+        "total": sum(counts.values()),
+        "active": len(get_active_jobs(session)),
+        "completed": counts.get("done", 0),
+        "failed": counts.get("failed", 0),
+        "not_found": counts.get("not_found", 0),
+        "skipped": counts.get("skipped", 0),
     }
 
 
-# ── Manual trigger ───────────────────────────────────────────────────────────
+@router.get("/sync/status")
+def get_sync_status():
+    """Health of the background Radarr/Sonarr syncs (so the UI can warn when data may be stale)."""
+    return sync_svc.get_sync_status()
 
+
+# ── Manual trigger ───────────────────────────────────────────────────────────
 
 class TriggerRequest(BaseModel):
     media_type: str = "movie"
@@ -439,78 +438,78 @@ class TriggerRequest(BaseModel):
     indexer: Optional[str] = None
 
 
-
 @router.post("/jobs/trigger")
 async def trigger_download(req: TriggerRequest, background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
     settings = get_settings(session)
-    
+
     if req.media_type == "tv":
         if not req.tvdb_id and not req.title:
             raise HTTPException(status_code=400, detail="Provide tvdb_id or title for TV Show")
         if req.season_number is None:
             raise HTTPException(status_code=400, detail="Season number is required for TV Shows")
-            
+
         tvdb_id = req.tvdb_id
         if not tvdb_id:
+            import httpx
             try:
-                import httpx
                 async with httpx.AsyncClient(timeout=10) as client:
                     resp = await client.get(
-                        f"{settings.sonarr_url}/api/v3/series/lookup",
+                        f"{settings.sonarr_url.rstrip('/')}/api/v3/series/lookup",
                         params={"term": req.title},
                         headers={"X-Api-Key": settings.sonarr_api_key}
                     )
                     resp.raise_for_status()
                     results = resp.json()
-                    if not results:
-                        raise HTTPException(status_code=404, detail=f"No Sonarr results for '{req.title}'")
-                    tvdb_id = results[0]["tvdbId"]
             except Exception as e:
                 raise HTTPException(status_code=502, detail=f"Sonarr search failed: {e}")
-                
+            if not results:
+                raise HTTPException(status_code=404, detail=f"No Sonarr results for '{req.title}'")
+            tvdb_id = results[0]["tvdbId"]
+
         try:
             series = await sonarr_svc.ensure_series_added(tvdb_id, req.title or "Unknown", settings)
             episodes = await sonarr_svc.get_episodes(series["id"], settings)
         except Exception as e:
             raise HTTPException(status_code=502, detail=f"Failed to setup series in Sonarr: {e}")
-            
+
         episodes_to_dl = []
         if req.episode_number is not None:
             ep = next((e for e in episodes if e.get("seasonNumber") == req.season_number and e.get("episodeNumber") == req.episode_number), None)
-            if ep: episodes_to_dl.append(ep)
+            if ep:
+                episodes_to_dl.append(ep)
         else:
             episodes_to_dl = [e for e in episodes if e.get("seasonNumber") == req.season_number]
-            
+
         if not episodes_to_dl:
             raise HTTPException(status_code=404, detail="No episodes found for specified season/episode")
-            
-        triggered = 0
+
+        job_ids = []
         for ep in episodes_to_dl:
             s_num = ep.get("seasonNumber")
             e_num = ep.get("episodeNumber")
-            
+
             job = session.exec(select(DownloadJob).where(
                 DownloadJob.media_type == "tv",
                 DownloadJob.tvdb_id == tvdb_id,
                 DownloadJob.season_number == s_num,
                 DownloadJob.episode_number == e_num
             )).first()
-            
+
             if not job:
                 title = f"{series.get('title', 'Unknown')} S{s_num:02d}E{e_num:02d}"
                 job = DownloadJob(
                     media_type="tv", tmdb_id=0, tvdb_id=tvdb_id, season_number=s_num, episode_number=e_num,
-                    title=title, status=JobStatus.MOVIE_MISSING, monitored=True
+                    title=title, status=JobStatus.MOVIE_MISSING, monitored=bool(ep.get("monitored", True)),
+                    arr_id=ep.get("id"),
                 )
                 session.add(job)
                 session.commit()
                 session.refresh(job)
-                
-            background_tasks.add_task(process_request, job.id, auto_download=True, indexer=req.indexer)
-            triggered += 1
-            
-        log_action("Manual", f"Triggered {triggered} TV episodes for tvdb_id={tvdb_id} season={req.season_number}", tvdb_id=tvdb_id)
-        return {"status": "accepted", "tvdb_id": tvdb_id, "triggered": triggered}
+            job_ids.append(job.id)
+
+        background_tasks.add_task(process_many, job_ids, auto_download=True, indexer=req.indexer)
+        log_action("Manual", f"Triggered {len(job_ids)} TV episodes for tvdb_id={tvdb_id} season={req.season_number}", tvdb_id=tvdb_id)
+        return {"status": "accepted", "tvdb_id": tvdb_id, "triggered": len(job_ids)}
 
     # Movie logic
     if not req.tmdb_id and not req.title:
@@ -551,492 +550,106 @@ async def trigger_download(req: TriggerRequest, background_tasks: BackgroundTask
     background_tasks.add_task(process_request, job.id, auto_download=True, indexer=req.indexer)
     return {"status": "accepted", "tmdb_id": tmdb_id, "job_id": job.id}
 
+
 @router.post("/jobs/trigger-monitored")
-async def trigger_all_monitored(background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
-    """Manually trigger orchestrator for all monitored movies."""
-    jobs = session.exec(select(DownloadJob).where(DownloadJob.monitored == True)).all()
-    triggered = 0
-    for job in jobs:
-        # Avoid re-triggering jobs that are already actively processing
-        if job.status not in (JobStatus.DOWNLOADING, JobStatus.SEARCHING, JobStatus.IMPORTING):
-             background_tasks.add_task(process_request, job.id)
-             triggered += 1
-    
-    log_action("Manual", f"Bulk trigger: {triggered} monitored jobs queued for search")
-    return {"status": "accepted", "triggered": triggered}
+async def trigger_all_monitored(background_tasks: BackgroundTasks, media_type: str = "movie", session: Session = Depends(get_session)):
+    """Search for every monitored job that still needs a file (movies by default, `?media_type=tv` for episodes)."""
+    jobs = session.exec(select(DownloadJob).where(
+        DownloadJob.monitored == True,  # noqa: E712
+        DownloadJob.media_type == media_type,
+        DownloadJob.status.notin_(list(_BUSY) + [JobStatus.DONE, JobStatus.NOT_IN_RADARR]),
+    )).all()
+    ids = [j.id for j in jobs]
+    background_tasks.add_task(process_many, ids)
+    log_action("Manual", f"Bulk trigger: {len(ids)} monitored {media_type} jobs queued for search")
+    return {"status": "accepted", "triggered": len(ids)}
+
 
 @router.post("/jobs/trigger-missing")
-async def trigger_missing(background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
-    """Manually trigger orchestrator for all MOVIE_MISSING movies."""
-    jobs = session.exec(select(DownloadJob).where(DownloadJob.status == JobStatus.MOVIE_MISSING)).all()
-    triggered = 0
-    for job in jobs:
-        if job.status not in (JobStatus.DOWNLOADING, JobStatus.SEARCHING, JobStatus.IMPORTING):
-             background_tasks.add_task(process_request, job.id)
-             triggered += 1
-    
-    log_action("Manual", f"Bulk trigger: {triggered} missing jobs queued for search")
-    return {"status": "accepted", "triggered": triggered}
+async def trigger_missing(background_tasks: BackgroundTasks, media_type: str = "movie", session: Session = Depends(get_session)):
+    """Search for every job in the 'missing' state."""
+    jobs = session.exec(select(DownloadJob).where(
+        DownloadJob.status == JobStatus.MOVIE_MISSING, DownloadJob.media_type == media_type)).all()
+    ids = [j.id for j in jobs]
+    background_tasks.add_task(process_many, ids)
+    log_action("Manual", f"Bulk trigger: {len(ids)} missing {media_type} jobs queued for search")
+    return {"status": "accepted", "triggered": len(ids)}
+
 
 @router.post("/jobs/{job_id}/retry")
 async def retry_job(job_id: int, background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
     job = session.get(DownloadJob, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-        
+
     job.status = JobStatus.PENDING
     job.progress_pct = 0
     job.error_msg = None
     job.blacklisted_urls = None
     session.add(job)
     session.commit()
-    
-    log_action("Manual", f"Retrying job for '{job.title}'", tmdb_id=job.tmdb_id, job_id=job.id)
+
+    log_action("Manual", f"Retrying job for '{job.title}'", tmdb_id=job.tmdb_id, tvdb_id=job.tvdb_id, job_id=job.id)
     background_tasks.add_task(process_request, job.id)
     return {"status": "retrying", "tmdb_id": job.tmdb_id}
 
 
+# ── Sync & import (logic lives in backend/sync.py) ───────────────────────────
+
 @router.post("/jobs/{job_id}/sync")
-async def sync_single_job(job_id: int, session: Session = Depends(get_session)):
-    """Manually reconcile a single job's state with Radarr."""
-    job = session.get(DownloadJob, job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-        
-    settings = get_settings(session)
+async def sync_single_job(job_id: int):
+    """Reconcile a single job with live Radarr/Sonarr data."""
     try:
-        radarr_movie = await radarr_svc.is_movie_in_radarr(job.tmdb_id, settings)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Failed to reach Radarr: {e}")
-        
-    if not radarr_movie:
-        job.status = JobStatus.NOT_IN_RADARR
-        job.monitored = False
-        log_action("Manual", f"Sync: '{job.title}' marked as NOT_IN_RADARR", tmdb_id=job.tmdb_id, job_id=job.id)
-    else:
-        job.monitored = radarr_movie.get("monitored", False)
-        if radarr_movie.get("hasFile"):
-            job.status = JobStatus.DONE
-            job.progress_pct = 100
-            job.file_path = radarr_movie.get("movieFile", {}).get("path")
-        elif job.status in (JobStatus.DONE, JobStatus.NOT_IN_RADARR, JobStatus.NOT_FOUND):
-            # It's back in Radarr or file is missing
-            job.status = JobStatus.MOVIE_MISSING
-            job.progress_pct = 0
-            job.file_path = None
-        log_action("Manual", f"Sync: '{job.title}' state updated from Radarr", tmdb_id=job.tmdb_id, job_id=job.id)
-        
-    session.add(job)
-    session.commit()
-    return {"status": "synced", "job_id": job.id, "state": job.status}
+        return await sync_svc.sync_single_job(job_id)
+    except sync_svc.SyncError as e:
+        _raise_sync(e)
+
 
 @router.post("/jobs/sync-all")
-async def sync_all_jobs(background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
-    """Manually trigger a full Radarr state reconciliation for all jobs."""
-    settings = get_settings(session)
+async def sync_all_jobs():
+    """Reconcile all movie jobs with Radarr (awaited, so the response reflects the new state)."""
     try:
-        all_radarr_movies = await radarr_svc.get_all_movies(settings)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Failed to fetch movies from Radarr: {e}")
-        
-    radarr_map = {m["tmdbId"]: m for m in all_radarr_movies if "tmdbId" in m}
-    all_jobs = session.exec(select(DownloadJob).where(DownloadJob.media_type == "movie")).all()
-    
-    updated_count = 0
-    deleted_count = 0
-    
-    for job in all_jobs:
-        if job.status == JobStatus.IMPORTING or (job.status == JobStatus.DOWNLOADING and job.source_indexer != "radarr"):
-            continue
-        if job.status == JobStatus.SEARCHING:
-            # If it's been searching for less than 15 minutes, assume it's still running
-            from datetime import datetime, timezone
-            if (datetime.utcnow() - job.updated_at).total_seconds() < 900:
-                continue
-            
-        radarr_movie = radarr_map.get(job.tmdb_id)
-        changed = False
-        
-        if not radarr_movie:
-            if job.status != JobStatus.NOT_IN_RADARR:
-                job.status = JobStatus.NOT_IN_RADARR
-                job.monitored = False
-                changed = True
-                deleted_count += 1
-        else:
-            monitored = radarr_movie.get("monitored", False)
-            if job.monitored != monitored:
-                job.monitored = monitored
-                changed = True
-                
-            if radarr_movie.get("hasFile"):
-                path = radarr_movie.get("movieFile", {}).get("path")
-                if job.status != JobStatus.DONE or job.file_path != path:
-                    job.status = JobStatus.DONE
-                    job.progress_pct = 100
-                    job.file_path = path
-                    changed = True
-            elif job.status in (JobStatus.DONE, JobStatus.NOT_IN_RADARR, JobStatus.NOT_FOUND, JobStatus.SEARCHING):
-                job.status = JobStatus.MOVIE_MISSING
-                job.progress_pct = 0
-                job.file_path = None
-                changed = True
-                
-        if changed:
-            session.add(job)
-            updated_count += 1
-            
-    if updated_count > 0:
-        session.commit()
-        log_action("Manual", f"Sync All: {updated_count} jobs updated from Radarr (including {deleted_count} deleted).")
-        
-    return {"status": "success", "updated": updated_count}
-
-@router.post("/jobs/import-radarr")
-async def trigger_import_radarr(background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
-    """Import all movies from Radarr that match configured regional languages."""
-    settings = get_settings(session)
-    if not settings.radarr_api_key:
-        raise HTTPException(status_code=400, detail="Radarr API key is not configured.")
-
-    try:
-        movies = await radarr_svc.get_all_movies(settings)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Failed to fetch movies from Radarr: {e}")
-
-    # Parse configured languages (e.g. "malayalam,tamil")
-    configured_langs = [l.strip().lower() for l in settings.einthusan_languages_str.split(",") if l.strip().lower() in config.LANGUAGE_SLUG_MAP]
-    if not configured_langs:
-        raise HTTPException(status_code=400, detail="No Einthusan languages configured in settings.")
-
-    imported_count = 0
-    deleted_count = 0
-    to_trigger = []
-    
-    # First, remove non-relevant imports that are already in the DB
-    existing_jobs = session.exec(select(DownloadJob)).all()
-    for job in existing_jobs:
-        if job.language and job.language.lower() not in configured_langs:
-            session.delete(job)
-            deleted_count += 1
-            
-    for movie in movies:
-        # Radarr language comes as {"id": 4, "name": "Malayalam"}
-        lang_obj = movie.get("originalLanguage")
-        if not lang_obj:
-            continue
-        
-        lang_name = lang_obj.get("name", "").lower()
-        if lang_name in configured_langs:
-            tmdb_id = movie.get("tmdbId")
-            if not tmdb_id:
-                continue
-
-            # Proceed with import or heal
-
-            # Add it to jobs
-            poster_path = None
-            for img in movie.get("images", []):
-                if img.get("coverType") == "poster":
-                    remote_url = img.get("remoteUrl", "")
-                    if remote_url and "tmdb.org" in remote_url:
-                        poster_path = "/" + remote_url.split("/")[-1]
-                    break
-
-            # Check if job already exists
-            existing_job = session.exec(select(DownloadJob).where(DownloadJob.tmdb_id == tmdb_id)).first()
-            if existing_job:
-                # Heal previously imported jobs missing poster or stuck in PENDING
-                updated = False
-                if not existing_job.poster_path and poster_path:
-                    existing_job.poster_path = poster_path
-                    updated = True
-                if not existing_job.language or existing_job.language != lang_name:
-                    existing_job.language = lang_name
-                    updated = True
-                if existing_job.status == JobStatus.PENDING and not movie.get("hasFile"):
-                    existing_job.status = JobStatus.MOVIE_MISSING
-                    updated = True
-                if updated:
-                    session.add(existing_job)
-                    imported_count += 1
-                    if existing_job.status == JobStatus.MOVIE_MISSING:
-                        to_trigger.append(tmdb_id)
-                continue
-
-            new_job = DownloadJob(
-                tmdb_id=tmdb_id,
-                title=movie.get("title", "Unknown"),
-                year=movie.get("year"),
-                language=lang_name,
-                monitored=movie.get("monitored", True),
-                status=JobStatus.DONE if movie.get("hasFile") else JobStatus.MOVIE_MISSING,
-                poster_path=poster_path
-            )
-
-            session.add(new_job)
-            imported_count += 1
-            if new_job.status == JobStatus.MOVIE_MISSING:
-                to_trigger.append(tmdb_id)
-
-    if imported_count > 0 or deleted_count > 0:
-        session.commit()
-        from backend.db_logger import log_action
-        log_action("Import", f"Manual Radarr import completed. Imported {imported_count}, Deleted {deleted_count}.")
-        
-    for tid in to_trigger:
-        background_tasks.add_task(delayed_search, tid, None, 0)
-        
-    return {"status": "success", "imported": imported_count, "deleted": deleted_count}
-
-
-@router.post("/jobs/import-sonarr")
-async def trigger_import_sonarr(background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
-    """Import all series from Sonarr to ensure they are tracked as jobs."""
-    settings = get_settings(session)
-    if not settings.sonarr_api_key:
-        raise HTTPException(status_code=400, detail="Sonarr API key is not configured.")
-
-    try:
-        series_list = await sonarr_svc.get_all_series(settings)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Failed to fetch series from Sonarr: {e}")
-
-    imported_count = 0
-    to_trigger = []
-
-    for series in series_list:
-        tvdb_id = series.get("tvdbId")
-        if not tvdb_id:
-            continue
-            
-        series_id = series.get("id")
-        title = series.get("title", "Unknown")
-
-        try:
-            episodes = await sonarr_svc.get_episodes(series_id, settings)
-        except Exception:
-            continue
-
-        poster_path = None
-        for img in series.get("images", []):
-            if img.get("coverType") == "poster":
-                poster_path = img.get("remoteUrl", "")
-                break
-
-        for ep in episodes:
-            s_num = ep.get("seasonNumber")
-            e_num = ep.get("episodeNumber")
-            has_file = ep.get("hasFile", False)
-            monitored = ep.get("monitored", False)
-
-            if not monitored and not has_file:
-                continue
-
-            existing_job = session.exec(select(DownloadJob).where(
-                DownloadJob.media_type == "tv",
-                DownloadJob.tvdb_id == tvdb_id,
-                DownloadJob.season_number == s_num,
-                DownloadJob.episode_number == e_num
-            )).first()
-
-            if existing_job:
-                updated = False
-                if existing_job.status in (JobStatus.PENDING, JobStatus.NOT_IN_RADARR, JobStatus.NOT_FOUND) and not has_file:
-                    existing_job.status = JobStatus.MOVIE_MISSING
-                    updated = True
-                if poster_path and not existing_job.poster_path:
-                    existing_job.poster_path = poster_path
-                    updated = True
-                if updated:
-                    session.add(existing_job)
-                    imported_count += 1
-                continue
-
-            ep_title = f"{title} S{s_num:02d}E{e_num:02d}"
-            new_job = DownloadJob(
-                media_type="tv",
-                tmdb_id=0,
-                tvdb_id=tvdb_id,
-                season_number=s_num,
-                episode_number=e_num,
-                title=ep_title,
-                monitored=monitored,
-                status=JobStatus.DONE if has_file else JobStatus.MOVIE_MISSING,
-                poster_path=poster_path
-            )
-            session.add(new_job)
-            imported_count += 1
-            if new_job.status == JobStatus.MOVIE_MISSING:
-                to_trigger.append(new_job)
-
-    if imported_count > 0:
-        session.commit()
-        from backend.db_logger import log_action
-        log_action("Import", f"Manual Sonarr import completed. Imported/updated {imported_count} episodes.")
-
-    for job in to_trigger:
-        # Trigger background search for missing episodes
-        background_tasks.add_task(process_request, job.id, auto_download=True)
-
-    return {"status": "success", "imported": imported_count}
+        return await sync_svc.sync_all_movies()
+    except sync_svc.SyncError as e:
+        _raise_sync(e)
 
 
 @router.post("/jobs/sync-all-sonarr")
-async def sync_all_sonarr(background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
-    """Manually trigger a full Sonarr state reconciliation for TV jobs."""
-    settings = get_settings(session)
-    if not settings.sonarr_api_key:
-        raise HTTPException(status_code=400, detail="Sonarr API key is not configured.")
-
+async def sync_all_sonarr():
+    """Reconcile all TV jobs with Sonarr."""
     try:
-        all_sonarr_series = await sonarr_svc.get_all_series(settings)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Failed to fetch series from Sonarr: {e}")
+        return await sync_svc.sync_all_sonarr()
+    except sync_svc.SyncError as e:
+        _raise_sync(e)
 
-    sonarr_map = {s["tvdbId"]: s for s in all_sonarr_series if "tvdbId" in s}
-    sonarr_map_by_title = {s.get("title", "").lower(): s for s in all_sonarr_series}
-    all_jobs = session.exec(select(DownloadJob).where(DownloadJob.media_type == "tv")).all()
 
-    updated_count = 0
-    deleted_count = 0
-    imported_count = 0
+@router.post("/jobs/import-radarr")
+async def trigger_import_radarr():
+    """Import all movies from Radarr that match configured regional languages."""
+    try:
+        return await sync_svc.import_radarr_movies()
+    except sync_svc.SyncError as e:
+        _raise_sync(e)
 
-    # Build a lookup for existing jobs
-    existing_jobs = {}
-    for job in all_jobs:
-        key = (job.tvdb_id or job.title.split(" S")[0].lower(), job.season_number, job.episode_number)
-        existing_jobs[key] = job
 
-    # Fetch episodes for series that have jobs OR all series
-    series_episodes = {}
-    
-    # 1. First loop: Import any missing episodes from Sonarr
-    for series in all_sonarr_series:
-        series_id = series.get("id")
-        tvdb_id = series.get("tvdbId")
-        if not series_id: continue
-        
-        try:
-            episodes = await sonarr_svc.get_episodes(series_id, settings)
-            series_episodes[series_id] = {(e.get("seasonNumber"), e.get("episodeNumber")): e for e in episodes}
-        except Exception:
-            continue
-            
-        for ep in episodes:
-            s_num = ep.get("seasonNumber")
-            e_num = ep.get("episodeNumber")
-            if not s_num or not e_num: continue
-            if not ep.get("monitored", False) and not ep.get("hasFile", False):
-                continue # Skip unmonitored missing episodes unless we want to track them all
-                
-            job_key_tvdb = (tvdb_id, s_num, e_num)
-            
-            if job_key_tvdb not in existing_jobs:
-                # Create it!
-                new_job = DownloadJob(
-                    title=f"{series.get('title')} S{s_num:02d}E{e_num:02d}",
-                    tvdb_id=tvdb_id,
-                    tmdb_id=0,  # Fallback to prevent NOT NULL constraint error
-                    media_type="tv",
-                    season_number=s_num,
-                    episode_number=e_num,
-                    status=JobStatus.DONE if ep.get("hasFile") else JobStatus.MOVIE_MISSING,
-                    monitored=ep.get("monitored", False),
-                    progress_pct=100 if ep.get("hasFile") else 0
-                )
-                session.add(new_job)
-                existing_jobs[job_key_tvdb] = new_job # Prevent duplicates
-                imported_count += 1
-                
-    if imported_count > 0:
-        session.commit()
-        # Refresh all_jobs list after insertion
-        all_jobs = session.exec(select(DownloadJob).where(DownloadJob.media_type == "tv")).all()
-
-    # 2. Second loop: Reconcile existing jobs
-    for job in all_jobs:
-        if job.status == JobStatus.IMPORTING or (job.status == JobStatus.DOWNLOADING and job.source_indexer != "sonarr"):
-            continue
-        if job.status == JobStatus.SEARCHING:
-            from datetime import datetime, timezone
-            if (datetime.utcnow() - job.updated_at).total_seconds() < 900:
-                continue
-
-        series = sonarr_map.get(job.tvdb_id) if job.tvdb_id else None
-        if not series and job.title:
-            series_title = job.title.split(" S")[0].lower()
-            series = sonarr_map_by_title.get(series_title)
-            if not series:
-                for st, s_data in sonarr_map_by_title.items():
-                    if st.startswith(series_title) or series_title.startswith(st):
-                        series = s_data
-                        break
-
-        changed = False
-
-        if not series:
-            if job.status != JobStatus.NOT_IN_RADARR:  # Reuse NOT_IN_RADARR state for Sonarr
-                job.status = JobStatus.NOT_IN_RADARR
-                job.monitored = False
-                changed = True
-                deleted_count += 1
-        else:
-            series_id = series.get("id")
-            if series_id not in series_episodes:
-                try:
-                    episodes = await sonarr_svc.get_episodes(series_id, settings)
-                    series_episodes[series_id] = {(e.get("seasonNumber"), e.get("episodeNumber")): e for e in episodes}
-                except Exception:
-                    continue
-
-            ep = series_episodes[series_id].get((job.season_number, job.episode_number))
-            if not ep:
-                if job.status != JobStatus.NOT_IN_RADARR:
-                    job.status = JobStatus.NOT_IN_RADARR
-                    job.monitored = False
-                    changed = True
-                    deleted_count += 1
-            else:
-                monitored = ep.get("monitored", False)
-                if job.monitored != monitored:
-                    job.monitored = monitored
-                    changed = True
-
-                if ep.get("hasFile"):
-                    if job.status != JobStatus.DONE:
-                        job.status = JobStatus.DONE
-                        job.progress_pct = 100
-                        changed = True
-                elif job.status in (JobStatus.DONE, JobStatus.NOT_IN_RADARR, JobStatus.NOT_FOUND, JobStatus.SEARCHING):
-                    job.status = JobStatus.MOVIE_MISSING
-                    job.progress_pct = 0
-                    job.file_path = None
-                    changed = True
-
-        if changed:
-            session.add(job)
-            updated_count += 1
-
-    if updated_count > 0 or imported_count > 0:
-        session.commit()
-        from backend.db_logger import log_action
-        log_action("Manual", f"Sync All Sonarr: {updated_count} updated, {imported_count} newly imported.")
-
-    return {"status": "success", "updated": updated_count, "imported": imported_count}
+@router.post("/jobs/import-sonarr")
+async def trigger_import_sonarr():
+    """Import all series from Sonarr to ensure they are tracked as jobs."""
+    try:
+        return await sync_svc.import_sonarr_series()
+    except sync_svc.SyncError as e:
+        _raise_sync(e)
 
 
 @router.post("/jobs/discovery")
 async def trigger_discovery(session: Session = Depends(get_session)):
-    """Manually trigger a background discovery batch."""
+    """Manually trigger a background discovery batch (ignores the auto-search toggles)."""
     settings = get_settings(session)
-    from backend.sync import run_discovery_batch
-    triggered = await run_discovery_batch(settings.missing_search_batch_size)
+    triggered = await sync_svc.run_discovery_batch(settings.missing_search_batch_size, force=True)
     return {"status": "success", "triggered": triggered}
 
 
 # ── Connection tests ─────────────────────────────────────────────────────────
-
 
 @router.get("/test/sonarr")
 async def test_sonarr(session: Session = Depends(get_session)):
@@ -1046,6 +659,7 @@ async def test_sonarr(session: Session = Depends(get_session)):
         return {"status": "ok", "version": result.get("version")}
     except Exception as e:
         raise HTTPException(status_code=503, detail=str(e))
+
 
 @router.get("/test/radarr")
 async def test_radarr(session: Session = Depends(get_session)):

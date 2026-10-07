@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { api } from '../api'
-import { formatETA } from '../components/ui'
+import { api, describeSync } from '../api'
+import { formatETA, toast } from '../components/ui'
+import { usePolling } from '../hooks'
 import TriggerModal from '../components/TriggerModal'
 
 const STATUS_COLOR = {
@@ -253,7 +254,7 @@ function MovieModal({ movie, onClose, onTrigger, onDelete, onCancel, onToggleMon
     )
 }
 
-function PosterCard({ movie, onTrigger, onDelete, onCancel, onSelect, onToggleMonitor }) {
+function PosterCard({ movie, onTrigger, onDelete, onCancel, onSelect, onToggleMonitor, onSync, syncing }) {
     const status = (movie.status || '').toLowerCase()
     const colour = STATUS_COLOR[status] || 'var(--text-muted)'
     const label = STATUS_LABEL[status] || status.toUpperCase()
@@ -339,9 +340,17 @@ function PosterCard({ movie, onTrigger, onDelete, onCancel, onSelect, onToggleMo
                     {status === 'discovered' ? 'Download' : '▶'}
                 </button>
                 <button
+                    className="btn btn-secondary btn-sm poster-sync-btn"
+                    onClick={() => onSync(movie.id)}
+                    disabled={syncing}
+                    title="Sync this movie with Radarr"
+                >
+                    {syncing ? '…' : '↻'}
+                </button>
+                <button
                     className="btn btn-danger btn-sm"
                     onClick={() => onDelete(movie.id)}
-                    title="Delete Job"
+                    title="Delete the file and reset this movie"
                     style={{ flex: 0, padding: '4px 8px' }}
                 >
                     🗑️
@@ -368,15 +377,17 @@ export default function Movies() {
     const [settings, setSettings] = useState(null)
     const [showTriggerModal, setShowTriggerModal] = useState(false)
 
+    const [syncingIds, setSyncingIds] = useState(() => new Set())
+
     const handleImportList = async () => {
         if (!confirm('This will import all monitored movies from Radarr. Continue?')) return
         setIsTriggering(true)
         try {
             const res = await api.importRadarr()
-            alert(`Imported ${res.imported} movies successfully!`)
+            toast(`Imported ${res.imported} movies successfully!`, 'success')
             fetchMovies()
         } catch (err) {
-            alert(`Error: ${err.message}`)
+            toast(`Import failed: ${err.message}`, 'error')
         } finally {
             setIsTriggering(false)
         }
@@ -397,80 +408,79 @@ export default function Movies() {
     }
 
     useEffect(() => {
-        fetchMovies()
         api.getSettings().then(setSettings).catch(() => {})
-        const interval = setInterval(fetchMovies, 5000)
-        return () => clearInterval(interval)
     }, [])
+    usePolling(fetchMovies, 5000)
 
     const triggerMonitored = async () => {
         setIsTriggering(true)
         try {
-            await api.triggerMonitored()
+            const res = await api.triggerMonitored()
+            toast(`Searching for ${res.triggered} monitored movie(s)`, 'success')
             fetchMovies()
-        } catch (err) { console.error(err) }
+        } catch (err) { toast(`Trigger failed: ${err.message}`, 'error') }
         finally { setIsTriggering(false) }
     }
 
     const deleteJob = async (id) => {
-        if (!confirm('Clear this movie?')) return
+        if (!confirm("Delete this movie's file from Radarr and reset it to 'missing'?")) return
         try {
-            await fetch(`/api/jobs/${id}`, { method: 'DELETE' })
+            await api.deleteJob(id)
             fetchMovies()
-        } catch (err) { console.error(err) }
+        } catch (err) { toast(`Delete failed: ${err.message}`, 'error') }
     }
 
     const cancelJob = async (id) => {
         try {
             await api.cancelJob(id)
             fetchMovies()
-        } catch (err) { console.error(err) }
+        } catch (err) { toast(`Cancel failed: ${err.message}`, 'error') }
     }
 
     const toggleMonitor = async (movie) => {
         try {
-            await fetch(`/api/jobs/${movie.id}/monitor`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ monitored: !movie.monitored })
-            })
+            // The server stores the value Radarr confirms, so always refresh from the response.
+            await api.setMonitored(movie.id, !movie.monitored)
             fetchMovies()
-        } catch (err) { console.error(err) }
+        } catch (err) { toast(`Could not change monitored: ${err.message}`, 'error') }
     }
 
     const syncMovie = async (id) => {
+        setSyncingIds(prev => new Set(prev).add(id))
         try {
-            await api.syncMovie(id)
+            const res = await api.syncMovie(id)
+            toast(describeSync(res), res.changed ? 'success' : 'info')
+        } catch (err) {
+            toast(`Sync failed: ${err.message}`, 'error')
+        } finally {
+            setSyncingIds(prev => { const n = new Set(prev); n.delete(id); return n })
             fetchMovies()
-        } catch (err) { console.error(err) }
+        }
     }
 
     const syncAll = async () => {
         setIsTriggering(true)
         try {
-            await api.syncAll()
-            fetchMovies()
-        } catch (err) { console.error(err) }
-        finally { setIsTriggering(false) }
+            const res = await api.syncAll()
+            toast(describeSync(res), res.updated ? 'success' : 'info')
+        } catch (err) { toast(`Sync All failed: ${err.message}`, 'error') }
+        finally { setIsTriggering(false); fetchMovies() }
     }
 
     const triggerJob = async (movie, indexer = null) => {
         if ((movie.status || '').toLowerCase() === 'discovered' && !indexer) {
             try {
-                await fetch(`/api/jobs/${movie.id}/download`, { method: 'POST' })
+                await api.downloadDiscovered(movie.id)
                 fetchMovies()
-            } catch (err) { console.error(err) }
+            } catch (err) { toast(`Download failed: ${err.message}`, 'error') }
             return
         }
         
         try {
-            await fetch('/api/jobs/trigger', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ tmdb_id: movie.tmdb_id, language: movie.language, indexer })
-            })
+            await api.triggerDownload({ tmdb_id: movie.tmdb_id, language: movie.language, indexer })
+            toast(`Search started for ${movie.title}`, 'info')
             fetchMovies()
-        } catch (err) { console.error(err) }
+        } catch (err) { toast(`Search failed: ${err.message}`, 'error') }
         
         if (indexer) {
             setSelectedMovie(null) // close modal after manual trigger
@@ -570,6 +580,8 @@ export default function Movies() {
                             onCancel={cancelJob}
                             onSelect={() => setSelectedMovie(movie)}
                             onToggleMonitor={toggleMonitor}
+                            onSync={syncMovie}
+                            syncing={syncingIds.has(movie.id)}
                         />
                     ))}
                 </div>

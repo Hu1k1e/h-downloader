@@ -117,6 +117,12 @@ In Jellyseerr → **Settings → Notifications → Webhook**:
 | GET | `/api/settings` | Current configuration |
 | GET | `/api/test/radarr` | Test Radarr connection |
 | GET | `/api/test/tmdb` | Test TMDB connection |
+| POST | `/api/jobs/{id}/sync` | Reconcile one movie/episode with live Radarr/Sonarr |
+| POST | `/api/jobs/sync-all` | Reconcile all movies with Radarr (awaited) |
+| POST | `/api/jobs/sync-all-sonarr` | Reconcile all episodes with Sonarr |
+| PUT | `/api/jobs/{id}/monitor` | Toggle monitored in Radarr/Sonarr (stores the confirmed value) |
+| GET | `/api/sync/status` | Health of the background Radarr/Sonarr syncs |
+| POST | `/webhook/radarr` · `/webhook/sonarr` | Radarr/Sonarr event receivers |
 | GET | `/health` | Health check |
 
 ## Environment Variables
@@ -132,3 +138,23 @@ In Jellyseerr → **Settings → Notifications → Webhook**:
 | `EINTHUSAN_LANGUAGES` | `malayalam,tamil,telugu` | Languages to search |
 | `DIGITAL_RELEASE_FALLBACK_DAYS` | `90` | Days after theatrical if no digital date |
 | `WEBHOOK_SECRET` | _(empty)_ | Optional HMAC secret for webhook |
+| `API_AUTH_TOKEN` | _(empty)_ | If set, every `/api/*` request must send it (`X-API-Key` or `Authorization: Bearer`) |
+| `WEBHOOK_TOKEN` | _(empty)_ | If set, Radarr/Sonarr webhooks must send `?token=` or `X-Webhook-Token` |
+| `CORS_ORIGINS` | _(empty)_ | Comma-separated extra origins for CORS (default: same-origin only) |
+| `MAX_CONCURRENT_DOWNLOADS` | `3` | Simultaneous direct/stream downloads |
+| `TAMILMV_BASE_URL` | `https://www.1tamilmv.fi/` | Entry URL used to discover the current 1TamilMV domain |
+
+## Security
+
+H-Downloader has no login of its own. Keep it on a private network or behind a reverse proxy, and for anything
+beyond that set `API_AUTH_TOKEN` (the UI will ask for the token once and remember it in the browser) and
+`WEBHOOK_TOKEN` (add `?token=<value>` to the Radarr/Sonarr webhook URLs). API keys you enter in Settings are
+stored in the SQLite database in `/app/data`, so treat that volume as sensitive.
+
+## Development
+
+```bash
+pip install -r requirements-dev.txt
+pytest            # backend tests (uses a throwaway data dir)
+cd frontend && npm ci && npm run build
+```

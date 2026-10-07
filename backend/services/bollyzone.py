@@ -5,6 +5,7 @@ from datetime import datetime
 from bs4 import BeautifulSoup
 import logging
 from typing import Optional, Tuple, List
+from urllib.parse import quote_plus
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +85,7 @@ async def search_series(title: str, air_date: str, season: int = None, episode: 
     Search BollyZone for a TV series episode matching the title and air date.
     Returns the episode URL if found.
     """
-    url = f"https://www.bollyzone.to/?s={httpx.URL(title).query.decode('utf-8') if httpx.URL(title).query else title.replace(' ', '+')}"
+    url = f"https://www.bollyzone.to/?s={quote_plus(title)}"
     headers = {"User-Agent": USER_AGENT}
     
     date_variants = _generate_date_variants(air_date)

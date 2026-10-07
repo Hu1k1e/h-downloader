@@ -1,3 +1,33 @@
+import { useEffect, useState } from 'react'
+
+const toastListeners = new Set()
+
+/** Show a transient message. type: 'info' | 'success' | 'error' */
+export function toast(message, type = 'info', ms = 5000) {
+    toastListeners.forEach(l => l({ id: Date.now() + Math.random(), message, type, ms: type === 'error' ? Math.max(ms, 8000) : ms }))
+}
+
+export function ToastHost() {
+    const [items, setItems] = useState([])
+    useEffect(() => {
+        const listener = (t) => {
+            setItems(prev => [...prev.slice(-3), t])
+            setTimeout(() => setItems(prev => prev.filter(x => x.id !== t.id)), t.ms)
+        }
+        toastListeners.add(listener)
+        return () => { toastListeners.delete(listener) }
+    }, [])
+    return (
+        <div className="toast-host" role="status" aria-live="polite">
+            {items.map(t => (
+                <div key={t.id} className={`toast toast-${t.type}`} onClick={() => setItems(prev => prev.filter(x => x.id !== t.id))}>
+                    {t.message}
+                </div>
+            ))}
+        </div>
+    )
+}
+
 export function StatusBadge({ status }) {
     const labels = {
         downloading: 'Downloading',
@@ -10,6 +40,8 @@ export function StatusBadge({ status }) {
         importing: 'Importing',
         skipped: 'Skipped',
         movie_missing: 'File Missing',
+        not_in_radarr: 'Not in Radarr/Sonarr',
+        discovered: 'Discovered',
     }
     return (
         <span className={`badge badge-${status}`}>

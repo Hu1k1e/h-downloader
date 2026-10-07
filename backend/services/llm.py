@@ -2,7 +2,7 @@ import httpx
 import logging
 import json
 from typing import Optional, List, Tuple
-from backend.database import get_session, get_settings
+from backend.database import get_settings
 from backend.models import AppSettings
 
 logger = logging.getLogger(__name__)
@@ -29,7 +29,7 @@ async def _call_llm_api(messages: list, settings: AppSettings) -> Optional[str]:
         url = f"{settings.llm_api_url.rstrip('/')}/chat/completions"
         logger.debug(f"Calling LLM API: {url} with model {payload['model']}")
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(url, json=payload, headers=headers)
             resp.raise_for_status()
             data = resp.json()

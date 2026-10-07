@@ -1,4 +1,8 @@
 import { Routes, Route, NavLink, Navigate } from 'react-router-dom'
+import { useState } from 'react'
+import { api } from './api'
+import { usePolling } from './hooks'
+import { ToastHost } from './components/ui'
 import Dashboard from './pages/Dashboard'
 import Movies from './pages/Movies'
 import Series from './pages/Series'
@@ -41,9 +45,23 @@ function Sidebar() {
     )
 }
 
+function SyncBanner() {
+    const [problems, setProblems] = useState([])
+    usePolling(async () => {
+        try {
+            const st = await api.getSyncStatus()
+            setProblems(Object.entries(st).filter(([, v]) => v.ok === false).map(([k, v]) => `${k[0].toUpperCase()}${k.slice(1)}: ${v.error}`))
+        } catch { /* backend unreachable: pages show their own errors */ }
+    }, 30000)
+    if (!problems.length) return null
+    return <div className="sync-banner">Sync with {problems.join(' · ')} — statuses shown may be out of date.</div>
+}
+
 function App() {
     return (
         <div className="app-shell">
+            <SyncBanner />
+            <ToastHost />
             <Sidebar />
             <Routes>
                 <Route path="/dashboard" element={<Dashboard />} />

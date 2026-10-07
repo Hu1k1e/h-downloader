@@ -1,6 +1,7 @@
 """
 Sonarr API v3 client.
 """
+import logging
 from typing import Optional, Dict, Any, List
 import httpx
 
@@ -43,25 +44,9 @@ async def get_full_queue(settings: AppSettings) -> List[Dict[str, Any]]:
 
 
 async def get_episode_queue_status(episode_id: int, settings: AppSettings) -> Optional[Dict[str, Any]]:
-    """
-    Checks the Sonarr queue for a specific Sonarr episode_id.
-    """
-    async with httpx.AsyncClient(timeout=15) as client:
-        resp = await client.get(_url(settings, "/queue?pageSize=10000"), headers=_headers(settings))
-        resp.raise_for_status()
-        queue_data = resp.json()
-        records = queue_data.get("records", []) if isinstance(queue_data, dict) else queue_data
-        
-        episode_records = [r for r in records if r.get("episodeId") == episode_id]
-        if not episode_records:
-            return None
-            
-        for record in episode_records:
-            tracked = record.get("trackedDownloadStatus", "").lower()
-            if tracked not in ("warning", "error"):
-                return record
-                
-        return episode_records[0]
+    """Checks the Sonarr queue for a specific Sonarr episode_id."""
+    from backend.services.radarr import pick_queue_record
+    return pick_queue_record(await get_full_queue(settings), "episodeId", episode_id)
 
 
 async def ensure_series_added(tvdb_id: int, title: str, settings: AppSettings) -> Dict[str, Any]:
@@ -119,22 +104,16 @@ async def trigger_rescan(series_id: int, settings: AppSettings) -> bool:
 
 
 async def get_quality_profile_resolution(profile_id: int, settings: AppSettings) -> Optional[str]:
+    from backend.services.radarr import resolution_from_profile_name
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(_url(settings, "/qualityprofile"), headers=_headers(settings))
             resp.raise_for_status()
-            profiles = resp.json()
-            for p in profiles:
+            for p in resp.json():
                 if p.get("id") == profile_id:
-                    name = p.get("name", "").lower()
-                    if "1080p" in name: return "1080p"
-                    if "720p" in name: return "720p"
-                    if "2160p" in name or "4k" in name: return "2160p"
-                    if "4k" in name: return "4k"
-                    return name
+                    return resolution_from_profile_name(p.get("name", ""))
             return None
     except Exception as e:
-        import logging
         logging.getLogger(__name__).error(f"Failed to fetch quality profiles: {e}")
         return None
 
@@ -173,3 +152,16 @@ async def delete_episode_file(episode_file_id: int, settings: AppSettings) -> bo
         resp = await client.delete(_url(settings, f"/episodefile/{episode_file_id}"), headers=_headers(settings))
         resp.raise_for_status()
         return True
+
+
+async def update_episode_monitored(episode_id: int, monitored: bool, settings: AppSettings) -> bool:
+    """Set an episode's monitored flag in Sonarr and return the value Sonarr confirms."""
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.put(
+            _url(settings, "/episode/monitor"), headers=_headers(settings),
+            json={"episodeIds": [episode_id], "monitored": monitored},
+        )
+        resp.raise_for_status()
+        confirm = await client.get(_url(settings, f"/episode/{episode_id}"), headers=_headers(settings))
+        confirm.raise_for_status()
+        return bool(confirm.json().get("monitored", monitored))

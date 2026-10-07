@@ -117,11 +117,11 @@ def update_settings(update_data: AppSettingsUpdate, session: Session = Depends(g
         settings.qbittorrent_category_series = update_data.qbittorrent_category_series
         
     if update_data.auto_delete_failed_torrents_hours is not None:
-        settings.auto_delete_failed_torrents_hours = update_data.auto_delete_failed_torrents_hours
+        settings.auto_delete_failed_torrents_hours = max(0, update_data.auto_delete_failed_torrents_hours)
     if update_data.min_file_size_mb is not None:
-        settings.min_file_size_mb = update_data.min_file_size_mb
+        settings.min_file_size_mb = max(0, update_data.min_file_size_mb)
     if update_data.max_file_size_mb is not None:
-        settings.max_file_size_mb = update_data.max_file_size_mb
+        settings.max_file_size_mb = max(0, update_data.max_file_size_mb)
         
     if update_data.enable_jellyseerr_auto_request is not None:
         settings.enable_jellyseerr_auto_request = update_data.enable_jellyseerr_auto_request

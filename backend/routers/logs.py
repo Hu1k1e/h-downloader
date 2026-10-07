@@ -49,21 +49,26 @@ def download_logs_csv(
         
     logs = session.exec(query).all()
     
+    def safe(value):
+        # Prevent spreadsheet formula injection from log text
+        text = "" if value is None else str(value)
+        return "'" + text if text[:1] in ("=", "+", "-", "@") else text
+
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["Timestamp", "Level", "Action", "Message", "TMDB ID", "Job ID", "Error"])
-    
+    writer.writerow(["Timestamp", "Level", "Action", "Message", "TMDB ID", "TVDB ID", "Job ID"])
+
     for log in logs:
         writer.writerow([
             log.timestamp.isoformat(),
             log.level.value if log.level else "",
-            log.action,
-            log.message,
+            safe(log.action),
+            safe(log.message),
             log.tmdb_id or "",
+            log.tvdb_id or "",
             log.job_id or "",
-            log.error_detail or ""
         ])
-        
+
     csv_str = output.getvalue()
     return Response(
         content=csv_str,

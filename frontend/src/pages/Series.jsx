@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { api } from '../api'
-import { StatusBadge, ProgressBar, timeAgo, formatBytes, formatETA, formatAirDate } from '../components/ui'
+import { api, describeSync } from '../api'
+import { StatusBadge, ProgressBar, timeAgo, formatBytes, formatETA, formatAirDate, toast } from '../components/ui'
+import { usePolling } from '../hooks'
 import TriggerModal from '../components/TriggerModal'
 
 const STATUS_COLOR = {
@@ -346,10 +347,10 @@ export default function Series() {
         setIsTriggering(true)
         try {
             const res = await api.importSonarr()
-            alert(`Imported/updated ${res.imported} episodes successfully!`)
+            toast(`Imported/updated ${res.imported} episodes successfully!`, 'success')
             fetchMovies()
         } catch (err) {
-            alert(`Error: ${err.message}`)
+            toast(`Import failed: ${err.message}`, 'error')
         } finally {
             setIsTriggering(false)
         }
@@ -370,86 +371,79 @@ export default function Series() {
     }
 
     useEffect(() => {
-        fetchMovies()
         api.getSettings().then(setSettings).catch(() => {})
-        const interval = setInterval(fetchMovies, 5000)
-        return () => clearInterval(interval)
     }, [])
+    usePolling(fetchMovies, 5000)
 
     const triggerMonitoredTV = async () => {
         setIsTriggering(true)
         try {
-            await api.triggerMonitoredTV()
+            const res = await api.triggerMonitoredTV()
+            toast(`Searching for ${res.triggered} monitored episode(s)`, 'success')
             fetchMovies()
-        } catch (err) { console.error(err) }
+        } catch (err) { toast(`Trigger failed: ${err.message}`, 'error') }
         finally { setIsTriggering(false) }
     }
 
     const deleteJob = async (id) => {
-        if (!confirm('Clear this episode?')) return
+        if (!confirm("Delete this episode's file from Sonarr and reset it to 'missing'?")) return
         try {
-            await fetch(`/api/jobs/${id}`, { method: 'DELETE' })
+            await api.deleteJob(id)
             fetchMovies()
-        } catch (err) { console.error(err) }
+        } catch (err) { toast(`Delete failed: ${err.message}`, 'error') }
     }
 
     const cancelJob = async (id) => {
         try {
             await api.cancelJob(id)
             fetchMovies()
-        } catch (err) { console.error(err) }
+        } catch (err) { toast(`Cancel failed: ${err.message}`, 'error') }
     }
 
     const toggleMonitor = async (movie) => {
         try {
-            await fetch(`/api/jobs/${movie.id}/monitor`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ monitored: !movie.monitored })
-            })
+            await api.setMonitored(movie.id, !movie.monitored)
             fetchMovies()
-        } catch (err) { console.error(err) }
+        } catch (err) { toast(`Could not change monitored: ${err.message}`, 'error') }
     }
 
     const syncMovie = async (id) => {
         try {
-            await api.syncAllSonarr() 
-            fetchMovies()
-        } catch (err) { console.error(err) }
+            const res = await api.syncAllSonarr()
+            toast(describeSync(res, 'Sonarr'), res.updated ? 'success' : 'info')
+        } catch (err) { toast(`Sync failed: ${err.message}`, 'error') }
+        finally { fetchMovies() }
     }
 
     const syncAllSonarr = async () => {
         setIsTriggering(true)
         try {
-            await api.syncAllSonarr()
-            fetchMovies()
-        } catch (err) { console.error(err) }
-        finally { setIsTriggering(false) }
+            const res = await api.syncAllSonarr()
+            toast(describeSync(res, 'Sonarr'), res.updated ? 'success' : 'info')
+        } catch (err) { toast(`Sync All failed: ${err.message}`, 'error') }
+        finally { setIsTriggering(false); fetchMovies() }
     }
     
     const triggerJob = async (movie, indexer = null) => {
         if ((movie.status || '').toLowerCase() === 'discovered' && !indexer) {
             try {
-                await fetch(`/api/jobs/${movie.id}/download`, { method: 'POST' })
+                await api.downloadDiscovered(movie.id)
                 fetchMovies()
-            } catch (err) { console.error(err) }
+            } catch (err) { toast(`Download failed: ${err.message}`, 'error') }
             return
         }
         
         try {
-            await fetch('/api/jobs/trigger', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    media_type: 'tv',
-                    tvdb_id: movie.tvdb_id,
-                    season_number: movie.season_number,
-                    episode_number: movie.episode_number,
-                    indexer
-                })
+            await api.triggerDownload({
+                media_type: 'tv',
+                tvdb_id: movie.tvdb_id,
+                season_number: movie.season_number,
+                episode_number: movie.episode_number,
+                indexer
             })
+            toast('Search started', 'info')
             fetchMovies()
-        } catch (err) { console.error(err) }
+        } catch (err) { toast(`Search failed: ${err.message}`, 'error') }
     }
 
     const handleImportUrl = async (jobId, url) => {

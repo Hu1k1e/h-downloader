@@ -39,7 +39,20 @@ DIGITAL_RELEASE_FALLBACK_DAYS: int = int(
 
 # ── App ───────────────────────────────────────────────────────────────────────
 DATA_DIR: str = os.getenv("DATA_DIR", "/app/data")
-APP_VERSION: str = "1.0.0"
+APP_VERSION: str = "1.1.0"
+
+# ── Security (all optional / opt-in) ───────────────────────────────────────────
+# If set, every /api/* request must send this token as `X-API-Key: <token>`
+# or `Authorization: Bearer <token>`. Leave empty to keep the API open.
+API_AUTH_TOKEN: str = os.getenv("API_AUTH_TOKEN", "")
+# If set, Radarr/Sonarr webhooks must send `X-Webhook-Token: <token>` (or ?token=).
+WEBHOOK_TOKEN: str = os.getenv("WEBHOOK_TOKEN", "")
+# Comma-separated list of extra browser origins allowed by CORS. Default: same-origin only.
+CORS_ORIGINS: List[str] = _get_list("CORS_ORIGINS", "")
+
+# ── Tuning ──────────────────────────────────────────────────────────────────────
+MAX_CONCURRENT_DOWNLOADS: int = max(1, int(os.getenv("MAX_CONCURRENT_DOWNLOADS", "3")))
+TAMILMV_BASE_URL: str = os.getenv("TAMILMV_BASE_URL", "https://www.1tamilmv.fi/")
 
 # Map from spoken language name → Einthusan URL slug
 LANGUAGE_SLUG_MAP = {

@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
+import { usePolling } from '../hooks'
 import { StatusBadge, ProgressBar, formatBytes, timeAgo, formatETA } from '../components/ui'
 import TriggerModal from '../components/TriggerModal'
 
@@ -24,11 +25,7 @@ export default function Dashboard() {
         } catch { }
     }, [])
 
-    useEffect(() => {
-        load()
-        const t = setInterval(load, 5000)
-        return () => clearInterval(t)
-    }, [load])
+    usePolling(load, 5000, [load])
 
     const recent = jobs.slice(0, 8)
 

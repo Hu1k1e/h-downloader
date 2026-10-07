@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   einthusan-downloader:
     image: ghcr.io/svijaymohan745/h-downloader:latest
@@ -20,3 +18,7 @@ services:
       - TMDB_API_KEY=your_tmdb_api_key_here
       - EINTHUSAN_LANGUAGES=malayalam,tamil,telugu,hindi
       - DATA_DIR=/app/data
+      # ── Optional hardening (see README "Security") ──
+      # - API_AUTH_TOKEN=choose_a_long_random_string       # require X-API-Key on every /api request
+      # - WEBHOOK_TOKEN=choose_another_random_string       # then use .../webhook/radarr?token=<value>
+      # - MAX_CONCURRENT_DOWNLOADS=3

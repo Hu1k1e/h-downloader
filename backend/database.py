@@ -17,91 +17,89 @@ engine = create_engine(
     connect_args={"check_same_thread": False, "timeout": 30.0}
 )
 
+# (table, column, DDL type + default). Each column is checked and added independently,
+# so a partially-migrated database heals itself on the next start.
+_MIGRATIONS = [
+    ("appsettings", "download_sources_priority", "VARCHAR NOT NULL DEFAULT 'einthusan,1tamilmv'"),
+    ("appsettings", "qbittorrent_url", "VARCHAR NOT NULL DEFAULT 'http://localhost:8080'"),
+    ("appsettings", "qbittorrent_username", "VARCHAR NOT NULL DEFAULT 'admin'"),
+    ("appsettings", "qbittorrent_password", "VARCHAR NOT NULL DEFAULT 'adminadmin'"),
+    ("appsettings", "qbittorrent_category_movies", "VARCHAR NOT NULL DEFAULT 'radarr'"),
+    ("appsettings", "qbittorrent_category_series", "VARCHAR NOT NULL DEFAULT 'sonarr'"),
+    ("appsettings", "auto_delete_failed_torrents_hours", "INTEGER NOT NULL DEFAULT 24"),
+    ("appsettings", "min_file_size_mb", "INTEGER NOT NULL DEFAULT 800"),
+    ("appsettings", "max_file_size_mb", "INTEGER NOT NULL DEFAULT 15000"),
+    ("appsettings", "search_delay_seconds", "INTEGER NOT NULL DEFAULT 120"),
+    ("appsettings", "enable_jellyseerr_auto_request", "BOOLEAN NOT NULL DEFAULT 1"),
+    ("appsettings", "enable_radarr_auto_search", "BOOLEAN NOT NULL DEFAULT 1"),
+    ("appsettings", "missing_search_interval_hours", "INTEGER NOT NULL DEFAULT 24"),
+    ("appsettings", "missing_search_batch_size", "INTEGER NOT NULL DEFAULT 50"),
+    ("appsettings", "movie_download_sources_priority", "VARCHAR NOT NULL DEFAULT 'einthusan,1tamilmv'"),
+    ("appsettings", "tv_download_sources_priority", "VARCHAR NOT NULL DEFAULT '1tamilmv,bollyzone'"),
+    ("appsettings", "sonarr_url", "VARCHAR NOT NULL DEFAULT 'http://localhost:8989'"),
+    ("appsettings", "sonarr_api_key", "VARCHAR NOT NULL DEFAULT ''"),
+    ("appsettings", "sonarr_root_folder", "VARCHAR NOT NULL DEFAULT '/tv'"),
+    ("appsettings", "sonarr_quality_profile_id", "INTEGER NOT NULL DEFAULT 1"),
+    ("appsettings", "enable_sonarr_auto_search", "BOOLEAN NOT NULL DEFAULT 1"),
+    ("appsettings", "new_release_grace_hours", "INTEGER NOT NULL DEFAULT 48"),
+    ("appsettings", "llm_enabled", "BOOLEAN NOT NULL DEFAULT 0"),
+    ("appsettings", "llm_api_url", "VARCHAR NOT NULL DEFAULT 'https://api.freellmapi.com/v1'"),
+    ("appsettings", "llm_api_key", "VARCHAR NOT NULL DEFAULT ''"),
+    ("appsettings", "llm_model", "VARCHAR NOT NULL DEFAULT 'gpt-3.5-turbo'"),
+    ("appsettings", "fmovies_base_url", "VARCHAR NOT NULL DEFAULT 'https://www.f-movies.org'"),
+    ("downloadjob", "source_indexer", "VARCHAR"),
+    ("downloadjob", "torrent_hash", "VARCHAR"),
+    ("downloadjob", "blacklisted_urls", "VARCHAR"),
+    ("downloadjob", "poster_path", "VARCHAR"),
+    ("downloadjob", "discovered_source", "VARCHAR"),
+    ("downloadjob", "discovered_url", "VARCHAR"),
+    ("downloadjob", "discovered_magnet", "VARCHAR"),
+    ("downloadjob", "eta_seconds", "INTEGER"),
+    ("downloadjob", "media_type", "VARCHAR NOT NULL DEFAULT 'movie'"),
+    ("downloadjob", "tvdb_id", "INTEGER"),
+    ("downloadjob", "season_number", "INTEGER"),
+    ("downloadjob", "episode_number", "INTEGER"),
+    ("downloadjob", "release_date", "DATETIME"),
+    ("downloadjob", "arr_id", "INTEGER"),
+    ("downloadjob", "in_arr", "BOOLEAN NOT NULL DEFAULT 1"),
+    ("downloadjob", "has_file", "BOOLEAN NOT NULL DEFAULT 0"),
+    ("downloadjob", "last_synced_at", "DATETIME"),
+    ("downloadjob", "sync_error", "VARCHAR"),
+    ("logentry", "tvdb_id", "INTEGER"),
+    ("logentry", "job_id", "INTEGER"),
+]
+
+
+def _run_migrations():
+    from sqlalchemy import text
+    import logging
+    log = logging.getLogger(__name__)
+    with engine.begin() as conn:
+        existing: dict = {}
+        for table, column, ddl in _MIGRATIONS:
+            if table not in existing:
+                rows = conn.execute(text(f"PRAGMA table_info({table})")).fetchall()
+                existing[table] = {row[1] for row in rows}
+            cols = existing[table]
+            if not cols or column in cols:  # table missing (fresh DB handled by create_all) or column present
+                continue
+            try:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
+                cols.add(column)
+                log.info(f"DB migration: added {table}.{column}")
+            except Exception as e:  # keep going so one bad column does not block the rest
+                log.error(f"DB migration failed for {table}.{column}: {e}")
+
+
 def init_db():
     SQLModel.metadata.create_all(engine)
-    
-    # Auto-migrate AppSettings table (since SQLite doesn't add columns automatically)
+
     try:
-        from sqlalchemy import text
-        with engine.begin() as conn:
-            result = conn.execute(text("PRAGMA table_info(appsettings)")).fetchall()
-            columns = [row[1] for row in result]
-            if result and "download_sources_priority" not in columns:
-                conn.execute(text("ALTER TABLE appsettings ADD COLUMN download_sources_priority VARCHAR NOT NULL DEFAULT 'einthusan,1tamilmv'"))
-                conn.execute(text("ALTER TABLE appsettings ADD COLUMN qbittorrent_url VARCHAR NOT NULL DEFAULT 'http://localhost:8080'"))
-                conn.execute(text("ALTER TABLE appsettings ADD COLUMN qbittorrent_username VARCHAR NOT NULL DEFAULT 'admin'"))
-                conn.execute(text("ALTER TABLE appsettings ADD COLUMN qbittorrent_password VARCHAR NOT NULL DEFAULT 'adminadmin'"))
-                conn.execute(text("ALTER TABLE appsettings ADD COLUMN qbittorrent_category_movies VARCHAR NOT NULL DEFAULT 'radarr'"))
-                conn.execute(text("ALTER TABLE appsettings ADD COLUMN qbittorrent_category_series VARCHAR NOT NULL DEFAULT 'sonarr'"))
-            if result and "auto_delete_failed_torrents_hours" not in columns:
-                conn.execute(text("ALTER TABLE appsettings ADD COLUMN auto_delete_failed_torrents_hours INTEGER NOT NULL DEFAULT 24"))
-                conn.execute(text("ALTER TABLE appsettings ADD COLUMN min_file_size_mb INTEGER NOT NULL DEFAULT 800"))
-                conn.execute(text("ALTER TABLE appsettings ADD COLUMN max_file_size_mb INTEGER NOT NULL DEFAULT 15000"))
-            if result and "search_delay_seconds" not in columns:
-                conn.execute(text("ALTER TABLE appsettings ADD COLUMN search_delay_seconds INTEGER NOT NULL DEFAULT 120"))
-            if result and "enable_jellyseerr_auto_request" not in columns:
-                conn.execute(text("ALTER TABLE appsettings ADD COLUMN enable_jellyseerr_auto_request BOOLEAN NOT NULL DEFAULT 1"))
-                conn.execute(text("ALTER TABLE appsettings ADD COLUMN enable_radarr_auto_search BOOLEAN NOT NULL DEFAULT 1"))
-            if result and "missing_search_interval_hours" not in columns:
-                conn.execute(text("ALTER TABLE appsettings ADD COLUMN missing_search_interval_hours INTEGER NOT NULL DEFAULT 24"))
-                conn.execute(text("ALTER TABLE appsettings ADD COLUMN missing_search_batch_size INTEGER NOT NULL DEFAULT 50"))
-            if result and "movie_download_sources_priority" not in columns:
-                conn.execute(text("ALTER TABLE appsettings ADD COLUMN movie_download_sources_priority VARCHAR NOT NULL DEFAULT 'einthusan,1tamilmv'"))
-                conn.execute(text("ALTER TABLE appsettings ADD COLUMN tv_download_sources_priority VARCHAR NOT NULL DEFAULT '1tamilmv,bollyzone'"))
-            if result and "sonarr_url" not in columns:
-                conn.execute(text("ALTER TABLE appsettings ADD COLUMN sonarr_url VARCHAR NOT NULL DEFAULT 'http://localhost:8989'"))
-                conn.execute(text("ALTER TABLE appsettings ADD COLUMN sonarr_api_key VARCHAR NOT NULL DEFAULT ''"))
-                conn.execute(text("ALTER TABLE appsettings ADD COLUMN sonarr_root_folder VARCHAR NOT NULL DEFAULT '/tv'"))
-                conn.execute(text("ALTER TABLE appsettings ADD COLUMN sonarr_quality_profile_id INTEGER NOT NULL DEFAULT 1"))
-            if result and "enable_sonarr_auto_search" not in columns:
-                conn.execute(text("ALTER TABLE appsettings ADD COLUMN enable_sonarr_auto_search BOOLEAN NOT NULL DEFAULT 1"))
-            if result and "new_release_grace_hours" not in columns:
-                conn.execute(text("ALTER TABLE appsettings ADD COLUMN new_release_grace_hours INTEGER NOT NULL DEFAULT 48"))
-            if result and "llm_enabled" not in columns:
-                conn.execute(text("ALTER TABLE appsettings ADD COLUMN llm_enabled BOOLEAN NOT NULL DEFAULT 0"))
-                conn.execute(text("ALTER TABLE appsettings ADD COLUMN llm_api_url VARCHAR NOT NULL DEFAULT 'https://api.freellmapi.com/v1'"))
-                conn.execute(text("ALTER TABLE appsettings ADD COLUMN llm_api_key VARCHAR NOT NULL DEFAULT ''"))
-                conn.execute(text("ALTER TABLE appsettings ADD COLUMN llm_model VARCHAR NOT NULL DEFAULT 'gpt-3.5-turbo'"))
-            if result and "fmovies_base_url" not in columns:
-                conn.execute(text("ALTER TABLE appsettings ADD COLUMN fmovies_base_url VARCHAR NOT NULL DEFAULT 'https://www.f-movies.org'"))
-            
-            # Auto-migrate DownloadJob table
-            dj_result = conn.execute(text("PRAGMA table_info(downloadjob)")).fetchall()
-            dj_columns = [row[1] for row in dj_result]
-            if dj_result and "source_indexer" not in dj_columns:
-                conn.execute(text("ALTER TABLE downloadjob ADD COLUMN source_indexer VARCHAR"))
-                conn.execute(text("ALTER TABLE downloadjob ADD COLUMN torrent_hash VARCHAR"))
-                conn.execute(text("ALTER TABLE downloadjob ADD COLUMN blacklisted_urls VARCHAR"))
-            if dj_result and "poster_path" not in dj_columns:
-                conn.execute(text("ALTER TABLE downloadjob ADD COLUMN poster_path VARCHAR"))
-            if dj_result and "discovered_source" not in dj_columns:
-                conn.execute(text("ALTER TABLE downloadjob ADD COLUMN discovered_source VARCHAR"))
-                conn.execute(text("ALTER TABLE downloadjob ADD COLUMN discovered_url VARCHAR"))
-                conn.execute(text("ALTER TABLE downloadjob ADD COLUMN discovered_magnet VARCHAR"))
-            if dj_result and "eta_seconds" not in dj_columns:
-                conn.execute(text("ALTER TABLE downloadjob ADD COLUMN eta_seconds INTEGER"))
-            if dj_result and "media_type" not in dj_columns:
-                conn.execute(text("ALTER TABLE downloadjob ADD COLUMN media_type VARCHAR NOT NULL DEFAULT 'movie'"))
-            if dj_result and "tvdb_id" not in dj_columns:
-                conn.execute(text("ALTER TABLE downloadjob ADD COLUMN tvdb_id INTEGER"))
-            if dj_result and "season_number" not in dj_columns:
-                conn.execute(text("ALTER TABLE downloadjob ADD COLUMN season_number INTEGER"))
-            if dj_result and "episode_number" not in dj_columns:
-                conn.execute(text("ALTER TABLE downloadjob ADD COLUMN episode_number INTEGER"))
-            if dj_result and "release_date" not in dj_columns:
-                conn.execute(text("ALTER TABLE downloadjob ADD COLUMN release_date DATETIME"))
-                
-            # Auto-migrate LogEntry table
-            le_result = conn.execute(text("PRAGMA table_info(logentry)")).fetchall()
-            le_columns = [row[1] for row in le_result]
-            if le_result and "tvdb_id" not in le_columns:
-                conn.execute(text("ALTER TABLE logentry ADD COLUMN tvdb_id INTEGER"))
-            if le_result and "job_id" not in le_columns:
-                conn.execute(text("ALTER TABLE logentry ADD COLUMN job_id INTEGER"))
+        _run_migrations()
     except Exception as e:
         import logging
-        logging.getLogger(__name__).warning(f"Auto-migration failed: {e}")
-        
+        logging.getLogger(__name__).error(f"Auto-migration failed: {e}")
+
     # Initialize settings if table exists but is empty
     with Session(engine) as session:
         settings = session.exec(select(AppSettings)).first()
