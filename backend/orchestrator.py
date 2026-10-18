@@ -36,7 +36,14 @@ def _update_job(session: Session, job: DownloadJob, **kwargs):
     session.refresh(job)
 
 
-async def process_request(job_id: int, auto_download: bool = True, indexer: Optional[str] = None, fallback_from: Optional[str] = None, skip_release_check: bool = False) -> int:
+async def process_request(
+    job_id: int,
+    auto_download: bool = True,
+    indexer: Optional[str] = None,
+    fallback_from: Optional[str] = None,
+    skip_release_check: bool = False,
+    force: bool = False,
+) -> int:
     """
     Main entry point. Runs the full pipeline for a specific job in the background.
     Returns the job_id immediately. A job that already has a pipeline running is ignored.
@@ -50,17 +57,23 @@ async def process_request(job_id: int, auto_download: bool = True, indexer: Opti
         if not job:
             return job_id
 
-        if job.status not in _PIPELINE_ACTIVE_STATUSES:
+        # Allow the pipeline to proceed when manually triggered (force=True) or on a job that is
+        # currently downloading via Radarr/Sonarr (native download). The user wants
+        # our custom sources to search regardless of what the *arr is doing.
+        native_downloading = (job.status == JobStatus.DOWNLOADING
+                              and (job.source_indexer or "") in ("radarr", "sonarr"))
+
+        if job.status not in _PIPELINE_ACTIVE_STATUSES or native_downloading or force:
             job.status = JobStatus.SEARCHING
             session.add(job)
             session.commit()
             session.refresh(job)
 
-        log_action("Orchestrator", f"Pipeline started for '{job.title}' (job_id={job_id}, indexer={indexer or 'all'}, fallback_from={fallback_from})", tmdb_id=job.tmdb_id, tvdb_id=job.tvdb_id, job_id=job_id)
+        log_action("Orchestrator", f"Pipeline started for '{job.title}' (job_id={job_id}, indexer={indexer or 'all'}, fallback_from={fallback_from}, force={force})", tmdb_id=job.tmdb_id, tvdb_id=job.tvdb_id, job_id=job_id)
 
     _running_pipelines.add(job_id)
     asyncio.create_task(
-        _run_pipeline_guarded(job_id, auto_download, indexer, fallback_from, skip_release_check)
+        _run_pipeline_guarded(job_id, auto_download, indexer, fallback_from, skip_release_check, force)
     )
     return job_id
 
@@ -77,10 +90,10 @@ async def process_many(job_ids: Iterable[int], delay: float = 1.0, **kwargs) -> 
             logger.error(f"Failed to start pipeline for job {job_id}: {e}")
 
 
-async def _run_pipeline_guarded(job_id, auto_download, indexer, fallback_from, skip_release_check):
+async def _run_pipeline_guarded(job_id, auto_download, indexer, fallback_from, skip_release_check, force: bool = False):
     """Run the pipeline; an unexpected crash must never leave the job stuck in 'searching'."""
     try:
-        await _run_pipeline(job_id, auto_download, indexer, fallback_from, skip_release_check)
+        await _run_pipeline(job_id, auto_download, indexer, fallback_from, skip_release_check, force)
     except Exception as e:
         logger.exception(f"Pipeline crashed for job {job_id}: {e}")
         try:
@@ -101,21 +114,26 @@ async def _run_pipeline(
     indexer: Optional[str] = None,
     fallback_from: Optional[str] = None,
     skip_release_check: bool = False,
+    force: bool = False,
 ):
     with Session(engine) as session:
         job = session.get(DownloadJob, job_id)
         if not job: return
         settings = get_settings(session)
 
-        # ── Guard: skip if already downloading or done ────────────────────────
+        # ── Guard: skip if already downloading (our own sources) or done ──────
+        # Allow through if force=True or if the download is from Radarr/Sonarr (the user manually triggered
+        # a search to try custom sources while the *arr is downloading).
         if job.status in _PIPELINE_ACTIVE_STATUSES:
-            logger.info(f"Job '{job.title}' is already in status '{job.status}' — skipping re-trigger.")
-            return
+            if not force and (job.source_indexer or "") not in ("radarr", "sonarr"):
+                logger.info(f"Job '{job.title}' is already in status '{job.status}' (source={job.source_indexer}) — skipping re-trigger.")
+                return
+            logger.info(f"Job '{job.title}' was in status {job.status} (source={job.source_indexer}) — allowing search to proceed (force={force}).")
 
         if job.media_type == "movie":
-            await _run_movie_pipeline(session, job, settings, auto_download, indexer, fallback_from, skip_release_check)
+            await _run_movie_pipeline(session, job, settings, auto_download, indexer, fallback_from, skip_release_check, force)
         elif job.media_type == "tv":
-            await _run_tv_pipeline(session, job, settings, auto_download, indexer, fallback_from, skip_release_check)
+            await _run_tv_pipeline(session, job, settings, auto_download, indexer, fallback_from, skip_release_check, force)
 
 
 def _ordered_sources(configured: str, default: list, indexer: Optional[str], fallback_from: Optional[str]) -> list:
@@ -140,7 +158,7 @@ async def _rescan_movie(movie_id: Optional[int], settings: AppSettings, title: s
         logger.warning(f"Radarr rescan failed for '{title}' (the file is on disk; Radarr will pick it up on its next scan): {e}")
 
 
-async def _run_movie_pipeline(session: Session, job: DownloadJob, settings: AppSettings, auto_download: bool, indexer: Optional[str], fallback_from: Optional[str], skip_release_check: bool):
+async def _run_movie_pipeline(session: Session, job: DownloadJob, settings: AppSettings, auto_download: bool, indexer: Optional[str], fallback_from: Optional[str], skip_release_check: bool, force: bool = False):
     tmdb_id = job.tmdb_id
     title = job.title
     year = job.year
@@ -158,7 +176,10 @@ async def _run_movie_pipeline(session: Session, job: DownloadJob, settings: AppS
         _update_job(session, job, status=JobStatus.DONE, progress_pct=100, error_msg=None, has_file=True, in_arr=True)
         return
 
-    if arr_movie and "id" in arr_movie and not indexer:
+    # Only defer to Radarr's native download when this is an automatic/fallback trigger.
+    # When the user provides a specific indexer or is explicitly re-triggering (force=True),
+    # skip this deferral so our custom source search runs.
+    if arr_movie and "id" in arr_movie and not indexer and not fallback_from and not force:
         try:
             queue_item = await radarr.get_movie_queue_status(arr_movie["id"], settings)
             if queue_item:
@@ -322,11 +343,24 @@ async def _run_movie_pipeline(session: Session, job: DownloadJob, settings: AppS
                 logger.error(f"FMovies search/download failed: {e}")
 
     if not success_source:
+        if arr_movie and "id" in arr_movie and force:
+            try:
+                queue_item = await radarr.get_movie_queue_status(arr_movie["id"], settings)
+                if queue_item:
+                    tracked = (queue_item.get("trackedDownloadStatus") or "").lower()
+                    q_status = (queue_item.get("status") or "").lower()
+                    if tracked not in ("warning", "error") and q_status != "completed":
+                        logger.info(f"Custom sources had no match for '{title}', reverting to active Radarr download.")
+                        _update_job(session, job, status=JobStatus.DOWNLOADING, source_indexer="radarr", error_msg=None)
+                        return
+            except Exception as e:
+                logger.warning(f"Failed to check Radarr queue: {e}")
+
         msg = f"'{title}' not found on all configured sources ({', '.join(sources)})"
         _update_job(session, job, status=JobStatus.NOT_FOUND, error_msg=msg)
 
 
-async def _run_tv_pipeline(session: Session, job: DownloadJob, settings: AppSettings, auto_download: bool, indexer: Optional[str], fallback_from: Optional[str], skip_release_check: bool):
+async def _run_tv_pipeline(session: Session, job: DownloadJob, settings: AppSettings, auto_download: bool, indexer: Optional[str], fallback_from: Optional[str], skip_release_check: bool, force: bool = False):
     tvdb_id = job.tvdb_id
     title = job.title
     job_id = job.id
@@ -344,7 +378,7 @@ async def _run_tv_pipeline(session: Session, job: DownloadJob, settings: AppSett
             _update_job(session, job, status=JobStatus.DONE, progress_pct=100, error_msg=None, has_file=True, in_arr=True)
             return
 
-        if not indexer:
+        if not indexer and not fallback_from and not force:
             queue_item = await sonarr.get_episode_queue_status(ep["id"], settings)
             if queue_item:
                 tracked = (queue_item.get("trackedDownloadStatus") or "").lower()
@@ -468,6 +502,19 @@ async def _run_tv_pipeline(session: Session, job: DownloadJob, settings: AppSett
                 logger.error(f"FMovies TV search/download failed: {e}")
 
     if not success_source:
+        if force:
+            try:
+                queue_item = await sonarr.get_episode_queue_status(ep["id"], settings)
+                if queue_item:
+                    tracked = (queue_item.get("trackedDownloadStatus") or "").lower()
+                    q_status = (queue_item.get("status") or "").lower()
+                    if tracked not in ("warning", "error") and q_status != "completed":
+                        logger.info(f"Custom sources had no match for '{title}', reverting to active Sonarr download.")
+                        _update_job(session, job, status=JobStatus.DOWNLOADING, source_indexer="sonarr", error_msg=None)
+                        return
+            except Exception as e:
+                logger.warning(f"Failed to check Sonarr queue: {e}")
+
         msg = f"'{title}' not found on all configured sources ({', '.join(sources)})"
         _update_job(session, job, status=JobStatus.NOT_FOUND, error_msg=msg)
 

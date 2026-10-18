@@ -333,8 +333,8 @@ function PosterCard({ movie, onTrigger, onDelete, onCancel, onSelect, onToggleMo
                 <button
                     className="btn btn-primary btn-sm"
                     onClick={() => onTrigger(movie)}
-                    disabled={status === 'downloading' || status === 'importing'}
-                    title={status === 'discovered' ? 'Download Discovered Content' : 'Force search'}
+                    disabled={status === 'importing'}
+                    title={status === 'discovered' ? 'Download Discovered Content' : status === 'downloading' ? 'Force search custom sources' : 'Force search'}
                     style={{ flex: 1 }}
                 >
                     {status === 'discovered' ? 'Download' : '▶'}

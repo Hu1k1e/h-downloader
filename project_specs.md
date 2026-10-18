@@ -1329,3 +1329,44 @@ enabled (unsafe on network filesystems); 1TamilMV TV matching is still title-bas
 Added a synchronous "sync Radarr status" path so the UI saw updated state immediately instead of after a background task.
 The endpoint/function named there (`sync_radarr_status`, `POST /api/jobs/sync-radarr`) were later replaced by `POST /api/jobs/sync-all`
 and, as of 2026-10-06, `sync.sync_all_movies()` built on `services/reconcile.py`.
+
+---
+
+## 2026-10-18 — Radarr Downloading Manual Trigger & Fast Deletion Sync
+
+**Problems:**
+1. **Trigger while Downloading:** Clicking the play/search button (▶) on a movie or TV episode card while it was actively downloading in Radarr did nothing because the frontend disabled the button and the backend orchestrator immediately deferred to the Radarr queue.
+2. **Deleting Radarr Download & Sync Latency:** Deleting a download in Radarr was not reflected when clicking "Sync" on the card, nor did it clear quickly on its own. `active_job_tracker_loop` continuously updated `job.updated_at` every 5 seconds, causing `age < QUEUE_GRACE` (60s) in `reconcile_job` to perpetually evaluate as True and leave the job waiting for the queue to populate. Furthermore, queue lookups used cached Radarr responses.
+
+**Changes made:**
+- **Reconciliation Rules (`backend/services/reconcile.py`):**
+  - Updated `reconcile_job()`:
+    - Added `skip_queue_grace: bool = False` parameter.
+    - If `item is None` (movie deleted from Radarr), now resets `source_indexer=None`, `progress_pct=0`, `eta_seconds=None`, `downloaded_bytes=0`, `total_bytes=0`, and transitions status to `NOT_IN_RADARR`.
+    - If a native download is missing from queue, checks `has_had_progress = (job.progress_pct or 0) > 0 or (job.downloaded_bytes or 0) > 0`. If progress was previously made, or `skip_queue_grace=True`, it immediately resets download fields, transitions status to `MOVIE_MISSING`, and triggers fallback instead of waiting 60s.
+- **Sync & Tracker Responsiveness (`backend/sync.py`):**
+  - Added `fresh: bool = False` to `_ArrContext.radarr_queue()` and `sonarr_queue()`.
+  - In `_track_native()`: When queue item is missing, issues a fresh re-check and passes `skip_queue_grace=True` if confirmed gone.
+  - In `sync_single_job()`: Passes `skip_queue_grace=True` to `reconcile_job()` so manual sync immediately clears deleted downloads.
+  - In `apply_radarr_state()` and `apply_sonarr_state()`: Passes `skip_queue_grace=True`.
+- **Manual Trigger Support (`backend/orchestrator.py` & `backend/routers/jobs.py`):**
+  - Added `force: bool = False` flag to `process_request()`, `_run_pipeline_guarded()`, `_run_pipeline()`, `_run_movie_pipeline()`, and `_run_tv_pipeline()`.
+  - Allowed manual triggers (`force=True` or `native_downloading`) to transition to `JobStatus.SEARCHING`.
+  - Bypassed Radarr/Sonarr queue deferral when `force=True`. If custom sources return no match on a forced manual run, it cleanly checks if Radarr/Sonarr is still actively downloading and reverts back to tracking without leaving the job in `NOT_FOUND`.
+  - Updated `/jobs/trigger` and `/jobs/{job_id}/retry` to pass `force=True`.
+- **Frontend Controls (`frontend/src/pages/Movies.jsx` & `frontend/src/pages/Series.jsx`):**
+  - Enabled the Play (▶) button on movie cards and Trigger button on episode cards during `downloading` (only disabled during `importing`), with updated tooltips.
+- **Test Suite (`tests/test_reconcile.py` & `tests/test_e2e_radarr.py`):**
+  - Added unit and e2e tests covering manual force searches and instant sync on deleted downloads. Full pytest suite passes with 72 tests.
+
+**Files changed:**
+- `backend/services/reconcile.py`
+- `backend/sync.py`
+- `backend/orchestrator.py`
+- `backend/routers/jobs.py`
+- `frontend/src/pages/Movies.jsx`
+- `frontend/src/pages/Series.jsx`
+- `tests/test_reconcile.py`
+- `tests/test_e2e_radarr.py`
+- `project_specs.md`
+

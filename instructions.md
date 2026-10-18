@@ -321,13 +321,14 @@ The GitHub Actions workflow at `.github/workflows/docker.yml` automatically buil
 1. **`active_job_tracker_loop()`** — Every 5s. For every `searching` / `downloading` / `importing` job: mirrors
    Radarr/Sonarr queue progress, tracks qBittorrent torrents (progress, ETA, file filtering, stall removal,
    completion → `importing`), resolves `importing` → `done`, and triggers a fallback search when a download died.
+   If a native download with progress vanishes from queue, it re-verifies immediately with fresh data and transitions to `movie_missing` without waiting.
    Every ~30s it also adopts Radarr grabs it doesn't know about yet.
 2. **`discovery_tracker_loop()`** — Every `missing_search_interval_hours` (default 24h). Retries *monitored*
    MOVIE_MISSING/SKIPPED/NOT_FOUND/FAILED jobs via `run_discovery_batch()` (respects the auto-search toggles).
 3. **`radarr_state_sync_loop()`** — Every 60s. Full reconciliation with Radarr via `reconcile_job()`.
 4. **`sonarr_state_sync_loop()`** — Every 60s. Same for Sonarr episodes.
 
-Radarr/Sonarr are the source of truth for existence, monitored flag, file presence and queue state. A failed sync is
+Radarr/Sonarr are the source of truth for existence, monitored flag, file presence and queue state. Manual sync (`/jobs/{id}/sync` and `/jobs/sync-all`) and manual triggers (`force=True`) bypass queue grace and native deferral so users can immediately reconcile state and force custom source searches. A failed sync is
 recorded (`/api/sync/status`, `DownloadJob.sync_error`) and shown in the UI instead of silently leaving stale data.
 
 ## New Release Grace Period

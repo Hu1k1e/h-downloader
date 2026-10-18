@@ -239,7 +239,8 @@ function SeriesModal({ series, onClose, onTrigger, onDelete, onCancel, onToggleM
                                                 className="btn btn-primary btn-sm" 
                                                 style={{ padding: '4px 8px', fontSize: 11 }}
                                                 onClick={() => onTrigger(ep)}
-                                                disabled={ep.status === 'downloading' || ep.status === 'importing'}
+                                                disabled={ep.status === 'importing'}
+                                                title={ep.status === 'downloading' ? 'Force search custom sources' : 'Trigger search'}
                                             >
                                                 Trigger
                                             </button>

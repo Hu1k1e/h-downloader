@@ -292,7 +292,7 @@ def apply_radarr_state(session: Session, movies, queue, settings: AppSettings, n
         stats.total += 1
         movie = by_tmdb.get(job.tmdb_id)
         q = radarr.pick_queue_record(queue, "movieId", movie.get("id")) if movie else None
-        res = reconcile_job(job, movie, q, source="radarr", now=now, snapshot_at=snapshot_at)
+        res = reconcile_job(job, movie, q, source="radarr", now=now, snapshot_at=snapshot_at, skip_queue_grace=True)
         stats.note(job, res)
         if res.changed:
             session.add(job)
@@ -380,7 +380,7 @@ def apply_sonarr_state(session: Session, snap: SonarrSnapshot, now: datetime, sn
         if series is not None:
             ep = snap.episodes.get(series.get("id"), {}).get((job.season_number, job.episode_number))
         q = radarr.pick_queue_record(snap.queue, "episodeId", ep.get("id")) if ep else None
-        res = reconcile_job(job, ep, q, source="sonarr", now=now, snapshot_at=snapshot_at)
+        res = reconcile_job(job, ep, q, source="sonarr", now=now, snapshot_at=snapshot_at, skip_queue_grace=True)
         if ep:
             air = _parse_air_date(ep.get("airDateUtc"))
             if air and job.release_date != air:
@@ -481,7 +481,7 @@ async def sync_single_job(job_id: int) -> Dict[str, Any]:
         if not job:
             raise SyncError(404, "Job not found")
         q = radarr.pick_queue_record(queue, qkey, item.get("id")) if item else None
-        res = reconcile_job(job, item, q, source=source, now=now, snapshot_at=snapshot_at)
+        res = reconcile_job(job, item, q, source=source, now=now, snapshot_at=snapshot_at, skip_queue_grace=True)
         if res.changed:
             session.add(job)
         session.commit()
@@ -628,8 +628,8 @@ class _ArrContext:
             self._movies_fresh = fresh or self._movies_fresh
         return self._movies
 
-    async def radarr_queue(self) -> List[Dict[str, Any]]:
-        if self._rqueue is None:
+    async def radarr_queue(self, fresh: bool = False) -> List[Dict[str, Any]]:
+        if self._rqueue is None or fresh:
             self._rqueue = await radarr.get_full_queue(self.settings)
         return self._rqueue
 
@@ -638,8 +638,8 @@ class _ArrContext:
             self._series = {s["tvdbId"]: s for s in await sonarr.get_all_series(self.settings) if s.get("tvdbId")}
         return self._series
 
-    async def sonarr_queue(self) -> List[Dict[str, Any]]:
-        if self._squeue is None:
+    async def sonarr_queue(self, fresh: bool = False) -> List[Dict[str, Any]]:
+        if self._squeue is None or fresh:
             self._squeue = await sonarr.get_full_queue(self.settings)
         return self._squeue
 
@@ -654,10 +654,10 @@ class _ArrContext:
         if job.media_type == "tv":
             series = (await self.series()).get(job.tvdb_id)
             ep = (await self.episodes(series["id"])).get((job.season_number, job.episode_number)) if series else None
-            q = radarr.pick_queue_record(await self.sonarr_queue(), "episodeId", ep.get("id")) if ep else None
+            q = radarr.pick_queue_record(await self.sonarr_queue(fresh=fresh), "episodeId", ep.get("id")) if ep else None
             return ep, q, "sonarr"
         movie = (await self.movies(fresh=fresh)).get(job.tmdb_id)
-        q = radarr.pick_queue_record(await self.radarr_queue(), "movieId", movie.get("id")) if movie else None
+        q = radarr.pick_queue_record(await self.radarr_queue(fresh=fresh), "movieId", movie.get("id")) if movie else None
         return movie, q, "radarr"
 
 
@@ -672,10 +672,15 @@ def _fail_job(job: DownloadJob, message: str) -> None:
 async def _track_native(session: Session, job: DownloadJob, ctx: _ArrContext, now: datetime, snapshot_at: datetime) -> ReconcileResult:
     """Radarr/Sonarr-owned download: mirror queue progress; detect completion, failure and deletion."""
     item, q, source = await ctx.lookup(job)
+    # If queue item disappeared, do a fresh re-check to confirm it's truly gone.
+    # If still gone after the fresh check, skip the QUEUE_GRACE: we know this was a real
+    # download that was removed (not a new grab that hasn't appeared yet).
+    skip_grace = False
     if q is None:
-        # No queue record: re-check against fresh data before concluding it finished/vanished.
         item, q, source = await ctx.lookup(job, fresh=True)
-    res = reconcile_job(job, item, q, source=source, now=now, snapshot_at=snapshot_at)
+        if q is None:
+            skip_grace = True  # confirmed gone on fresh data
+    res = reconcile_job(job, item, q, source=source, now=now, snapshot_at=snapshot_at, skip_queue_grace=skip_grace)
     if res.fallback:
         log_action("System", f"Radarr/Sonarr download for '{job.title}' failed or vanished ({'; '.join(res.notes)}). Triggering fallback search.",
                    tmdb_id=job.tmdb_id, tvdb_id=job.tvdb_id, job_id=job.id)

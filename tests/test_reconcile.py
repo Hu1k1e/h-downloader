@@ -81,6 +81,28 @@ def test_native_download_vanished_waits_for_queue_grace_then_falls_back():
     assert j.status == JobStatus.MOVIE_MISSING and r.fallback
 
 
+def test_native_download_vanished_with_skip_queue_grace():
+    # Manual sync / confirmed gone: does not wait for queue grace
+    j = job(JobStatus.DOWNLOADING, source_indexer="radarr", updated_at=NOW - timedelta(seconds=5))
+    r = reconcile_job(j, movie(), None, source="radarr", now=NOW, skip_queue_grace=True)
+    assert j.status == JobStatus.MOVIE_MISSING and r.fallback and j.source_indexer is None
+
+
+def test_native_download_with_progress_vanished_does_not_wait_for_grace():
+    # If the download was already in progress (progress > 0), queue had already populated.
+    # It must immediately become missing when removed, not wait 60s.
+    j = job(JobStatus.DOWNLOADING, source_indexer="radarr", progress_pct=50, downloaded_bytes=500, updated_at=NOW - timedelta(seconds=5))
+    r = run(j, movie(), None)
+    assert j.status == JobStatus.MOVIE_MISSING and r.fallback and j.progress_pct == 0 and j.source_indexer is None
+
+
+def test_movie_deleted_from_radarr_clears_download_fields():
+    j = job(JobStatus.DOWNLOADING, source_indexer="radarr", progress_pct=60, downloaded_bytes=600, total_bytes=1000)
+    r = run(j, None)
+    assert j.status == JobStatus.NOT_IN_RADARR and j.source_indexer is None and j.progress_pct == 0
+    assert j.in_arr is False and j.monitored is False and j.downloaded_bytes == 0
+
+
 def test_done_but_file_gone():
     j = job(JobStatus.DONE, file_path="/x", updated_at=NOW - timedelta(hours=1))
     run(j, movie())

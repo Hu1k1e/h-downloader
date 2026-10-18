@@ -507,7 +507,7 @@ async def trigger_download(req: TriggerRequest, background_tasks: BackgroundTask
                 session.refresh(job)
             job_ids.append(job.id)
 
-        background_tasks.add_task(process_many, job_ids, auto_download=True, indexer=req.indexer)
+        background_tasks.add_task(process_many, job_ids, auto_download=True, indexer=req.indexer, force=True)
         log_action("Manual", f"Triggered {len(job_ids)} TV episodes for tvdb_id={tvdb_id} season={req.season_number}", tvdb_id=tvdb_id)
         return {"status": "accepted", "tvdb_id": tvdb_id, "triggered": len(job_ids)}
 
@@ -547,7 +547,7 @@ async def trigger_download(req: TriggerRequest, background_tasks: BackgroundTask
         session.refresh(job)
 
     log_action("Manual", f"Manual search triggered for tmdb_id={tmdb_id} (language={req.language}, indexer={req.indexer})", tmdb_id=tmdb_id, job_id=job.id)
-    background_tasks.add_task(process_request, job.id, auto_download=True, indexer=req.indexer)
+    background_tasks.add_task(process_request, job.id, auto_download=True, indexer=req.indexer, force=True)
     return {"status": "accepted", "tmdb_id": tmdb_id, "job_id": job.id}
 
 
@@ -590,7 +590,7 @@ async def retry_job(job_id: int, background_tasks: BackgroundTasks, session: Ses
     session.commit()
 
     log_action("Manual", f"Retrying job for '{job.title}'", tmdb_id=job.tmdb_id, tvdb_id=job.tvdb_id, job_id=job.id)
-    background_tasks.add_task(process_request, job.id)
+    background_tasks.add_task(process_request, job.id, force=True)
     return {"status": "retrying", "tmdb_id": job.tmdb_id}
 
 

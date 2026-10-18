@@ -207,3 +207,55 @@ def test_quality_profile_resolution_and_queue_picker(radarr_server):
     assert radarr.pick_queue_record(recs, "movieId", 1)["n"] == 2
     assert radarr.pick_queue_record(recs[:1], "movieId", 1)["n"] == 1
     assert radarr.pick_queue_record(recs, "movieId", 9) is None
+
+
+def test_sync_single_movie_removes_download_when_deleted_from_radarr(client, radarr_server):
+    """When a download is deleted in Radarr, syncing the movie immediately resets it to missing."""
+    from backend.database import engine
+
+    radarr_server["queue"].clear()  # No active download in Radarr
+    radarr_server["movies"][2].update(hasFile=False, movieFile=None)
+    with Session(engine) as s:
+        j = DownloadJob(tmdb_id=102, title="Grabbing", status=JobStatus.DOWNLOADING,
+                        source_indexer="radarr", progress_pct=40, downloaded_bytes=400,
+                        language="malayalam", updated_at=datetime.utcnow())
+        s.add(j)
+        s.commit()
+        jid = j.id
+
+    r = client.post(f"/api/jobs/{jid}/sync")
+    assert r.status_code == 200
+    res = r.json()
+    assert res["state"] in ("movie_missing", "searching")
+    with Session(engine) as s:
+        updated = s.get(DownloadJob, jid)
+        assert updated.status in (JobStatus.MOVIE_MISSING, JobStatus.SEARCHING)
+        assert updated.source_indexer is None or updated.status == JobStatus.SEARCHING
+        assert updated.progress_pct == 0
+
+
+def test_manual_trigger_proceeds_while_radarr_downloading(client, radarr_server, monkeypatch):
+    """When a movie is currently downloading via Radarr, clicking trigger searches custom sources."""
+    from backend.database import engine
+    from backend import orchestrator
+    searched = []
+
+    async def fake_run_pipeline(*args, **kwargs):
+        searched.append(args)
+
+    monkeypatch.setattr(orchestrator, "_run_pipeline", fake_run_pipeline)
+    radarr_server["movies"][2] = {"id": 2, "tmdbId": 102, "title": "Grabbing", "hasFile": False, "monitored": True}
+
+    with Session(engine) as s:
+        j = DownloadJob(tmdb_id=102, title="ActiveRadarr", status=JobStatus.DOWNLOADING,
+                        source_indexer="radarr", progress_pct=30, language="malayalam")
+        s.add(j)
+        s.commit()
+        jid = j.id
+
+    r = client.post("/api/jobs/trigger", json={"tmdb_id": 102, "language": "malayalam"})
+    assert r.status_code == 200
+    with Session(engine) as s:
+        updated = s.get(DownloadJob, jid)
+        assert updated.status == JobStatus.SEARCHING
+
