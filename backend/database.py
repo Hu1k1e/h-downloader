@@ -5,7 +5,7 @@ import os
 from sqlmodel import create_engine, SQLModel, Session, select
 from sqlalchemy.pool import NullPool
 from backend import config
-from backend.models import AppSettings
+from backend.models import AppSettings, DATA_VERSION
 
 os.makedirs(config.DATA_DIR, exist_ok=True)
 DATABASE_URL = f"sqlite:///{config.DATA_DIR}/einthusan_downloader.db"
@@ -47,6 +47,8 @@ _MIGRATIONS = [
     ("appsettings", "llm_api_key", "VARCHAR NOT NULL DEFAULT ''"),
     ("appsettings", "llm_model", "VARCHAR NOT NULL DEFAULT 'gpt-3.5-turbo'"),
     ("appsettings", "fmovies_base_url", "VARCHAR NOT NULL DEFAULT 'https://www.f-movies.org'"),
+    # Existing databases start at 0 so _run_data_migrations() runs; fresh ones use the model default.
+    ("appsettings", "data_version", "INTEGER NOT NULL DEFAULT 0"),
     ("downloadjob", "source_indexer", "VARCHAR"),
     ("downloadjob", "torrent_hash", "VARCHAR"),
     ("downloadjob", "blacklisted_urls", "VARCHAR"),
@@ -91,6 +93,24 @@ def _run_migrations():
                 log.error(f"DB migration failed for {table}.{column}: {e}")
 
 
+def _run_data_migrations():
+    """One-time value fixes, applied in order and recorded in appsettings.data_version."""
+    from sqlalchemy import text
+    import logging
+    log = logging.getLogger(__name__)
+    with engine.begin() as conn:
+        row = conn.execute(text("SELECT data_version FROM appsettings LIMIT 1")).fetchone()
+        if row is None or row[0] >= DATA_VERSION:
+            return
+        if row[0] < 1:
+            # The Radarr auto-search toggle was removed from the UI in June but kept its stored value,
+            # and since 2026-10-06 it gates every automatic movie search. A stale 'off' silently stopped
+            # all movie fallbacks/discovery. Reset it once; the toggle is visible in Settings again.
+            conn.execute(text("UPDATE appsettings SET enable_radarr_auto_search = 1, enable_sonarr_auto_search = 1"))
+            log.info("Data migration 1: re-enabled Radarr/Sonarr auto-search (toggle was hidden from the UI).")
+        conn.execute(text("UPDATE appsettings SET data_version = :v"), {"v": DATA_VERSION})
+
+
 def init_db():
     SQLModel.metadata.create_all(engine)
 
@@ -99,6 +119,12 @@ def init_db():
     except Exception as e:
         import logging
         logging.getLogger(__name__).error(f"Auto-migration failed: {e}")
+
+    try:
+        _run_data_migrations()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Data migration failed: {e}")
 
     # Initialize settings if table exists but is empty
     with Session(engine) as session:

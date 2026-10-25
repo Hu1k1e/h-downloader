@@ -8,6 +8,9 @@ import json
 
 from sqlmodel import Field, SQLModel
 
+# Bump together with a new step in database._run_data_migrations().
+DATA_VERSION = 1
+
 
 class LogLevel(str, Enum):
     INFO = "info"
@@ -185,6 +188,9 @@ class AppSettings(SQLModel, table=True):
     
     # FMovies Settings
     fmovies_base_url: str = Field(default="https://www.f-movies.org")
+
+    # Last one-time data migration applied (see database._run_data_migrations).
+    data_version: int = Field(default=DATA_VERSION)
 
 class AppSettingsRead(SQLModel):
     radarr_url: str

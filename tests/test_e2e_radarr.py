@@ -183,6 +183,44 @@ def test_tracker_triggers_fallback_when_native_download_disappears(client, radar
     assert set(fallbacks) == {jid}  # the 60s sync loop may detect it too; process_request dedupes
 
 
+def test_fresh_grab_survives_tracker_and_state_sync_before_it_reaches_the_queue(client, radarr_server, monkeypatch):
+    """Regression (Dude/Tharangam): Grab webhook, then the tracker / 60s sync ran before Radarr
+    listed the download and declared it 'vanished' 3s after the grab."""
+    from backend import sync
+    from backend.database import engine
+    fallbacks = []
+    monkeypatch.setattr(sync, "_trigger_fallbacks", lambda ids, mt, st: fallbacks.extend(ids))
+    radarr_server["queue"].clear()  # grabbed, but not in the queue API yet
+    with Session(engine) as s:
+        j = DownloadJob(tmdb_id=102, title="Grabbing", status=JobStatus.DOWNLOADING, source_indexer="radarr",
+                        language="malayalam", updated_at=datetime.utcnow())
+        s.add(j)
+        s.commit()
+        jid = j.id
+
+    asyncio.run(sync._tracker_cycle(1))
+    asyncio.run(sync.radarr_state_sync_once())
+    with Session(engine) as s:
+        assert s.get(DownloadJob, jid).status == JobStatus.DOWNLOADING
+    assert fallbacks == []
+
+
+def test_disabled_auto_search_is_logged_not_silent(client):
+    from backend import sync
+    from backend.database import engine, get_settings
+    from backend.models import LogEntry, LogLevel
+    from sqlmodel import select
+    with Session(engine) as s:
+        st = get_settings(s)
+        st.enable_radarr_auto_search = False
+        s.add(st)
+        s.commit()
+        s.refresh(st)
+        sync._trigger_fallbacks([7], "movie", st)
+        logs = s.exec(select(LogEntry).where(LogEntry.level == LogLevel.WARNING)).all()
+    assert any("auto-search is disabled" in l.message for l in logs)
+
+
 def test_tracker_discovers_untracked_grab(client, radarr_server):
     from backend import sync
     from backend.database import engine

@@ -43,3 +43,37 @@ def test_partial_old_schema_is_healed_column_by_column(db):
         assert (job.title, job.in_arr, job.has_file, job.media_type) == ("old", True, False, "movie")
         assert get_settings(s).sonarr_url == "http://localhost:8989"
     init_db()  # idempotent
+
+
+def test_hidden_auto_search_toggle_is_reenabled_once(db):
+    """enable_radarr_auto_search was hidden from the UI with a stale 'off' value, which silently
+    blocked every automatic movie search. Existing DBs get it reset once; later choices stick."""
+    from backend.database import engine, init_db, get_settings
+    from backend.models import DATA_VERSION
+    from sqlmodel import Session
+
+    with engine.begin() as c:
+        c.execute(text("DROP TABLE appsettings"))
+        c.execute(text(f"CREATE TABLE appsettings ({OLD_APPSETTINGS}, "
+                       "enable_radarr_auto_search BOOLEAN NOT NULL DEFAULT 1)"))
+        c.execute(text("INSERT INTO appsettings (id, enable_radarr_auto_search) VALUES (1, 0)"))
+    init_db()
+    with Session(engine) as s:
+        st = get_settings(s)
+        assert st.enable_radarr_auto_search is True and st.data_version == DATA_VERSION
+        st.enable_radarr_auto_search = False  # the user turns it off again from Settings
+        s.add(st)
+        s.commit()
+    init_db()
+    with Session(engine) as s:
+        assert get_settings(s).enable_radarr_auto_search is False
+
+
+def test_fresh_db_needs_no_data_migration(db):
+    from backend.database import engine, init_db, get_settings
+    from backend.models import DATA_VERSION
+    from sqlmodel import Session
+    init_db()
+    with Session(engine) as s:
+        st = get_settings(s)
+        assert st.data_version == DATA_VERSION and st.enable_radarr_auto_search is True

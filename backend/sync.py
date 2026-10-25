@@ -22,7 +22,7 @@ from sqlmodel import Session, select
 from backend import config
 from backend.database import engine, get_settings
 from backend.db_logger import log_action
-from backend.models import AppSettings, DownloadJob, JobStatus
+from backend.models import AppSettings, DownloadJob, JobStatus, LogLevel
 from backend.orchestrator import process_request, process_many, is_pipeline_running
 from backend.services import radarr, qbittorrent, sonarr
 from backend.services.qbittorrent import QbittorrentError, NO_METADATA
@@ -130,9 +130,16 @@ def _trigger_fallbacks(job_ids: List[int], media_type: str, settings: AppSetting
     if not job_ids:
         return
     if not auto_search_enabled(settings, media_type):
-        logger.info(f"Auto-search disabled — not searching custom sources for {len(job_ids)} job(s).")
+        log_auto_search_disabled(media_type, f"fallback search for {len(job_ids)} job(s)", job_id=job_ids[0] if len(job_ids) == 1 else None)
         return
     asyncio.create_task(process_many(job_ids, auto_download=True))
+
+
+def log_auto_search_disabled(media_type: str, what: str, **ids) -> None:
+    """A skipped automatic search must show up in System Logs, not only the console."""
+    toggle = "Sonarr" if media_type == "tv" else "Radarr"
+    log_action("System", f"{toggle} auto-search is disabled in Settings > Automation — skipped {what}.",
+               level=LogLevel.WARNING, **ids)
 
 
 async def _fetch_and_update_metadata(job_id: int):
@@ -208,7 +215,7 @@ async def delayed_search(tmdb_id: int, language: Optional[str] = None, override_
         if not job or job.status != JobStatus.MOVIE_MISSING:
             return
         if not force and not settings.enable_radarr_auto_search:
-            logger.info(f"Auto-search disabled — not searching for '{job.title}'.")
+            log_auto_search_disabled("movie", f"search for '{job.title}'", tmdb_id=job.tmdb_id, job_id=job.id)
             return
         job_id = job.id
     logger.info(f"Delayed search: no active Radarr download for tmdb_id={tmdb_id} after {delay}s. Triggering auto-download.")
@@ -255,8 +262,9 @@ async def fetch_radarr_snapshot(settings: AppSettings) -> Tuple[List[Dict[str, A
 
 def apply_radarr_state(session: Session, movies, queue, settings: AppSettings, now: datetime,
                        snapshot_at: datetime, create_missing: bool = True,
-                       jobs: Optional[List[DownloadJob]] = None) -> SyncStats:
-    """Reconcile local movie jobs with a Radarr snapshot. Commits."""
+                       jobs: Optional[List[DownloadJob]] = None, manual: bool = False) -> SyncStats:
+    """Reconcile local movie jobs with a Radarr snapshot. Commits.
+    `manual` (user-requested sync) bypasses the queue grace for fresh grabs."""
     stats = SyncStats()
     by_tmdb = {m["tmdbId"]: m for m in movies if m.get("tmdbId")}
     all_jobs = jobs if jobs is not None else list(session.exec(
@@ -292,7 +300,7 @@ def apply_radarr_state(session: Session, movies, queue, settings: AppSettings, n
         stats.total += 1
         movie = by_tmdb.get(job.tmdb_id)
         q = radarr.pick_queue_record(queue, "movieId", movie.get("id")) if movie else None
-        res = reconcile_job(job, movie, q, source="radarr", now=now, snapshot_at=snapshot_at, skip_queue_grace=True)
+        res = reconcile_job(job, movie, q, source="radarr", now=now, snapshot_at=snapshot_at, skip_queue_grace=manual)
         stats.note(job, res)
         if res.changed:
             session.add(job)
@@ -331,9 +339,10 @@ async def fetch_sonarr_snapshot(settings: AppSettings) -> SonarrSnapshot:
 
 
 def apply_sonarr_state(session: Session, snap: SonarrSnapshot, now: datetime, snapshot_at: datetime,
-                       create_missing: bool = True, create_all: bool = False) -> SyncStats:
+                       create_missing: bool = True, create_all: bool = False, manual: bool = False) -> SyncStats:
     """Reconcile local TV jobs with a Sonarr snapshot. Commits.
-    `create_all` also creates jobs for episodes that already have a file (manual sync/import)."""
+    `create_all` also creates jobs for episodes that already have a file (manual sync/import).
+    `manual` (user-requested sync) bypasses the queue grace for fresh grabs."""
     stats = SyncStats()
     series_by_tvdb = {s["tvdbId"]: s for s in snap.series if s.get("tvdbId")}
     all_jobs = list(session.exec(select(DownloadJob).where(DownloadJob.media_type == "tv")).all())
@@ -380,7 +389,7 @@ def apply_sonarr_state(session: Session, snap: SonarrSnapshot, now: datetime, sn
         if series is not None:
             ep = snap.episodes.get(series.get("id"), {}).get((job.season_number, job.episode_number))
         q = radarr.pick_queue_record(snap.queue, "episodeId", ep.get("id")) if ep else None
-        res = reconcile_job(job, ep, q, source="sonarr", now=now, snapshot_at=snapshot_at, skip_queue_grace=True)
+        res = reconcile_job(job, ep, q, source="sonarr", now=now, snapshot_at=snapshot_at, skip_queue_grace=manual)
         if ep:
             air = _parse_air_date(ep.get("airDateUtc"))
             if air and job.release_date != air:
@@ -412,7 +421,7 @@ async def sync_all_movies() -> Dict[str, Any]:
         raise SyncError(502, f"Failed to fetch movies from Radarr: {e}")
     _record_sync("radarr")
     with Session(engine) as session:
-        stats = apply_radarr_state(session, movies, queue, settings, datetime.utcnow(), snapshot_at)
+        stats = apply_radarr_state(session, movies, queue, settings, datetime.utcnow(), snapshot_at, manual=True)
     _trigger_fallbacks(stats.fallback_ids, "movie", settings)
     for jid in stats.new_job_ids:
         asyncio.create_task(_fetch_and_update_metadata(jid))
@@ -435,7 +444,7 @@ async def sync_all_sonarr() -> Dict[str, Any]:
         raise SyncError(502, f"Failed to fetch series from Sonarr: {e}")
     _record_sync("sonarr")
     with Session(engine) as session:
-        stats = apply_sonarr_state(session, snap, datetime.utcnow(), snapshot_at, create_all=True)
+        stats = apply_sonarr_state(session, snap, datetime.utcnow(), snapshot_at, create_all=True, manual=True)
     _trigger_fallbacks(stats.fallback_ids, "tv", settings)
     if stats.updated or stats.created:
         log_action("Manual", f"Sync All Sonarr: {stats.updated} updated ({stats.deleted} no longer in Sonarr), {stats.created} newly imported.")
@@ -672,15 +681,11 @@ def _fail_job(job: DownloadJob, message: str) -> None:
 async def _track_native(session: Session, job: DownloadJob, ctx: _ArrContext, now: datetime, snapshot_at: datetime) -> ReconcileResult:
     """Radarr/Sonarr-owned download: mirror queue progress; detect completion, failure and deletion."""
     item, q, source = await ctx.lookup(job)
-    # If queue item disappeared, do a fresh re-check to confirm it's truly gone.
-    # If still gone after the fresh check, skip the QUEUE_GRACE: we know this was a real
-    # download that was removed (not a new grab that hasn't appeared yet).
-    skip_grace = False
+    # Never conclude "gone" from cached data. Whether a missing queue item means "removed" or
+    # "just grabbed, not listed yet" is reconcile_job's call (QUEUE_GRACE vs. seen-in-queue).
     if q is None:
         item, q, source = await ctx.lookup(job, fresh=True)
-        if q is None:
-            skip_grace = True  # confirmed gone on fresh data
-    res = reconcile_job(job, item, q, source=source, now=now, snapshot_at=snapshot_at, skip_queue_grace=skip_grace)
+    res = reconcile_job(job, item, q, source=source, now=now, snapshot_at=snapshot_at)
     if res.fallback:
         log_action("System", f"Radarr/Sonarr download for '{job.title}' failed or vanished ({'; '.join(res.notes)}). Triggering fallback search.",
                    tmdb_id=job.tmdb_id, tvdb_id=job.tvdb_id, job_id=job.id)
@@ -895,6 +900,8 @@ async def _tracker_cycle(cycle: int) -> None:
             elif auto_search_enabled(settings, media_type):
                 for jid in ids:
                     asyncio.create_task(process_request(jid, auto_download=True, fallback_from=source))
+            else:
+                log_auto_search_disabled(media_type, f"fallback from {source} for {len(ids)} job(s)")
 
 
 async def active_job_tracker_loop():
@@ -925,6 +932,9 @@ async def run_discovery_batch(batch_size: int, force: bool = False) -> int:
         now = datetime.utcnow()
 
         allowed = [mt for mt in ("movie", "tv") if force or auto_search_enabled(settings, mt)]
+        for mt in ("movie", "tv"):
+            if mt not in allowed:
+                log_auto_search_disabled(mt, "discovery search")
         if not allowed:
             return 0
 

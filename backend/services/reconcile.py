@@ -113,8 +113,9 @@ def reconcile_job(
     (None if it no longer exists), `queue_item` its best queue record, `source` is
     'radarr' or 'sonarr'. `snapshot_at` is when the *arr data was fetched: a local change
     made after that moment (e.g. a monitored toggle) is not overwritten by older data.
-    `skip_queue_grace` bypasses the QUEUE_GRACE wait (use when we already confirmed the
-    download existed in a previous tracker cycle, so we know it was really removed)."""
+    `skip_queue_grace` bypasses the QUEUE_GRACE wait. Only for explicit user syncs: background
+    callers must not pass it, or a grab that Radarr has not listed in its queue yet is
+    declared vanished seconds after it started."""
     now = now or datetime.utcnow()
     res = ReconcileResult(old_status=job.status, new_status=job.status)
     age = (now - job.updated_at) if job.updated_at else timedelta(days=365)
@@ -199,8 +200,10 @@ def reconcile_job(
         return res
 
     if was_native_download:
-        has_had_progress = (job.progress_pct or 0) > 0 or (job.downloaded_bytes or 0) > 0
-        if health is None and age < QUEUE_GRACE and not skip_queue_grace and not has_had_progress:
+        # Seen in the queue before (size/progress mirrored from it) -> it really was removed. A fresh
+        # grab (webhook) has none of these yet and gets QUEUE_GRACE to appear in the queue API.
+        was_queued = (job.progress_pct or 0) > 0 or (job.downloaded_bytes or 0) > 0 or (job.total_bytes or 0) > 0
+        if health is None and age < QUEUE_GRACE and not skip_queue_grace and not was_queued:
             res.notes.append("waiting for queue to populate")
             return res
         set_status(JobStatus.MOVIE_MISSING)

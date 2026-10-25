@@ -361,7 +361,8 @@ job's state from Radarr/Sonarr data. First match wins, for an item that exists i
 3. job is `importing` → unchanged (the tracker waits for the import, rescans, times out after 2h)
 4. healthy queue item → `downloading` (source = radarr/sonarr) with progress/ETA from the queue
 5. completed queue item, no file yet → `importing`
-6. a native download we were tracking failed or vanished (60s grace for the queue to populate) → `movie_missing` and a fallback search
+6. a native download we were tracking failed or vanished → `movie_missing` and a fallback search. A grab never seen in the
+   queue (no size/progress yet) gets 60s to appear there first; only explicit user syncs skip that grace
 7. `done` but the file is gone (10 min rescan grace) → `movie_missing`
 8. `not_in_radarr` / `pending` / orphaned `searching` with no file → `movie_missing`
 
@@ -1370,3 +1371,37 @@ and, as of 2026-10-06, `sync.sync_all_movies()` built on `services/reconcile.py`
 - `tests/test_e2e_radarr.py`
 - `project_specs.md`
 
+
+---
+
+## 2026-10-24 — Movies Never Auto-Searched (Dude, Tharangam): Hidden Auto-Search Toggle + False "Vanished" After Grab
+
+**Symptoms:** 'Dude' and 'Tharangam' logged "failed or vanished … Triggering fallback search" several times, but no
+"Pipeline started" ever followed; they only downloaded after a manual search. Log analysis: since 2026-10-15 **no** movie
+fallback started a pipeline (TV fallbacks always did), and daily discovery had searched only TV episodes since 2026-10-06.
+
+**Root causes:**
+1. `enable_radarr_auto_search` was removed from the Settings UI on 2026-06-06 but kept its stored value. The 2026-10-06 overhaul
+   started honouring it on every automatic movie path (tracker/sync fallbacks, discovery, webhook delayed search), so a stale
+   "off" silently blocked all of them. The skip was only logged to the console, never to System Logs.
+   (`enable_sonarr_auto_search` was added later with default on, which is why TV still worked.)
+2. The 5s tracker and the 60s Radarr/Sonarr state sync passed `skip_queue_grace=True` (2026-10-18 change), so a download
+   Radarr had grabbed seconds earlier, but not yet listed in its queue API, was declared "vanished" 3–4s after the Grab webhook.
+
+**Changes made:**
+- `database.py` / `models.py`: new `appsettings.data_version` + `_run_data_migrations()`; data migration 1 re-enables
+  Radarr/Sonarr auto-search once on existing databases (fresh DBs start at the current version). Later user choices persist.
+- `Settings.jsx`: "Movie Auto-Search" and "Episode Auto-Search" toggles are back in Settings > Automation.
+- `sync.py` / `routers/webhook.py`: every skipped automatic search writes a WARNING to System Logs
+  (`log_auto_search_disabled`).
+- `services/reconcile.py`: a native download counts as "seen in the queue" when it has a size or progress; only then is a
+  missing queue item treated as a removal without waiting for QUEUE_GRACE.
+- `sync.py`: the tracker and background state sync no longer skip the queue grace (only manual Sync / Sync All do,
+  via `manual=True`); the tracker still re-checks with fresh data before concluding anything.
+- `routers/webhook.py`: the Grab event resets downloaded/total bytes and ETA, so a re-grab gets the queue grace.
+- Tests: reconcile, migration and e2e regressions (fresh grab survives tracker + state sync; disabled auto-search is logged).
+  78 tests pass.
+
+**Files changed:** `backend/database.py`, `backend/models.py`, `backend/sync.py`, `backend/services/reconcile.py`,
+`backend/routers/webhook.py`, `frontend/src/pages/Settings.jsx`, `tests/test_reconcile.py`, `tests/test_migration.py`,
+`tests/test_e2e_radarr.py`, `instructions.md`, `project_specs.md`

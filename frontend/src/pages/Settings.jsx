@@ -71,6 +71,8 @@ export default function Settings() {
                 min_file_size_mb: data.min_file_size_mb ?? 800,
                 max_file_size_mb: data.max_file_size_mb ?? 15000,
                 enable_jellyseerr_auto_request: data.enable_jellyseerr_auto_request ?? true,
+                enable_radarr_auto_search: data.enable_radarr_auto_search ?? true,
+                enable_sonarr_auto_search: data.enable_sonarr_auto_search ?? true,
                 llm_enabled: data.llm_enabled ?? false,
                 llm_api_url: data.llm_api_url || 'https://api.freellmapi.com/v1',
                 llm_api_key: '',
@@ -631,6 +633,20 @@ export default function Settings() {
                     <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', color: 'var(--text-primary)' }}>
                         <input type="checkbox" name="enable_jellyseerr_auto_request" checked={formData.enable_jellyseerr_auto_request} onChange={e => setFormData(p => ({...p, enable_jellyseerr_auto_request: e.target.checked}))} />
                         Automatically import approved movies from Jellyseerr
+                    </label>
+                </div>
+                <div className="form-row">
+                    <span className="form-label">Movie Auto-Search <Tooltip text="Search custom sources automatically for missing Radarr movies: after the search delay, when a Radarr download fails or is removed, and in the discovery loop" /></span>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', color: 'var(--text-primary)' }}>
+                        <input type="checkbox" name="enable_radarr_auto_search" checked={formData.enable_radarr_auto_search} onChange={e => setFormData(p => ({...p, enable_radarr_auto_search: e.target.checked}))} />
+                        Automatically search custom sources for missing movies
+                    </label>
+                </div>
+                <div className="form-row">
+                    <span className="form-label">Episode Auto-Search <Tooltip text="Same as above, for missing Sonarr episodes" /></span>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', color: 'var(--text-primary)' }}>
+                        <input type="checkbox" name="enable_sonarr_auto_search" checked={formData.enable_sonarr_auto_search} onChange={e => setFormData(p => ({...p, enable_sonarr_auto_search: e.target.checked}))} />
+                        Automatically search custom sources for missing episodes
                     </label>
                 </div>
                 <div className="form-row">

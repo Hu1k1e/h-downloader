@@ -321,7 +321,8 @@ The GitHub Actions workflow at `.github/workflows/docker.yml` automatically buil
 1. **`active_job_tracker_loop()`** — Every 5s. For every `searching` / `downloading` / `importing` job: mirrors
    Radarr/Sonarr queue progress, tracks qBittorrent torrents (progress, ETA, file filtering, stall removal,
    completion → `importing`), resolves `importing` → `done`, and triggers a fallback search when a download died.
-   If a native download with progress vanishes from queue, it re-verifies immediately with fresh data and transitions to `movie_missing` without waiting.
+   A missing queue item is always re-checked with fresh data. A download already seen in the queue (size/progress known)
+   that vanishes becomes `movie_missing` immediately; a fresh grab not yet listed gets 60s (QUEUE_GRACE) to appear.
    Every ~30s it also adopts Radarr grabs it doesn't know about yet.
 2. **`discovery_tracker_loop()`** — Every `missing_search_interval_hours` (default 24h). Retries *monitored*
    MOVIE_MISSING/SKIPPED/NOT_FOUND/FAILED jobs via `run_discovery_batch()` (respects the auto-search toggles).
@@ -330,6 +331,13 @@ The GitHub Actions workflow at `.github/workflows/docker.yml` automatically buil
 
 Radarr/Sonarr are the source of truth for existence, monitored flag, file presence and queue state. Manual sync (`/jobs/{id}/sync` and `/jobs/sync-all`) and manual triggers (`force=True`) bypass queue grace and native deferral so users can immediately reconcile state and force custom source searches. A failed sync is
 recorded (`/api/sync/status`, `DownloadJob.sync_error`) and shown in the UI instead of silently leaving stale data.
+
+## Auto-Search Toggles
+
+`enable_radarr_auto_search` / `enable_sonarr_auto_search` (Settings > Automation) gate every *automatic* custom-source
+search: webhook delayed search, fallbacks after a failed/removed *arr download, and discovery. A skipped search must
+always be written to System Logs (`sync.log_auto_search_disabled`), never only to the console. Manual triggers ignore them.
+One-time value fixes go in `database._run_data_migrations()` (bump `models.DATA_VERSION`).
 
 ## New Release Grace Period
 

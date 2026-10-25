@@ -14,7 +14,7 @@ from sqlmodel import Session, select
 from backend import config
 from backend.database import get_session, get_settings
 from backend.models import AppSettings, DownloadJob, JobStatus
-from backend.sync import delayed_search
+from backend.sync import delayed_search, log_auto_search_disabled
 from backend.db_logger import log_action
 from backend.services.tmdb import get_movie_details
 
@@ -197,8 +197,11 @@ async def radarr_webhook(
             session.refresh(job)
 
         log_action("Webhook", f"Movie '{title}' added to Radarr", tmdb_id=tmdb_id, job_id=job.id)
-        if job.status == JobStatus.MOVIE_MISSING and settings.enable_radarr_auto_search:
-            background_tasks.add_task(delayed_search, tmdb_id, job.language)
+        if job.status == JobStatus.MOVIE_MISSING:
+            if settings.enable_radarr_auto_search:
+                background_tasks.add_task(delayed_search, tmdb_id, job.language)
+            else:
+                log_auto_search_disabled("movie", f"search for '{title}'", tmdb_id=tmdb_id, job_id=job.id)
 
     elif event_type == "MovieDeleted":
         if job:
@@ -237,6 +240,8 @@ async def radarr_webhook(
         log_action("Webhook", f"Movie file deleted for '{title}' in Radarr", tmdb_id=tmdb_id, job_id=job.id)
         if settings.enable_radarr_auto_search:
             background_tasks.add_task(delayed_search, tmdb_id, job.language)
+        else:
+            log_auto_search_disabled("movie", f"search for '{title}'", tmdb_id=tmdb_id, job_id=job.id)
 
     elif event_type == "Grab":
         # Radarr grabbed a download — track it as a native Radarr download so the tracker
@@ -249,6 +254,10 @@ async def radarr_webhook(
             job.source_indexer = "radarr"
             job.error_msg = None
             job.progress_pct = 0
+            # Not seen in Radarr's queue yet: reconcile_job gives it QUEUE_GRACE to show up.
+            job.downloaded_bytes = 0
+            job.total_bytes = 0
+            job.eta_seconds = None
         session.commit()
         session.refresh(job)
         log_action("Webhook", f"Radarr grabbed download for '{title}'", tmdb_id=tmdb_id, job_id=job.id)
@@ -265,6 +274,8 @@ async def radarr_webhook(
             log_action("Webhook", f"Radarr download failed/removed for '{title}'. Triggering fallback search.", tmdb_id=tmdb_id, job_id=job.id)
             if settings.enable_radarr_auto_search:
                 background_tasks.add_task(delayed_search, tmdb_id, None, override_delay=0)
+            else:
+                log_auto_search_disabled("movie", f"fallback search for '{title}'", tmdb_id=tmdb_id, job_id=job.id)
 
     return {"status": "accepted", "event": event_type, "tmdb_id": tmdb_id}
 

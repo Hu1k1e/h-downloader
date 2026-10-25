@@ -96,6 +96,23 @@ def test_native_download_with_progress_vanished_does_not_wait_for_grace():
     assert j.status == JobStatus.MOVIE_MISSING and r.fallback and j.progress_pct == 0 and j.source_indexer is None
 
 
+def test_native_download_seen_in_queue_at_zero_percent_vanished_does_not_wait_for_grace():
+    # A 0% download that was listed in the queue (size known) and then removed is gone for real.
+    j = job(JobStatus.DOWNLOADING, source_indexer="radarr", total_bytes=1000, updated_at=NOW - timedelta(seconds=5))
+    r = run(j, movie(), None)
+    assert j.status == JobStatus.MOVIE_MISSING and r.fallback
+
+
+def test_fresh_grab_not_yet_in_queue_is_not_a_vanished_download():
+    # Grab webhook -> DOWNLOADING with no queue data yet; Radarr lists it a few seconds later.
+    # Regression: this was declared "vanished" 3s after the grab (Dude, Tharangam).
+    j = job(JobStatus.DOWNLOADING, source_indexer="radarr", updated_at=NOW - timedelta(seconds=3))
+    r = run(j, movie(), None)
+    assert j.status == JobStatus.DOWNLOADING and not r.fallback
+    run(j, movie(), q())
+    assert j.status == JobStatus.DOWNLOADING and j.total_bytes == 1000
+
+
 def test_movie_deleted_from_radarr_clears_download_fields():
     j = job(JobStatus.DOWNLOADING, source_indexer="radarr", progress_pct=60, downloaded_bytes=600, total_bytes=1000)
     r = run(j, None)
